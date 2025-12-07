@@ -34,5 +34,6 @@ Algo Trader 是一个围绕 Interactive Brokers 网关构建的自动化量化�
 ![IB gateway interface](images/ib-gateway.png)
 
 - 其次，打开网页：http://localhost:5173/。点击策略面板的添加按钮，添加新的策略，当前版本已经带了两个策略模板的例子：
-1. Mean Reversion Strategy： 订阅1/5m bar数据，基于均值反转理论，成交频率是分钟级。
+1. Mean Reversion Strategy： 订阅1/5m k线数据，基于均值反转理论，成交频率是分钟级。
 2. Dom Structure Strategy： 订阅DOM数据，计算obi、ofi、cvd等市场数据指标，判断短时间内的趋势方向，成交频率可达1分钟内。
+* 注意：k线数据和DOM数据，都需要在IB账号中开启对应的订阅。
