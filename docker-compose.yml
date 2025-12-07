@@ -1,0 +1,114 @@
+services:
+  backend:
+    image: ghcr.io/winglight/algo-trader/backend:latest
+    container_name: algo-trader-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./strategies:/app/src/strategies
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    networks:
+      default:
+        ipv4_address: 172.21.0.10
+
+  account-service:
+    image: ghcr.io/winglight/algo-trader/account-service:latest
+    container_name: algo-trader-account
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./strategies:/app/src/strategies
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    networks:
+      default:
+        ipv4_address: 172.21.0.11
+
+  orders-service:
+    image: ghcr.io/winglight/algo-trader/orders-service:latest
+    container_name: algo-trader-orders
+    ports:
+      - "8101:8101"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./strategies:/app/src/strategies
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    networks:
+      default:
+        ipv4_address: 172.21.0.12
+
+  market-data-service:
+    image: ghcr.io/winglight/algo-trader/market-data-service:latest
+    container_name: algo-trader-market-data
+    ports:
+      - "8102:8102"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./strategies:/app/src/strategies
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    networks:
+      default:
+        ipv4_address: 172.21.0.13
+
+  risk-service:
+    image: ghcr.io/winglight/algo-trader/risk-service:latest
+    container_name: algo-trader-risk
+    ports:
+      - "8103:8103"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./strategies:/app/src/strategies
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    networks:
+      default:
+        ipv4_address: 172.21.0.14
+
+  strategy-service:
+    image: ghcr.io/winglight/algo-trader/strategy-service:latest
+    container_name: algo-trader-strategy
+    ports:
+      - "8104:8104"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./strategies:/app/src/strategies
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    depends_on:
+      orders-service:
+        condition: service_started
+    networks:
+      default:
+        ipv4_address: 172.21.0.15
+
+  frontend:
+    image: ghcr.io/winglight/algo-trader/frontend:latest
+    container_name: algo-trader-frontend
+    ports:
+      - "5173:80"
+    environment:
+      VITE_API_BASE_URL: http://backend:8000
+      VITE_WS_URL: ws://backend:8000/ws
+    depends_on:
+      backend:
+        condition: service_started
+
+networks:
+  default:
+    name: stack
+    external: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.21.0.0/16

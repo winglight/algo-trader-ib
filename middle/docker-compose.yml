@@ -1,0 +1,74 @@
+networks:
+  stack:
+    name: stack
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.21.0.0/16
+
+
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+    container_name: ib-gateway
+    restart: always
+    env_file:
+      - ./.env
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      TWS_ACCEPT_INCOMING: "${TWS_ACCEPT_INCOMING:-127.0.0.1 172.21.0.0/16}"
+      READ_ONLY_API: ${READ_ONLY_API:-}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
+    ports:
+      - "4001:4003"
+      - "4002:4004"
+      - "5901:5900"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    networks:
+      - stack
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      sh -c 'echo 1 > /proc/sys/vm/overcommit_memory &&
+      redis-server
+      --save 20 1
+      --loglevel warning
+      --requirepass "$$REDIS_PASSWORD"'
+    environment:
+      - TZ=${TZ}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - stack
+    # 本机直连 redis-cli -h 0.0.0.0 -p 6379 -a $REDIS_PASSWORD
+    ports:
+      - "0.0.0.0:6379:6379"
+    # 添加特权模式以允许修改系统参数
+    privileged: true
+
+  mariadb:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - MYSQL_ROOT_PASSWORD=${MARIADB_PASSWORD}
+      - MYSQL_DATABASE=${MARIADB_DATABASE}
+      - MYSQL_USER=${MARIADB_USER}
+      - MYSQL_PASSWORD=${MARIADB_PASSWORD}
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
+    networks:
+      - stack
+    # 本机直连 MariaDB: mysql -h 0.0.0.0 -P 3306 -u ${MARIADB_USER} -p
+    ports:
+      - "0.0.0.0:3306:3306"
+
