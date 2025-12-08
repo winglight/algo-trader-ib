@@ -5,6 +5,8 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
 
+bash "${ROOT_DIR}/scripts/install_docker.sh"
+
 copy_if_missing() {
   local src="$1" dst="$2"
   if [ ! -f "$dst" ]; then
