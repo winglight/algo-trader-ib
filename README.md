@@ -1,10 +1,10 @@
-# Algo Trader
+# Algo Trader for IB
 
 ![screenshot](images/screenshot.png)
 
 ## 项目简介
 
-Algo Trader 是一个围绕 Interactive Brokers (IB) 网关构建的自动化量化交易平台后端雏形。当前版本聚焦于后端基础能力的搭建：采用 FastAPI 作为服务网关框架，整合统一日志、Redis 消息总线、内存任务队列、数据库访问层以及策略运行时配置等模块，为后续拆分微服务架构与前端可视化奠定基础。
+Algo Trader for IB 是一个围绕 Interactive Brokers (IB) 网关构建的自动化量化交易平台后端雏形。当前版本聚焦于后端基础能力的搭建：采用 FastAPI 作为服务网关框架，整合统一日志、Redis 消息总线、内存任务队列、数据库访问层以及策略运行时配置等模块，为后续拆分微服务架构与前端可视化奠定基础。
 
 ## 技术架构
 
