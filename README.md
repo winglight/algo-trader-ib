@@ -48,13 +48,13 @@ cd algo-trader-ib
 整个初始化过程完成后，控制台会输出 “完成：中间件与服务容器已启动” 等提示信息 。您可以通过`docker compose ps `查看正在运行的容器列表，通过 `docker compose logs -f backend `等命令实时查看某服务日志。如果需要停止服务，执行 `docker compose down `即可停止并移除容器。
 
 ## 快速开始
-1. 安装后设置：首次部署完成后，需要进行一次IB Gateway的设置及策略添加
+1. 安装后设置：首次部署完成后，需要进行一次IB Gateway的设置及策略添加。
 
 2. 配置 IB 网关访问：由于IB Gateway默认仅允许来自本机的API连接，我们需要授权平台容器的连接。使用VNC客户端连接到IB Gateway容器的桌面界面（Docker已将容器的5900端口映射为本地5900，使用您在脚本中设置的VNC_SERVER_PASSWORD进行连接）。打开IB Gateway的“Configure -> Settings”设置窗口，找到 API -> Settings。将 “Allow connections from localhost only” 前的勾选取消，然后点击旁边的 Create 按钮，添加以下六个IP地址段： 172.21.0.10 至 172.21.0.15 （这六个IP对应平台各服务容器在Docker内部网络中的地址）。添加完成后点击 OK 保存设置。此操作允许平台的各服务通过内部网络访问 IB Gateway 的API接口，否则它们会被视为远程连接而遭拒绝。
 ![IB gateway interface](images/ib-gateway.png)
 
 3. 添加示例策略：
-完成IB Gateway配置后，在浏览器中访问平台前端：打开 http://localhost:5173/。进入Web界面后，导航到“策略”面板。点击“添加”按钮，可以新建一个策略实例。目前版本内置了两个示例策略模板：
+完成IB Gateway配置后，在浏览器中访问平台前端：打开 `http://localhost:5173/`。进入Web界面后，导航到“策略”面板。点击“添加”按钮，可以新建一个策略实例。目前版本内置了两个示例策略模板：
 
   - Mean Reversion Strategy（均值回归策略）：订阅1分钟和5分钟周期的K线数据，基于均值回归理论判断买卖信号，预期交易频率为分钟级别 。
 
