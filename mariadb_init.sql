@@ -49,15 +49,17 @@ CREATE TABLE IF NOT EXISTS orders (
     notes TEXT NULL,
     commission DOUBLE NULL,
     pnl DOUBLE NULL,
+    realized_pnl DOUBLE NULL,
+    unrealized_pnl DOUBLE NULL,
     is_deleted TINYINT(1) NOT NULL DEFAULT 0,
     CONSTRAINT uq_orders_ib_perm_id UNIQUE KEY (ib_perm_id),
     CONSTRAINT uq_orders_ib_order_id UNIQUE KEY (ib_order_id)
 );
 
-ALTER TABLE orders ADD INDEX IF NOT EXISTS idx_orders_symbol_status (symbol, status);
-ALTER TABLE orders ADD INDEX IF NOT EXISTS idx_orders_strategy (strategy);
-ALTER TABLE orders ADD INDEX IF NOT EXISTS idx_orders_metrics_owner (metrics_owner_id);
-ALTER TABLE orders ADD INDEX IF NOT EXISTS idx_orders_created_at (created_at);
+CREATE INDEX idx_orders_symbol_status ON orders (symbol, status);
+CREATE INDEX idx_orders_strategy ON orders (strategy);
+CREATE INDEX idx_orders_metrics_owner ON orders (metrics_owner_id);
+CREATE INDEX idx_orders_created_at ON orders (created_at);
 
 DELIMITER //
 CREATE PROCEDURE backfill_orders_metrics_owner()
@@ -111,6 +113,10 @@ CREATE TABLE IF NOT EXISTS order_fills (
     commission DOUBLE NULL,
     realized_pnl DOUBLE NULL,
     currency VARCHAR(16) NULL,
+    commission_currency VARCHAR(16) NULL,
+    pnl_currency VARCHAR(16) NULL,
+    price_multiplier DOUBLE NULL,
+    source_hash VARCHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_order_fills_exec (exec_id),
     KEY idx_order_fills_order_id (order_id),
@@ -119,6 +125,15 @@ CREATE TABLE IF NOT EXISTS order_fills (
         ON DELETE CASCADE
         ON UPDATE CASCADE
 );
+
+-- Ensure columns exist when upgrading an existing database
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS realized_pnl DOUBLE NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS unrealized_pnl DOUBLE NULL;
+ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS commission_currency VARCHAR(16) NULL;
+ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS pnl_currency VARCHAR(16) NULL;
+ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS price_multiplier DOUBLE NULL;
+ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64) NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_order_fills_source_hash ON order_fills(source_hash);
 
 CREATE TABLE IF NOT EXISTS risk_rules (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -141,8 +156,8 @@ CREATE TABLE IF NOT EXISTS risk_rules (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-ALTER TABLE risk_rules ADD UNIQUE INDEX IF NOT EXISTS ux_risk_rules_symbol (symbol);
-ALTER TABLE risk_rules ADD INDEX IF NOT EXISTS idx_risk_rules_enabled (enabled);
+CREATE UNIQUE INDEX ux_risk_rules_symbol ON risk_rules (symbol);
+CREATE INDEX idx_risk_rules_enabled ON risk_rules (enabled);
 
 CREATE TABLE IF NOT EXISTS optimizer_plans (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -177,9 +192,9 @@ CREATE TABLE IF NOT EXISTS optimizer_jobs (
     CONSTRAINT fk_optimizer_jobs_plan FOREIGN KEY (optimizer_plan_id) REFERENCES optimizer_plans (id)
 );
 
-ALTER TABLE optimizer_jobs ADD INDEX IF NOT EXISTS idx_optimizer_jobs_status (status);
-ALTER TABLE optimizer_jobs ADD INDEX IF NOT EXISTS idx_optimizer_jobs_optimizer_plan_id (optimizer_plan_id);
-ALTER TABLE optimizer_jobs ADD INDEX IF NOT EXISTS idx_optimizer_jobs_created_at (created_at);
+CREATE INDEX idx_optimizer_jobs_status ON optimizer_jobs (status);
+CREATE INDEX idx_optimizer_jobs_optimizer_plan_id ON optimizer_jobs (optimizer_plan_id);
+CREATE INDEX idx_optimizer_jobs_created_at ON optimizer_jobs (created_at);
 
 CREATE TABLE IF NOT EXISTS notifications (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -194,8 +209,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-ALTER TABLE notifications ADD INDEX IF NOT EXISTS idx_notifications_created_at (created_at);
-ALTER TABLE notifications ADD INDEX IF NOT EXISTS idx_notifications_is_read (is_read);
+CREATE INDEX idx_notifications_created_at ON notifications (created_at);
+CREATE INDEX idx_notifications_is_read ON notifications (is_read);
 
 CREATE TABLE IF NOT EXISTS strategies (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -222,8 +237,8 @@ CREATE TABLE IF NOT EXISTS strategies (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-ALTER TABLE strategies ADD INDEX IF NOT EXISTS idx_strategies_enabled (enabled);
-ALTER TABLE strategies ADD INDEX IF NOT EXISTS idx_strategies_updated_at (updated_at);
+CREATE INDEX idx_strategies_enabled ON strategies (enabled);
+CREATE INDEX idx_strategies_updated_at ON strategies (updated_at);
 
 CREATE TABLE IF NOT EXISTS strategy_risk_settings (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

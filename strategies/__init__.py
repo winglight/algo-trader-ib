@@ -1,53 +1,45 @@
-"""Public strategies shim package.
-
-Provides minimal classes required by backend and strategy services
-when mounting `./strategies` into `/app/src/strategies`.
-"""
+"""Strategy implementations and lazy import helpers."""
 
 from __future__ import annotations
 
-try:
-    from .templates import StrategyTemplate  # type: ignore[F401]
-except Exception:
-    # Fallback minimal base to keep imports working
-    from src.strategy.base import BaseStrategy as StrategyTemplate  # type: ignore[type-var]
+from importlib import import_module
+from typing import Any
 
-# Export CandleSubscriptionStrategy (minimal stub if full module missing)
-try:
-    from .candle import CandleSubscriptionStrategy  # type: ignore[F401]
-except Exception:
-    from dataclasses import dataclass
-    from src.strategy.base import BaseStrategy
+__all__ = [
+    "BRRStrategy",
+    "BuyTheDipStrategy",
+    "CandleSubscriptionStrategy",
+    "DOMSubscriptionStrategy",
+    "FiveMinuteMomentumStrategy",
+    "OpeningRangeBreakoutStrategy",
+    "PredictiveStrategy",
+]
 
-    @dataclass
-    class CandleSubscriptionStrategy(BaseStrategy):  # type: ignore[misc]
-        strategy_type: str = "CandleSubscriptionStrategy"
-        is_kline_strategy: bool = True
-        data_feed_mode: str = "kline"
-        symbol: str = ""
-        interval: str = "1m"
 
-# Export DOMSubscriptionStrategy (minimal stub if full module missing)
-try:
-    from .dom import DOMSubscriptionStrategy  # type: ignore[F401]
-except Exception:
-    from dataclasses import dataclass
-    from src.strategy.base import BaseStrategy
 
-    @dataclass
-    class DOMSubscriptionStrategy(BaseStrategy):  # type: ignore[misc]
-        strategy_type: str = "DOMSubscriptionStrategy"
-        data_feed_mode: str = "dom"
-        symbol: str = ""
-        depth_levels: int = 5
+_MODULE_MAP = {
+    "BRRStrategy": "src.strategies.brr_strategy",
+    "BuyTheDipStrategy": "src.strategies.buy_the_dip",
+    "CandleSubscriptionStrategy": "src.strategies.candle",
+    "DOMSubscriptionStrategy": "src.strategies.dom",
+    "FiveMinuteMomentumStrategy": "src.strategies.five_minute_momentum",
+    "OpeningRangeBreakoutStrategy": "src.strategies.orb_fvg",
+    "PredictiveStrategy": "src.strategies.predictive_strategy",
+}
 
-# Export predictive repository/state used by live_strategy_runner
-try:
-    from .predictive_strategy import (  # type: ignore[F401]
-        PredictiveModelRepository,
-        PredictiveModelState,
-    )
-except Exception:
-    # Leave undefined; runtime will not rely on these if strategy not used
-    pass
 
+
+def __getattr__(name: str) -> Any:  # pragma: no cover - exercised indirectly
+    if name == "base":
+        return import_module("src.strategy.base")
+    if name not in _MODULE_MAP:
+        raise AttributeError(f"module 'src.strategies' has no attribute {name!r}")
+    module = import_module(_MODULE_MAP[name])
+    try:
+        return getattr(module, name)
+    except AttributeError as exc:  # pragma: no cover - defensive guard
+        raise AttributeError(f"{name!r} not exported by {_MODULE_MAP[name]}") from exc
+
+
+def __dir__() -> list[str]:  # pragma: no cover - introspection helper
+    return sorted(__all__)

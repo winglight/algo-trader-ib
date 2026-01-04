@@ -10,6 +10,7 @@ from typing import Any, Deque, Dict, Mapping
 from src.common.market_data.aggregation import floor_timestamp as _floor_timestamp
 from src.data_layer import DataSubscriptionRequest, get_data_source_manager
 from src.market_data.history_chunks import load_history_with_backoff
+from src.strategy.exit import ExitMode
 from src.strategies.candle import CandleSubscriptionStrategy
 from src.strategies.templates import StrategySignal, StrategyTemplate
 
@@ -65,6 +66,7 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
         super().__post_init__()
         self._history: Deque[float] = deque(maxlen=int(getattr(self, "lookback", 20)))
         self._position: int = 0
+        self._entry_price: float | None = None
         self._last_closed_candle_id: Any | None = None
         self._initial_backfill_requested: bool = False
 
@@ -314,9 +316,15 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
         raw_quantity = getattr(self, "order_quantity", 0)
         quantity, fractional_quantity = self._resolve_order_quantity(raw_quantity)
         quantity = int(quantity)
+        exit_mode = getattr(getattr(self, "exit_config", None), "mode", ExitMode.NONE)
+        exit_override = exit_mode is not ExitMode.NONE
 
         if quantity <= 0:
             return
+
+        exit_quantity = int(self._resolve_exit_quantity(fallback_quantity=quantity))
+        if exit_quantity <= 0:
+            exit_quantity = quantity
 
         raw_quantity_float: float | None
         try:
@@ -328,6 +336,7 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
             metadata = {
                 "zscore": zscore,
                 "price": price_value,
+                "entry_price": price_value,
                 "symbol": getattr(self, "symbol", "") or "",
             }
             if raw_quantity_float is not None and fractional_quantity > 0.0:
@@ -373,13 +382,49 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                             details={"remaining_seconds": round(remaining, 3)},
                         )
                         return
-            if not self.queue_order(signal.as_dict()):
+            elif event == "exit":
+                try:
+                    self._last_signal_wall = self._wall_clock_now()
+                    self._last_signal_monotonic = self._monotonic_now()
+                except Exception:
+                    pass
+            if not self.produce_signal(signal, is_exit_like=(event=="exit")):
                 self.logger.warning(
                     "Failed to queue mean reversion %s signal for execution", event
                 )
                 return
 
             self._position = new_position
+            try:
+                if event == "entry":
+                    self._entry_price = price_value
+                    qty = int(getattr(self, "order_quantity", 1))
+                    pos = float(qty if new_position > 0 else -qty)
+                    exit_targets = self.evaluate_exit_signal(
+                        position=pos,
+                        entry_price=self._entry_price,
+                        account_equity=getattr(self, "account_equity", None),
+                        bar=candle,
+                        is_dom=False,
+                    )
+                    if exit_targets is not None:
+                        self._telemetry_log(
+                            "Mean reversion exit targets computed",
+                            level="INFO",
+                            tone="neutral",
+                            details={
+                                "mode": exit_targets.mode.value,
+                                "stop_loss": exit_targets.stop_loss,
+                                "take_profit": exit_targets.take_profit,
+                                "position": pos,
+                                "entry_price": self._entry_price,
+                            },
+                            deduplicate=False,
+                        )
+                elif event == "exit":
+                    self._entry_price = None
+            except Exception:
+                self.logger.debug("Failed to evaluate exit targets for mean reversion", exc_info=True)
             # Track signal-generation phase telemetry for kline UI
             try:
                 if not hasattr(self, "_signals_generated"):
@@ -444,26 +489,26 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                     new_position=1,
                 )
                 return
-        elif self._position > 0 and zscore >= exit_threshold:
+        elif self._position > 0 and zscore >= exit_threshold and not exit_override:
             enqueue_signal(
                 StrategySignal(
                     side="SELL",
-                    quantity=quantity,
+                    quantity=exit_quantity,
                     reason="mean-reversion-exit",
-                    metadata=build_metadata(),
+                    metadata={**build_metadata(), "close_position": True},
                 ),
                 event="exit",
                 tone="neutral",
                 new_position=0,
             )
             return
-        elif self._position < 0 and zscore <= -exit_threshold:
+        elif self._position < 0 and zscore <= -exit_threshold and not exit_override:
             enqueue_signal(
                 StrategySignal(
                     side="BUY",
-                    quantity=quantity,
+                    quantity=exit_quantity,
                     reason="mean-reversion-exit",
-                    metadata=build_metadata(),
+                    metadata={**build_metadata(), "close_position": True},
                 ),
                 event="exit",
                 tone="neutral",
@@ -524,11 +569,23 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                 deduplicate=False,
             )
 
+        # Update exit targets on each closed candle while in position
+        try:
+            if self._position != 0 and self._entry_price is not None:
+                qty = int(getattr(self, "order_quantity", 1))
+                pos = float(qty if self._position > 0 else -qty)
+                self.evaluate_exit_signal(
+                    position=pos,
+                    entry_price=self._entry_price,
+                    account_equity=getattr(self, "account_equity", None),
+                    bar=candle,
+                    is_dom=False,
+                )
+        except Exception:
+            self.logger.debug("Failed to refresh exit targets for mean reversion", exc_info=True)
+
     def on_candle(self, candle: Mapping[str, Any]) -> None:  # noqa: D401 - event hook
         self._process_candle_event(candle)
 
     async def on_market_event(self, event: Mapping[str, Any]) -> None:
-        if getattr(self, "_use_unified_data", False) and event.get("type") == "candle":
-            if not bool(event.get("is_closed", False)):
-                return
-        self._process_candle_event(event)
+        await super().on_market_event(event)

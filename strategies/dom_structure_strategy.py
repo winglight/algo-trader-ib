@@ -17,6 +17,7 @@ from src.market_data.dom_metrics import DOMAnalyticsProcessor
 from src.orders.models import OrderSide
 from src.risk.engine import OrderEvaluationContext, RiskDecision
 from src.strategy.runtime import DomRuntimeTelemetryService
+from src.strategy.exit import ExitMode
 from src.strategy.types import StrategyIdentifier
 from src.strategies.adaptive_threshold import AdaptiveThresholdState, ThresholdModelClient
 from src.strategies.dom import DOMSubscriptionStrategy
@@ -26,6 +27,7 @@ from .templates import (
     _DEFAULT_REGIME_CONDITION_OVERRIDES,
     _extract_contract_metadata,
 )
+from .buy_the_dip import DEFAULT_INSTRUMENT_DETAILS
 
 try:  # pragma: no cover - optional dependency wiring
     from src.dom.service import DomSnapshot
@@ -521,6 +523,7 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
         default=None, init=False, repr=False
     )
     _last_runtime_status: str | None = field(default=None, init=False, repr=False)
+    _exit_dispatched: bool = field(default=False, init=False, repr=False)
 
     _TICK_SIZES: ClassVar[Mapping[str, float]] = {
         "ES": 0.25,
@@ -997,6 +1000,10 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
         mid_price = self._extract_mid_price(snapshot)
         if mid_price is None:
             return
+        try:
+            self._check_and_execute_exit_dom(float(mid_price))
+        except Exception:
+            pass
         imbalance, total_bid, total_ask = self._compute_imbalance(snapshot)
         total_depth = max(total_bid + total_ask, 0.0)
         normalised_imbalance = (
@@ -1238,6 +1245,30 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
             if isinstance(snapshot.metadata, Mapping):
                 fallback_symbol = snapshot.metadata.get("symbol")
             metadata["symbol"] = fallback_symbol or snapshot.symbol
+
+        # Check for opposite position to trigger full close
+        current_position = self._current_position()
+        is_opposite = (side == "SELL" and current_position > 1e-9) or (
+            side == "BUY" and current_position < -1e-9
+        )
+        if self.exit_config.mode != ExitMode.NONE and is_opposite:
+            self._telemetry_log(
+                "Signal suppressed by managed exit mode",
+                level="INFO",
+                tone="neutral",
+                details={
+                    "reason": "exit_mode_active",
+                    "exit_mode": self.exit_config.mode.value,
+                    "current_position": float(current_position),
+                    "signal_side": side,
+                },
+                deduplicate=True,
+            )
+            return
+
+        if is_opposite:
+            metadata["close_position"] = True
+
         signal = StrategySignal(
             side=side,
             quantity=quantity,
@@ -1258,6 +1289,104 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
             details=metadata,
             deduplicate=False,
         )
+
+    def _resolve_instrument(self, symbol: str) -> tuple[str, str]:
+        base = symbol.strip().upper()
+        details = DEFAULT_INSTRUMENT_DETAILS.get(base)
+        if details:
+            return details.get("exchange", "CME"), details.get("sec_type", "FUT")
+        for key, data in DEFAULT_INSTRUMENT_DETAILS.items():
+            if base.startswith(key):
+                return data.get("exchange", "CME"), data.get("sec_type", "FUT")
+        return "SMART", "STK"
+
+    def _check_and_execute_exit_dom(self, price: float) -> None:
+        risk = getattr(self, "risk_manager", None)
+        position = 0.0
+        entry_price: float | None = None
+        if risk is not None:
+            identifier = getattr(self, "identifier", None) or self.name
+            try:
+                state = risk.current_state(identifier)
+            except Exception:
+                state = None
+            if isinstance(state, Mapping):
+                try:
+                    position = float(state.get("net_position", 0.0) or 0.0)
+                except Exception:
+                    position = 0.0
+                try:
+                    entry_price_value = state.get("avg_entry_price") or state.get("entry_price")
+                    entry_price = float(entry_price_value) if entry_price_value is not None else None
+                except Exception:
+                    entry_price = None
+        if abs(position) <= 1e-9:
+            self._exit_dispatched = False
+            return
+        exit_targets = self.evaluate_exit_signal(
+            position=float(position),
+            entry_price=entry_price,
+            account_equity=getattr(self, "account_equity", None),
+            bar=None,
+            is_dom=True,
+        )
+        if exit_targets is None:
+            return
+        stop_price = exit_targets.stop_loss
+        take_profit = exit_targets.take_profit
+        direction = 1.0 if position > 0 else -1.0
+        triggered_sl = False
+        triggered_tp = False
+        if direction > 0:
+            if stop_price is not None and price <= stop_price:
+                triggered_sl = True
+            if take_profit is not None and price >= take_profit:
+                triggered_tp = True
+        else:
+            if stop_price is not None and price >= stop_price:
+                triggered_sl = True
+            if take_profit is not None and price <= take_profit:
+                triggered_tp = True
+        if not (triggered_sl or triggered_tp):
+            return
+        if getattr(self, "use_risk_service_exit", False):
+            return
+        if getattr(self, "_exit_dispatched", False):
+            return
+        qty = abs(position)
+        side = "SELL" if position > 0 else "BUY"
+        reason = "dom_structure_exit_tp" if triggered_tp else "dom_structure_exit_sl"
+        mode_value = getattr(self.exit_config, "mode", None)
+        mode_label = str(getattr(mode_value, "value", mode_value or "")).upper() if mode_value else "FIXED_RR"
+        trigger_label = "止盈" if triggered_tp else "止损"
+        exit_label = f"{('固定RR' if mode_label == 'FIXED_RR' else mode_label)}-{trigger_label}"
+        metadata: Dict[str, Any] = {
+            "symbol": self.symbol,
+            "entry_price": entry_price if entry_price is not None else None,
+            "exit_mode": exit_targets.mode.value,
+            "exit_label": exit_label,
+            "entry_price_hint": entry_price if entry_price is not None else None,
+        }
+        if stop_price is not None:
+            metadata["evaluated_stop_loss"] = float(stop_price)
+        if take_profit is not None:
+            metadata["evaluated_take_profit"] = float(take_profit)
+        
+        # Use close_position flag to indicate full position exit
+        metadata["close_position"] = True
+        
+        signal = StrategySignal(
+            side=side,
+            quantity=0,  # Quantity ignored when close_position is True
+            reason=reason,
+            metadata=metadata,
+        )
+        self._signals.append(signal)
+        self._exit_dispatched = True
+        try:
+            self._telemetry_log(exit_label, level="INFO", tone="neutral", deduplicate=False, details={"side": side, "quantity": float(qty)})
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     async def _dispatch_signal_event(
@@ -1391,6 +1520,23 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
         while self._signals:
             signal = self._signals.popleft()
             order = signal.as_dict()
+            
+            if order["metadata"].get("close_position"):
+                # Construct a direct close position order
+                current_position = self._current_position()
+                if abs(current_position) <= 1e-9:
+                    continue
+                
+                # Close order uses MARKET type and reduce_only
+                order.update({
+                    "type": "MARKET",
+                    "quantity": abs(current_position),
+                    "reduce_only": True,
+                })
+                orders.append(order)
+                self.logger.debug("Converted DOM signal to CLOSE order payload: %s", order)
+                continue
+
             exit_targets = self.evaluate_exit_signal(
                 position=float(signal.quantity)
                 * (1.0 if signal.side.upper() == OrderSide.BUY.value else -1.0),

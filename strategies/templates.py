@@ -6,16 +6,16 @@ import asyncio
 import inspect
 import math
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Mapping
+from typing import Any, Callable, Dict, Mapping, Sequence
+from collections import deque
+import time
+from src.orders.models import OrderSide
 
 from src.strategy.base import BaseStrategy
 
 __all__ = [
     "StrategySignal",
     "StrategyTemplate",
-    "DomStructureStrategy",
-    "DomMomentumStrategy",
-    "MeanReversionStrategy",
 ]
 
 
@@ -168,6 +168,14 @@ class StrategyTemplate(BaseStrategy):
                 getattr(self, "order_quantity")
             )
             setattr(self, "order_quantity", normalised_quantity)
+        if not hasattr(self, "_signals"):
+            self._signals = deque()
+        if not hasattr(self, "_last_signal_monotonic"):
+            self._last_signal_monotonic = 0.0
+        if not hasattr(self, "_last_signal_wall"):
+            self._last_signal_wall = None
+        if not hasattr(self, "_cooldown_until"):
+            self._cooldown_until = 0.0
 
     def describe(self) -> Dict[str, Any]:  # type: ignore[override]
         base = super().describe()
@@ -187,7 +195,7 @@ class StrategyTemplate(BaseStrategy):
                 self._dependencies["position_provider"] = position_provider
             except Exception:  # pragma: no cover - defensive
                 pass
-            self._position_provider = position_provider
+        self._position_provider = position_provider
 
     def _current_position(self) -> float:
         provider = getattr(self, "_position_provider", None)
@@ -246,8 +254,117 @@ class StrategyTemplate(BaseStrategy):
         quantity, discarded = self._coerce_order_quantity_components(source)
         return quantity, discarded
 
-# Re-export built-in strategy classes after definitions to avoid circular imports
-from .dom_structure_strategy import DomStructureStrategy  # noqa: F401
-from .dom_momentum_strategy import DomMomentumStrategy  # noqa: F401
-from .mean_reversion_strategy import MeanReversionStrategy  # noqa: F401
+    def _monotonic_now(self) -> float:
+        try:
+            return float(time.monotonic())
+        except Exception:
+            return float(time.time())
 
+    def _wall_clock_now(self) -> float:
+        return float(time.time())
+
+    def _risk_guard_accept_signal(self, side: str, *, is_exit_like: bool) -> bool:
+        now_monotonic = self._monotonic_now()
+        side_token = str(side).strip().upper()
+        try:
+            current_position = float(getattr(self, "_position", 0.0))
+        except Exception:
+            current_position = 0.0
+        if current_position > 0 and side_token == OrderSide.SELL.value:
+            is_exit_like = True
+        elif current_position < 0 and side_token == OrderSide.BUY.value:
+            is_exit_like = True
+        if getattr(self, "breaker_tripped", False) and not is_exit_like:
+            return False
+        cooldown = max(0.0, float(getattr(self, "cooldown_seconds", 0.0)))
+        if cooldown > 0.0 and now_monotonic < getattr(self, "_cooldown_until", 0.0) and not is_exit_like:
+            return False
+        frequency = max(0.0, float(getattr(self, "signal_frequency_seconds", 0.0)))
+        last_wall = getattr(self, "_last_signal_wall", None)
+        if frequency > 0.0 and last_wall is not None and not is_exit_like:
+            now_wall = self._wall_clock_now()
+            elapsed = now_wall - float(last_wall)
+            if elapsed < frequency:
+                return False
+        return True
+
+    def produce_signal(self, signal: StrategySignal, *, is_exit_like: bool = False) -> bool:
+        accepted = self._risk_guard_accept_signal(signal.side, is_exit_like=is_exit_like)
+        if not accepted:
+            return False
+        self._signals.append(signal)
+        now_monotonic = self._monotonic_now()
+        self._last_signal_monotonic = now_monotonic
+        self._last_signal_wall = self._wall_clock_now()
+        cooldown = max(0.0, float(getattr(self, "cooldown_seconds", 0.0)))
+        self._cooldown_until = max(now_monotonic, getattr(self, "_cooldown_until", 0.0)) + cooldown
+        return True
+
+    async def generate_orders(self) -> Sequence[Mapping[str, Any]]:
+        if not getattr(self, "_signals", None):
+            return []
+        orders: list[Mapping[str, Any]] = []
+        while self._signals:
+            signal = self._signals.popleft()
+            payload = signal.as_dict()
+            metadata = payload.get("metadata")
+            if isinstance(metadata, Mapping) and metadata.get("close_position"):
+                current_position = self._current_position()
+                if abs(current_position) <= 1e-9:
+                    fallback_position, _ = self._resolve_position_state(
+                        use_strategy_position=False
+                    )
+                    current_position = fallback_position
+                if abs(current_position) <= 1e-9:
+                    fallback_quantity = self._coerce_float(payload.get("quantity") or 0.0)
+                    side_value = str(payload.get("side", "")).strip().upper()
+                    if fallback_quantity and side_value in {
+                        OrderSide.BUY.value,
+                        OrderSide.SELL.value,
+                    }:
+                        current_position = (
+                            fallback_quantity
+                            if side_value == OrderSide.BUY.value
+                            else -fallback_quantity
+                        )
+                if abs(current_position) <= 1e-9:
+                    continue
+                payload["side"] = (
+                    OrderSide.SELL.value if current_position > 0 else OrderSide.BUY.value
+                )
+                payload["quantity"] = abs(float(current_position))
+                orders.append(payload)
+                continue
+            exit_targets = self.evaluate_exit_signal(
+                position=float(signal.quantity)
+                * (1.0 if signal.side.upper() == OrderSide.BUY.value else -1.0),
+                entry_price=self._coerce_float(
+                    payload["metadata"].get("entry_price_hint")
+                ),
+                account_equity=getattr(self, "account_equity", None),
+                is_dom=getattr(self, "_is_dom_strategy", False),
+            )
+            if exit_targets is not None:
+                payload["metadata"]["exit_mode"] = exit_targets.mode.value
+                if exit_targets.stop_loss is not None:
+                    payload["metadata"]["evaluated_stop_loss"] = float(
+                        exit_targets.stop_loss
+                    )
+                if exit_targets.take_profit is not None:
+                    payload["metadata"]["evaluated_take_profit"] = float(
+                        exit_targets.take_profit
+                    )
+            orders.append(payload)
+        return orders
+
+def __getattr__(name: str) -> Any:
+    if name == "DomStructureStrategy":
+        from .dom_structure_strategy import DomStructureStrategy as cls
+        return cls
+    if name == "DomMomentumStrategy":
+        from .dom_momentum_strategy import DomMomentumStrategy as cls
+        return cls
+    if name == "MeanReversionStrategy":
+        from .mean_reversion_strategy import MeanReversionStrategy as cls
+        return cls
+    raise AttributeError(f"module 'src.strategies.templates' has no attribute {name!r}")

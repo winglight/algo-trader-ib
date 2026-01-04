@@ -1,5 +1,7 @@
 # Algo Trader for IB
 
+[English Version](README_en.md)
+
 ![screenshot](images/screenshot.png)
 
 ## 项目简介
