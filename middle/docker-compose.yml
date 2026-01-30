@@ -24,8 +24,8 @@ services:
       READ_ONLY_API: ${READ_ONLY_API:-}
       VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
     ports:
-      - "4001:4003"
-      - "4002:4004"
+      - "4003:4003"
+      - "4004:4004"
       - "5901:5900"
     volumes:
       - /etc/localtime:/etc/localtime:ro

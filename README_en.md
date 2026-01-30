@@ -54,10 +54,7 @@ After the entire initialization process is complete, the console will output mes
 
 1. **Post-installation Setup**: After the first deployment is complete, you need to perform an IB Gateway setup and add strategies.
 
-2. **Configure IB Gateway Access**: Since IB Gateway defaults to only allowing API connections from the local machine, we need to authorize the platform container's connection. Use a VNC client to connect to the IB Gateway container's desktop interface (Docker has mapped the container's 5900 port to local 5900, connect using the VNC_SERVER_PASSWORD you set in the script). Open the IB Gateway's "Configure -> Settings" window, find API -> Settings. Uncheck "Allow connections from localhost only", then click the Create button next to it to add the following six IP address ranges: 172.21.0.10 to 172.21.0.15 (these six IPs correspond to the addresses of the platform's various service containers in the Docker internal network). Click OK to save settings after adding. This operation allows the platform's services to access the IB Gateway's API interface via the internal network, otherwise they will be treated as remote connections and rejected.
-![IB gateway interface](images/ib-gateway.png)
-
-3. **Add Example Strategy**:
+2. **Add Example Strategy**:
 After completing the IB Gateway configuration, access the platform frontend in a browser: open `http://localhost:5173/`. After entering the Web interface, navigate to the "Strategies" panel. Click the "Add" button to create a new strategy instance. The current version has two built-in example strategy templates:
 
   - **Mean Reversion Strategy**: Subscribes to 1-minute and 5-minute K-line data, judges buy/sell signals based on mean reversion theory, expected trading frequency is at the minute level.
@@ -68,7 +65,7 @@ After completing the IB Gateway configuration, access the platform frontend in a
 
 * **Note**: The above example strategies involve K-line market data and DOM depth market data. Before use, please confirm that your IB account has subscribed to the relevant market data permissions, otherwise the strategy will not be able to receive the required data. For example, real-time market data/depth market data for US stocks/futures needs to be subscribed separately when opening an IB account. If not subscribed, you can purchase subscriptions for the corresponding data in the IB account management interface, or avoid using permissioned data sources in the strategy configuration.
 
-4. **Verify Operation**: After the strategy starts, you can view the real-time status of each module on the frontend dashboard. For example:
+3. **Verify Operation**: After the strategy starts, you can view the real-time status of each module on the frontend dashboard. For example:
 * View pending/filled order records updates on the "Orders" page;
 * Track strategy log output in real-time on the "Logs" page (logs will mark the belonging service and time);
 * View the online status of each service and interface document aggregation on the "System Status" page (API documentation page can verify if the service is providing REST interfaces normally).

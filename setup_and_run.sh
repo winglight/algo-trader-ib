@@ -19,7 +19,22 @@ require_cmd() {
   fi
 }
 
-require_cmd docker
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker not found. Attempting to install..."
+  INSTALL_SCRIPT="${ROOT_DIR}/scripts/install_docker.sh"
+  if [ -f "$INSTALL_SCRIPT" ]; then
+    chmod +x "$INSTALL_SCRIPT"
+    "$INSTALL_SCRIPT"
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "Docker installation failed or docker command still not found." >&2
+      exit 1
+    fi
+  else
+    echo "Docker is missing and install script not found at $INSTALL_SCRIPT" >&2
+    exit 1
+  fi
+fi
+
 require_cmd sed
 
 # 1) middle/.env from example
