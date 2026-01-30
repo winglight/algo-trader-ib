@@ -38,6 +38,9 @@ install_linux_debian() {
   $SUDO apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   $SUDO systemctl enable --now docker || $SUDO service docker start || true
   $SUDO usermod -aG docker "$USER" || true
+  # Ensure Docker socket has docker group ownership and proper permissions
+  $SUDO chgrp docker /var/run/docker.sock 2>/dev/null || true
+  $SUDO chmod 660 /var/run/docker.sock 2>/dev/null || true
 }
 
 install_linux_rhel() {
@@ -46,6 +49,9 @@ install_linux_rhel() {
   $SUDO yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   $SUDO systemctl enable --now docker || $SUDO service docker start || true
   $SUDO usermod -aG docker "$USER" || true
+  # Ensure Docker socket has docker group ownership and proper permissions
+  $SUDO chgrp docker /var/run/docker.sock 2>/dev/null || true
+  $SUDO chmod 660 /var/run/docker.sock 2>/dev/null || true
 }
 
 install_linux_fedora() {
@@ -54,6 +60,9 @@ install_linux_fedora() {
   $SUDO dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   $SUDO systemctl enable --now docker || $SUDO service docker start || true
   $SUDO usermod -aG docker "$USER" || true
+  # Ensure Docker socket has docker group ownership and proper permissions
+  $SUDO chgrp docker /var/run/docker.sock 2>/dev/null || true
+  $SUDO chmod 660 /var/run/docker.sock 2>/dev/null || true
 }
 
 install_wsl() {
@@ -89,6 +98,16 @@ main() {
     *) echo "Unsupported OS: $os" >&2; exit 1 ;;
   esac
   wait_for_docker || true
+  # Grant current user permission to run docker in this session
+  if [ "$os" = "Linux" ]; then
+    # Group membership takes effect after re-login; try to grant immediate access via ACL if needed
+    if ! docker info >/dev/null 2>&1; then
+      if has_cmd setfacl; then
+        $SUDO setfacl -m u:"$USER":rw /var/run/docker.sock 2>/dev/null || true
+      fi
+      echo "提示：已将用户加入 docker 组。如仍无法使用，请执行 'newgrp docker' 或重新登录后再试。" >&2
+    fi
+  fi
 }
 
 main "$@"
