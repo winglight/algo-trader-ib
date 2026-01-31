@@ -843,6 +843,7 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
                 self._run_listener(), name=f"{self.name}-dom-listener"
             )
         except Exception:
+            self.logger.exception("Failed to create DOM listener task")
             return False
         return True
 
@@ -854,77 +855,81 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
             return
         channel = self._resolve_channel(self.dom_channel)
         backoff = 1.0
-        while self.active:
-            try:
-                stream = await self._pubsub.listen(channel)
-                async for message in stream:
-                    if not self.active:
-                        break
-                    if not isinstance(message, Mapping):
-                        continue
-                    if not self._accept_snapshot(message):
-                        try:
-                            candidate_id = message.get("subscription_id")
-                            symbol = message.get("symbol")
-                        except Exception:
-                            candidate_id = None
-                            symbol = None
-                        self._telemetry_log(
-                            "DOM snapshot rejected",
-                            level="INFO",
-                            tone="neutral",
-                            deduplicate=False,
-                            details={
-                                "candidate_subscription_id": candidate_id,
-                                "candidate_symbol": symbol,
-                                "configured_subscription_id": self.subscription_id,
-                                "configured_symbol": self.symbol,
-                            },
-                        )
-                        self._last_dom_rejected_at = datetime.now(timezone.utc)
-                        continue
-                    snapshot = dict(message)
-                    self._telemetry_record_snapshot(snapshot)
-                    status_token = str(snapshot.get("status") or "").strip().lower()
-                    if status_token == "no_data":
-                        await self._on_no_data_snapshot(snapshot)
-                    self._latest_snapshot = snapshot
-                    event = self._build_dom_event(snapshot)
+        try:
+            while self.active:
+                try:
+                    stream = await self._pubsub.listen(channel)
                     try:
-                        # Dispatch to self for local strategy processing
-                        if hasattr(self, "on_market_event") and callable(self.on_market_event):
-                            await self.on_market_event(event)
-                        # Dispatch to external coordinator if configured
-                        if dispatcher is not None:
-                            await dispatcher(event)
-                    except Exception:
-                        self.logger.exception("DOM event dispatch failed")
-                        self._telemetry_log(
-                            "DOM event dispatch failed",
-                            level="ERROR",
-                            tone="negative",
-                        )
-                backoff = 1.0
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self.logger.exception("DOM listener crashed")
-                self._telemetry_log(
-                    "DOM listener crashed",
-                    level="ERROR",
-                    tone="negative",
-                )
-            finally:
-                self._listener_task = None
-                self._telemetry_log(
-                    "DOM listener stopped",
-                    level="INFO",
-                    tone="neutral",
-                )
-            if not self.active:
-                break
-            await asyncio.sleep(backoff)
-            backoff = min(30.0, backoff * 2)
+                        async for message in stream:
+                            if not self.active:
+                                break
+                            if not isinstance(message, Mapping):
+                                continue
+                            if not self._accept_snapshot(message):
+                                try:
+                                    candidate_id = message.get("subscription_id")
+                                    symbol = message.get("symbol")
+                                except Exception:
+                                    candidate_id = None
+                                    symbol = None
+                                self._telemetry_log(
+                                    "DOM snapshot rejected",
+                                    level="INFO",
+                                    tone="neutral",
+                                    deduplicate=False,
+                                    details={
+                                        "candidate_subscription_id": candidate_id,
+                                        "candidate_symbol": symbol,
+                                        "configured_subscription_id": self.subscription_id,
+                                        "configured_symbol": self.symbol,
+                                    },
+                                )
+                                self._last_dom_rejected_at = datetime.now(timezone.utc)
+                                continue
+                            snapshot = dict(message)
+                            self._telemetry_record_snapshot(snapshot)
+                            status_token = str(snapshot.get("status") or "").strip().lower()
+                            if status_token == "no_data":
+                                await self._on_no_data_snapshot(snapshot)
+                            self._latest_snapshot = snapshot
+                            event = self._build_dom_event(snapshot)
+                            try:
+                                # Dispatch to self for local strategy processing
+                                if hasattr(self, "on_market_event") and callable(self.on_market_event):
+                                    await self.on_market_event(event)
+                                # Dispatch to external coordinator if configured
+                                if dispatcher is not None:
+                                    await dispatcher(event)
+                            except Exception:
+                                self.logger.exception("DOM event dispatch failed")
+                                self._telemetry_log(
+                                    "DOM event dispatch failed",
+                                    level="ERROR",
+                                    tone="negative",
+                                )
+                        backoff = 1.0
+                    finally:
+                        await stream.aclose()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    self.logger.exception("DOM listener crashed")
+                    self._telemetry_log(
+                        "DOM listener crashed",
+                        level="ERROR",
+                        tone="negative",
+                    )
+                if not self.active:
+                    break
+                await asyncio.sleep(backoff)
+                backoff = min(30.0, backoff * 2)
+        finally:
+            self._listener_task = None
+            self._telemetry_log(
+                "DOM listener stopped",
+                level="INFO",
+                tone="neutral",
+            )
 
     async def _on_no_data_snapshot(self, snapshot: Mapping[str, Any]) -> None:
         facade = self._coordinator_facade()
@@ -1077,6 +1082,15 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
 
         task = getattr(self, "_listener_task", None)
         if task is None:
+            if self._restart_dom_listener_task():
+                return
+            self.logger.error("Failed to restart DOM listener after inactivity")
+            self._telemetry_log(
+                "Failed to restart DOM listener",
+                level="ERROR",
+                tone="negative",
+                deduplicate=False,
+            )
             return
         if not getattr(self, "active", False):
             return
@@ -1114,6 +1128,7 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
             self._run_dom_stream_health_checks(),
             name=f"{self.name}-dom-health-check",
         )
+        self.logger.info("DOM stream health check task started")
 
     # ------------------------------------------------------------------
     def _cancel_dom_stream_health_check(self) -> None:

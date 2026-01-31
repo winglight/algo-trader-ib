@@ -1167,7 +1167,7 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
         if quantity <= 0:
             self._telemetry_status("Scaled quantity is zero", tone="warning")
             return
-        risk_permitted, risk_reason = self._passes_risk(side, quantity)
+        risk_permitted, risk_reason = await self._passes_risk(side, quantity)
         if not risk_permitted:
             message = "Signal blocked by risk controls"
             details = None
@@ -1441,6 +1441,7 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
 
     # ------------------------------------------------------------------
     async def on_start(self) -> None:  # pragma: no cover - logging hook
+        await super().on_start()
         self.logger.info("DOM structure strategy initialised")
 
     # ------------------------------------------------------------------
@@ -2465,7 +2466,7 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
         return None
 
     # ------------------------------------------------------------------
-    def _passes_risk(self, side: str, quantity: float) -> tuple[bool, str | None]:
+    async def _passes_risk(self, side: str, quantity: float) -> tuple[bool, str | None]:
         engine = self._risk_engine
         if engine is None:
             return True, None
@@ -2475,7 +2476,7 @@ class DomStructureStrategy(DOMSubscriptionStrategy, StrategyTemplate):
             reason = f"Invalid order side: {side!r}"
             self.logger.info("Risk engine blocked DOM order: %s", reason)
             return False, reason
-        current_position = self._current_position()
+        current_position = await self.current_position()
         context = OrderEvaluationContext(
             symbol=self.symbol,
             side=order_side,

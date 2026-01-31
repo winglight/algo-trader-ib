@@ -10,9 +10,12 @@ __all__ = [
     "BuyTheDipStrategy",
     "CandleSubscriptionStrategy",
     "DOMSubscriptionStrategy",
+    "DynamicORBStrategy",
     "FiveMinuteMomentumStrategy",
+    "MeanReversionStrategy",
     "OpeningRangeBreakoutStrategy",
     "PredictiveStrategy",
+    "ScreenerStrategy",
 ]
 
 
@@ -22,9 +25,12 @@ _MODULE_MAP = {
     "BuyTheDipStrategy": "src.strategies.buy_the_dip",
     "CandleSubscriptionStrategy": "src.strategies.candle",
     "DOMSubscriptionStrategy": "src.strategies.dom",
+    "DynamicORBStrategy": "src.strategies.orb_dynamic",
     "FiveMinuteMomentumStrategy": "src.strategies.five_minute_momentum",
+    "MeanReversionStrategy": "src.strategies.mean_reversion_strategy",
     "OpeningRangeBreakoutStrategy": "src.strategies.orb_fvg",
     "PredictiveStrategy": "src.strategies.predictive_strategy",
+    "ScreenerStrategy": "src.strategies.screener",
 }
 
 

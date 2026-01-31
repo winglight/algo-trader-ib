@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from statistics import mean
 from typing import Any, Deque, Dict, Mapping
 
 from src.common.market_data.aggregation import floor_timestamp as _floor_timestamp
-from src.data_layer import DataSubscriptionRequest, get_data_source_manager
-from src.market_data.history_chunks import load_history_with_backoff
+from src.data_layer import DataSubscriptionRequest
 from src.strategy.exit import ExitMode
 from src.strategies.candle import CandleSubscriptionStrategy
 from src.strategies.templates import StrategySignal, StrategyTemplate
@@ -19,6 +18,7 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
     """Simple mean reversion strategy using rolling z-score."""
 
     strategy_type = "mean_reversion"
+    _PHASE_EXECUTION = "execution"
     interval: str = "5m"
     parameter_definitions = {
         "symbol": {
@@ -26,6 +26,11 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
             "allow_null": True,
             "default": "ES",
             "description": "Symbol to subscribe for candle updates.",
+        },
+        "interval": {
+            "type": "str",
+            "default": "5m",
+            "description": "Candle interval (e.g., 1m, 5m, 1h).",
         },
         "lookback": {
             "type": "int",
@@ -55,6 +60,7 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
     }
     default_parameters = {
         "symbol": "ES",
+        "interval": "5m",
         "lookback": 20,
         "entry_zscore": 1.5,
         "exit_zscore": 0.5,
@@ -62,13 +68,127 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
     }
 
     def __post_init__(self) -> None:
-        self.interval = "5m"
+        if not hasattr(self, "interval") or not self.interval:
+            self.interval = "5m"
         super().__post_init__()
+        self.intervals = [self.interval]
         self._history: Deque[float] = deque(maxlen=int(getattr(self, "lookback", 20)))
         self._position: int = 0
         self._entry_price: float | None = None
         self._last_closed_candle_id: Any | None = None
         self._initial_backfill_requested: bool = False
+
+    async def on_start(self) -> None:
+        """Initialize strategy and perform active history backfill."""
+        await super().on_start()
+        await self._await_market_data_ready_and_subscribe()
+        if getattr(self, "_history_replay_in_progress", False):
+            return
+
+        # Active history retrieval (Backfill)
+        required_history = int(getattr(self, "lookback", 20))
+        required_history = max(required_history, 50)
+        
+        self.logger.info(
+            "Active backfill requested for MeanReversion",
+            extra={
+                "required": required_history,
+                "symbol": self.symbol,
+            },
+        )
+        
+        delta = self._interval_delta
+        now = datetime.now(timezone.utc)
+        start_time = _floor_timestamp(now - (delta * required_history), delta)
+        
+        request = DataSubscriptionRequest(
+            channel=self._resolve_bar_channel(),
+            symbol=self.symbol,
+            interval=self.interval,
+            options={
+                "interval": self.interval,
+                "start": start_time,
+                "end": now,
+            },
+        )
+        
+        try:
+            records = await asyncio.wait_for(
+                self._load_history_records(
+                    request=request,
+                    start=start_time,
+                    end=now,
+                    interval=delta,
+                ),
+                timeout=60.0,
+            )
+
+            # Fallback to IB if empty or insufficient
+            if not records or len(records) < required_history:
+                self.logger.info(
+                    "Primary backfill insufficient, trying IB fallback",
+                    extra={
+                        "symbol": self.symbol,
+                        "have": len(records) if records else 0,
+                        "need": required_history
+                    }
+                )
+                ib_records = await asyncio.wait_for(
+                    self._load_history_records(
+                        request=request,
+                        start=start_time,
+                        end=now,
+                        interval=delta,
+                        force_ib=True,
+                    ),
+                    timeout=90.0,
+                )
+                if not records or (ib_records and len(ib_records) > len(records)):
+                    records = ib_records
+            
+            if records:
+                self._history_replay_in_progress = True
+                try:
+                    self._reset_unified_bucket()
+                    for item in records:
+                        if not item:
+                            continue
+                        closed = self._ingest_bar_payload(item)
+                        if closed:
+                            # Handle list return from _ingest_bar_payload
+                            closed_events = closed if isinstance(closed, list) else [closed]
+                            for event in closed_events:
+                                await self._process_candle_event(event)
+                finally:
+                    self._history_replay_in_progress = False
+                    
+            self.logger.info("MeanReversion backfill completed")
+            
+        except Exception as e:
+            self.logger.exception("MeanReversion backfill failed", extra={"error": str(e)})
+
+        # Update status to monitoring
+        self._telemetry_set_phase_status(
+            self._PHASE_SIGNALS,
+            status="running",
+            status_code="monitoring",
+            status_reason="Monitoring market data",
+            timestamp=datetime.now(timezone.utc),
+        )
+        self._telemetry_set_phase_status(
+            self._PHASE_AGGREGATION,
+            status="running",
+            status_code="idle",
+            status_reason="Waiting for live data",
+            timestamp=datetime.now(timezone.utc),
+        )
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status="running",
+            status_code="monitoring",
+            status_reason="Monitoring market conditions",
+            timestamp=datetime.now(timezone.utc),
+        )
 
     def _log_skip_reason(
         self,
@@ -111,7 +231,10 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
         except Exception:  # pragma: no cover - defensive
             self.logger.exception("Failed to record signal telemetry")
 
-    def _process_candle_event(self, candle: Mapping[str, Any]) -> None:
+
+    async def _process_candle_event(self, candle: Mapping[str, Any]) -> None:
+        if self.logger.isEnabledFor(10):  # DEBUG
+             self.logger.debug(f"MeanReversion received candle event: {candle.get('timestamp') or candle.get('start')}")
         if candle.get("type") not in {None, "candle"}:
             return
 
@@ -143,6 +266,37 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
             price = candle.get("price")
         if price is None:
             return
+            
+        ts = candle.get("end")
+        ts_obj = ts if isinstance(ts, datetime) else None
+
+        # Update all phases to running immediately to prevent "awaiting_data" confusion
+        self._telemetry_set_phase_status(
+            self._PHASE_SIGNALS,
+            status="running",
+            status_code="analyzing",
+            status_reason="Analyzing candle for mean reversion",
+            status_details={
+                "symbol": candle.get("symbol"),
+                "interval": interval,
+                "price": price,
+            },
+            timestamp=ts_obj,
+        )
+        self._telemetry_set_phase_status(
+            self._PHASE_AGGREGATION,
+            status="running",
+            status_code="processing",
+            status_reason="Processing candle data",
+            timestamp=ts_obj,
+        )
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status="running",
+            status_code="monitoring",
+            status_reason="Monitoring market conditions",
+            timestamp=ts_obj,
+        )
 
         def _canonical_candle_id(payload: Mapping[str, Any]) -> str | None:
             def _coerce_datetime(value: Any) -> datetime | None:
@@ -212,66 +366,71 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
 
         is_history_replay = bool(getattr(self, "_history_replay_in_progress", False))
         self._history.append(price_value)
+        
+        # Update aggregation phase status
+        self._telemetry_set_phase_status(
+            self._PHASE_AGGREGATION,
+            status="running",
+            status_code="updating_history",
+            status_reason="Updated price history for z-score calculation",
+            status_details={
+                "history_len": len(self._history),
+                "history_maxlen": self._history.maxlen,
+                "latest_price": price_value,
+            },
+            timestamp=candle.get("end") if isinstance(candle.get("end"), datetime) else None,
+        )
+
         if is_history_replay:
             return
         if len(self._history) < self._history.maxlen:
             if self._use_unified_data and not self._initial_backfill_requested:
-                manager = None
                 try:
-                    manager = self._data_layer_manager or get_data_source_manager()
-                except Exception:
-                    manager = None
-                if manager is not None:
+                    have = len(self._history)
+                    missing = max(self._history.maxlen - have, 1)
+                    delta = self._interval_delta
+                    now = datetime.now(timezone.utc)
+                    start = _floor_timestamp(now - (delta * missing), delta)
+                    request = DataSubscriptionRequest(
+                        channel=self._resolve_bar_channel(),
+                        symbol=self.symbol,
+                        interval=self.interval,
+                        options={
+                            "interval": self.interval,
+                            "start": start,
+                            "end": now,
+                        },
+                    )
+                    config = self._history_replay_config()
+                    records = await self._load_history_records(
+                        request=request,
+                        start=start,
+                        end=now,
+                        interval=delta,
+                        config=config,
+                    )
+                    aggregated: list[Mapping[str, Any]] = []
+                    self._history_replay_in_progress = True
                     try:
-                        have = len(self._history)
-                        missing = max(self._history.maxlen - have, 1)
-                        delta = self._interval_delta
-                        now = datetime.now(timezone.utc)
-                        start = _floor_timestamp(now - (delta * missing), delta)
-                        request = DataSubscriptionRequest(
-                            channel=self._resolve_bar_channel(),
-                            symbol=self.symbol,
-                            interval=self.interval,
-                            options={
-                                "interval": self.interval,
-                                "start": start,
-                                "end": now,
-                            },
-                        )
-                        config = self._history_replay_config()
-                        records = self._run_coro(
-                            load_history_with_backoff(
-                                manager,
-                                request,
-                                start=start,
-                                end=now,
-                                interval=delta,
-                                config=config,
-                                logger=self.logger,
-                            )
-                        )
-                        aggregated: list[Mapping[str, Any]] = []
-                        self._history_replay_in_progress = True
-                        try:
-                            self._reset_unified_bucket()
-                            for item in list(records or [])[-self.history_limit :]:
-                                if not item:
-                                    continue
-                                closed = self._ingest_bar_payload(item)
-                                if closed is not None:
-                                    aggregated.append(closed)
-                            leftovers = self._flush_unified_bucket(close_partial=True)
-                            if leftovers:
-                                aggregated.extend(leftovers)
-                            for snapshot in aggregated:
-                                normalised = self._normalise_candle(snapshot, is_closed=True)
-                                if normalised is not None:
-                                    self._invoke_candle_handlers(normalised)
-                        finally:
-                            self._history_replay_in_progress = False
-                        self._initial_backfill_requested = True
-                    except Exception:
-                        self.logger.debug("Mean reversion unified backfill attempt failed", exc_info=True)
+                        self._reset_unified_bucket()
+                        for item in list(records or [])[-self.history_limit :]:
+                            if not item:
+                                continue
+                            closed = self._ingest_bar_payload(item)
+                            if closed is not None:
+                                aggregated.append(closed)
+                        leftovers = self._flush_unified_bucket(close_partial=True)
+                        if leftovers:
+                            aggregated.extend(leftovers)
+                        for snapshot in aggregated:
+                            normalised = self._normalise_candle(snapshot, is_closed=True)
+                            if normalised is not None:
+                                await self._invoke_candle_handlers(normalised)
+                    finally:
+                        self._history_replay_in_progress = False
+                    self._initial_backfill_requested = True
+                except Exception as e:
+                    self.logger.warning(f"Mean reversion unified backfill attempt failed: {e}", exc_info=True)
             elif not self._use_unified_data and not self._initial_backfill_requested:
                 loader = getattr(self, "_history_loader", None)
                 if callable(loader):
@@ -285,7 +444,7 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                             for item in list(records or [])[-minutes_needed:]:
                                 normalised = self._normalise_candle(item, is_closed=True)
                                 if normalised is not None:
-                                    self._invoke_candle_handlers(normalised)
+                                    await self._invoke_candle_handlers(normalised)
                         finally:
                             self._history_replay_in_progress = False
                         self._initial_backfill_requested = True
@@ -462,6 +621,21 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                 deduplicate=False,
             )
 
+        # Update execution phase status
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status="running",
+            status_code="monitoring",
+            status_reason="Monitoring for entry/exit signals",
+            status_details={
+                "position": self._position,
+                "zscore": zscore,
+                "entry_threshold": entry_threshold,
+                "exit_threshold": exit_threshold,
+            },
+            timestamp=candle.get("end") if isinstance(candle.get("end"), datetime) else None,
+        )
+
         if self._position == 0:
             if zscore >= entry_threshold:
                 enqueue_signal(
@@ -584,8 +758,9 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
         except Exception:
             self.logger.debug("Failed to refresh exit targets for mean reversion", exc_info=True)
 
-    def on_candle(self, candle: Mapping[str, Any]) -> None:  # noqa: D401 - event hook
-        self._process_candle_event(candle)
+    async def on_candle(self, candle: Mapping[str, Any]) -> None:  # noqa: D401 - event hook
+        """Handle incoming candle events from the subscription manager."""
+        await self._process_candle_event(candle)
 
     async def on_market_event(self, event: Mapping[str, Any]) -> None:
         await super().on_market_event(event)

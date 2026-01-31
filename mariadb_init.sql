@@ -13,15 +13,10 @@ CREATE TABLE IF NOT EXISTS config (
     CONSTRAINT uq_config_config_key UNIQUE KEY (config_key)
 );
 
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    version VARCHAR(255) NOT NULL,
-    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_schema_migrations_version UNIQUE KEY (version)
-);
-
 CREATE TABLE IF NOT EXISTS orders (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    command_id VARCHAR(191) NULL,
+    client_order_id VARCHAR(191) NULL,
     ib_order_id VARCHAR(191) NULL,
     ib_perm_id VARCHAR(191) NULL,
     symbol VARCHAR(64) NOT NULL,
@@ -36,13 +31,16 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     executed_at DATETIME NULL,
+    order_timestamp DATETIME NULL,
     fill_price DOUBLE NULL,
     filled_quantity DOUBLE NULL,
     remaining_quantity DOUBLE NULL,
+    avg_fill_price DOUBLE NULL,
     order_source VARCHAR(32) NULL,
     strategy VARCHAR(191) NULL,
     strategy_name VARCHAR(191) NULL,
     metrics_owner_id VARCHAR(191) NULL,
+    rule_id VARCHAR(191) NULL,
     parent_order_id VARCHAR(191) NULL,
     exchange VARCHAR(64) NULL,
     sec_type VARCHAR(64) NULL,
@@ -51,6 +49,14 @@ CREATE TABLE IF NOT EXISTS orders (
     pnl DOUBLE NULL,
     realized_pnl DOUBLE NULL,
     unrealized_pnl DOUBLE NULL,
+    rejection_reason TEXT NULL,
+    invoker VARCHAR(191) NULL,
+    invoker_type VARCHAR(191) NULL,
+    invoker_status VARCHAR(191) NULL,
+    invoker_price DOUBLE NULL,
+    account VARCHAR(191) NULL,
+    source VARCHAR(191) NULL,
+    raw_payload JSON NULL,
     is_deleted TINYINT(1) NOT NULL DEFAULT 0,
     CONSTRAINT uq_orders_ib_perm_id UNIQUE KEY (ib_perm_id),
     CONSTRAINT uq_orders_ib_order_id UNIQUE KEY (ib_order_id)
@@ -125,15 +131,6 @@ CREATE TABLE IF NOT EXISTS order_fills (
         ON DELETE CASCADE
         ON UPDATE CASCADE
 );
-
--- Ensure columns exist when upgrading an existing database
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS realized_pnl DOUBLE NULL;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS unrealized_pnl DOUBLE NULL;
-ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS commission_currency VARCHAR(16) NULL;
-ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS pnl_currency VARCHAR(16) NULL;
-ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS price_multiplier DOUBLE NULL;
-ALTER TABLE order_fills ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64) NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_order_fills_source_hash ON order_fills(source_hash);
 
 CREATE TABLE IF NOT EXISTS risk_rules (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -222,13 +219,8 @@ CREATE TABLE IF NOT EXISTS strategies (
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     parameters JSON NULL,
     schedule JSON NULL,
-    scanner_profile JSON NULL,
-    scanner_schedule JSON NULL,
-    scanner_filter_definitions TEXT NULL,
-    child_strategy_type VARCHAR(191) NULL,
-    child_parameters JSON NULL,
-    max_children INT NULL,
-    selection_limit INT NULL,
+    screener_profile JSON NULL,
+    screener_schedule JSON NULL,
     primary_symbol VARCHAR(191) NULL,
     data_source VARCHAR(191) NULL,
     trigger_count INT NOT NULL DEFAULT 0,
@@ -239,6 +231,37 @@ CREATE TABLE IF NOT EXISTS strategies (
 
 CREATE INDEX idx_strategies_enabled ON strategies (enabled);
 CREATE INDEX idx_strategies_updated_at ON strategies (updated_at);
+
+CREATE TABLE IF NOT EXISTS screener_results (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    strategy_ref_id BIGINT UNSIGNED NOT NULL,
+    run_id VARCHAR(64) NOT NULL,
+    run_at DATETIME NOT NULL,
+    trading_date DATE NOT NULL,
+    screener_profile JSON NULL,
+    screener_schedule JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_screener_results_strategy FOREIGN KEY (strategy_ref_id) REFERENCES strategies (id)
+);
+
+CREATE INDEX idx_screener_results_strategy ON screener_results (strategy_ref_id, run_at);
+
+CREATE TABLE IF NOT EXISTS screener_result_symbols (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    result_ref_id BIGINT UNSIGNED NOT NULL,
+    symbol VARCHAR(191) NOT NULL,
+    rank INT NULL,
+    metadata JSON NULL,
+    open_price DOUBLE NULL,
+    close_price DOUBLE NULL,
+    return_rate DOUBLE NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_screener_symbols_result FOREIGN KEY (result_ref_id) REFERENCES screener_results (id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_screener_result_symbols_result ON screener_result_symbols (result_ref_id, rank);
 
 CREATE TABLE IF NOT EXISTS strategy_risk_settings (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
