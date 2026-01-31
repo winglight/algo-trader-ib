@@ -22,6 +22,15 @@ require_cmd() {
 require_cmd docker
 require_cmd sed
 
+sed_inplace() {
+  local file="$1"
+  shift
+  local tmp
+  tmp="$(mktemp "${file}.tmp.XXXXXX")"
+  sed "$@" "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
 # 1) middle/.env from example
 copy_if_missing "${MIDDLE_DIR}/.env.example" "${MIDDLE_DIR}/.env"
 
@@ -91,12 +100,12 @@ SAFE_VNC_SERVER_PASSWORD="$(sed_escape_repl_pipe "$VNC_SERVER_PASSWORD")"
 SAFE_REDIS_PASSWORD="$(sed_escape_repl_pipe "$REDIS_PASSWORD")"
 SAFE_MARIADB_PASSWORD="$(sed_escape_repl_pipe "$MARIADB_PASSWORD")"
 
-sed -i '' \
+sed_inplace "${MIDDLE_DIR}/.env" \
   -e "s|^TWS_USERID=.*|TWS_USERID=${SAFE_TWS_USERID}|" \
   -e "s|^TWS_PASSWORD=.*|TWS_PASSWORD=${SAFE_TWS_PASSWORD}|" \
   -e "s|^VNC_SERVER_PASSWORD=.*|VNC_SERVER_PASSWORD=${SAFE_VNC_SERVER_PASSWORD}|" \
   -e "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${SAFE_REDIS_PASSWORD}|" \
-  -e "s|^MARIADB_PASSWORD=.*|MARIADB_PASSWORD=${SAFE_MARIADB_PASSWORD}|" "${MIDDLE_DIR}/.env"
+  -e "s|^MARIADB_PASSWORD=.*|MARIADB_PASSWORD=${SAFE_MARIADB_PASSWORD}|"
 
 # 5) start infra
 (
@@ -159,7 +168,7 @@ update_env_line() {
   local escaped_value
   escaped_value="$(printf '%s' "$value" | sed -e 's/[|&]/\\&/g')"
   if grep -q "^${key}=" "$file"; then
-    sed -i '' -e "s|^${key}=.*|${key}=${escaped_value}|" "$file"
+    sed_inplace "$file" -e "s|^${key}=.*|${key}=${escaped_value}|"
   else
     printf '\n%s=%s\n' "$key" "$value" >>"$file"
   fi

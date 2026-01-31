@@ -62,10 +62,53 @@ CREATE TABLE IF NOT EXISTS orders (
     CONSTRAINT uq_orders_ib_order_id UNIQUE KEY (ib_order_id)
 );
 
-CREATE INDEX idx_orders_symbol_status ON orders (symbol, status);
-CREATE INDEX idx_orders_strategy ON orders (strategy);
-CREATE INDEX idx_orders_metrics_owner ON orders (metrics_owner_id);
-CREATE INDEX idx_orders_created_at ON orders (created_at);
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'orders'
+      AND INDEX_NAME = 'idx_orders_symbol_status'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_orders_symbol_status ON orders (symbol, status)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'orders'
+      AND INDEX_NAME = 'idx_orders_strategy'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_orders_strategy ON orders (strategy)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'orders'
+      AND INDEX_NAME = 'idx_orders_metrics_owner'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_orders_metrics_owner ON orders (metrics_owner_id)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'orders'
+      AND INDEX_NAME = 'idx_orders_created_at'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_orders_created_at ON orders (created_at)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 DELIMITER //
 CREATE PROCEDURE backfill_orders_metrics_owner()
@@ -153,8 +196,29 @@ CREATE TABLE IF NOT EXISTS risk_rules (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX ux_risk_rules_symbol ON risk_rules (symbol);
-CREATE INDEX idx_risk_rules_enabled ON risk_rules (enabled);
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'risk_rules'
+      AND INDEX_NAME = 'ux_risk_rules_symbol'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE UNIQUE INDEX ux_risk_rules_symbol ON risk_rules (symbol)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'risk_rules'
+      AND INDEX_NAME = 'idx_risk_rules_enabled'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_risk_rules_enabled ON risk_rules (enabled)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS optimizer_plans (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -189,9 +253,41 @@ CREATE TABLE IF NOT EXISTS optimizer_jobs (
     CONSTRAINT fk_optimizer_jobs_plan FOREIGN KEY (optimizer_plan_id) REFERENCES optimizer_plans (id)
 );
 
-CREATE INDEX idx_optimizer_jobs_status ON optimizer_jobs (status);
-CREATE INDEX idx_optimizer_jobs_optimizer_plan_id ON optimizer_jobs (optimizer_plan_id);
-CREATE INDEX idx_optimizer_jobs_created_at ON optimizer_jobs (created_at);
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'optimizer_jobs'
+      AND INDEX_NAME = 'idx_optimizer_jobs_status'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_optimizer_jobs_status ON optimizer_jobs (status)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'optimizer_jobs'
+      AND INDEX_NAME = 'idx_optimizer_jobs_optimizer_plan_id'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_optimizer_jobs_optimizer_plan_id ON optimizer_jobs (optimizer_plan_id)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'optimizer_jobs'
+      AND INDEX_NAME = 'idx_optimizer_jobs_created_at'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_optimizer_jobs_created_at ON optimizer_jobs (created_at)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS notifications (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -206,8 +302,29 @@ CREATE TABLE IF NOT EXISTS notifications (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_notifications_created_at ON notifications (created_at);
-CREATE INDEX idx_notifications_is_read ON notifications (is_read);
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'notifications'
+      AND INDEX_NAME = 'idx_notifications_created_at'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_notifications_created_at ON notifications (created_at)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'notifications'
+      AND INDEX_NAME = 'idx_notifications_is_read'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_notifications_is_read ON notifications (is_read)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS strategies (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -229,8 +346,29 @@ CREATE TABLE IF NOT EXISTS strategies (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_strategies_enabled ON strategies (enabled);
-CREATE INDEX idx_strategies_updated_at ON strategies (updated_at);
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'strategies'
+      AND INDEX_NAME = 'idx_strategies_enabled'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_strategies_enabled ON strategies (enabled)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'strategies'
+      AND INDEX_NAME = 'idx_strategies_updated_at'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_strategies_updated_at ON strategies (updated_at)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS screener_results (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -245,7 +383,17 @@ CREATE TABLE IF NOT EXISTS screener_results (
     CONSTRAINT fk_screener_results_strategy FOREIGN KEY (strategy_ref_id) REFERENCES strategies (id)
 );
 
-CREATE INDEX idx_screener_results_strategy ON screener_results (strategy_ref_id, run_at);
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'screener_results'
+      AND INDEX_NAME = 'idx_screener_results_strategy'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_screener_results_strategy ON screener_results (strategy_ref_id, run_at)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS screener_result_symbols (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -261,7 +409,17 @@ CREATE TABLE IF NOT EXISTS screener_result_symbols (
     CONSTRAINT fk_screener_symbols_result FOREIGN KEY (result_ref_id) REFERENCES screener_results (id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_screener_result_symbols_result ON screener_result_symbols (result_ref_id, rank);
+SET @idx_exists := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'screener_result_symbols'
+      AND INDEX_NAME = 'idx_screener_result_symbols_result'
+);
+SET @sql := IF(@idx_exists = 0, 'CREATE INDEX idx_screener_result_symbols_result ON screener_result_symbols (result_ref_id, rank)', 'DO 0');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS strategy_risk_settings (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
