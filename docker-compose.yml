@@ -9,7 +9,6 @@ services:
       - ./logs:/app/logs
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
-      - ./config:/app/config
     restart: unless-stopped
     networks:
       default:
@@ -25,7 +24,6 @@ services:
       - ./logs:/app/logs
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
-      - ./config:/app/config
     restart: unless-stopped
     networks:
       default:
@@ -41,7 +39,7 @@ services:
       - ./logs:/app/logs
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
-      - ./config:/app/config
+
     restart: unless-stopped
     networks:
       default:
@@ -57,7 +55,7 @@ services:
       - ./logs:/app/logs
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
-      - ./config:/app/config
+
     restart: unless-stopped
     networks:
       default:
@@ -73,7 +71,7 @@ services:
       - ./logs:/app/logs
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
-      - ./config:/app/config
+
     restart: unless-stopped
     networks:
       default:
@@ -89,7 +87,7 @@ services:
       - ./logs:/app/logs
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
-      - ./config:/app/config
+
     restart: unless-stopped
     depends_on:
       orders-service:
