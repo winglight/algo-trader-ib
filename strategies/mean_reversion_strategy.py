@@ -1,9 +1,10 @@
 """Mean reversion strategy based on candle z-scores."""
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from statistics import mean
 from typing import Any, Deque, Dict, Mapping
 

@@ -3,18 +3,83 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Callable, Mapping, MutableSequence, Optional, Sequence
-
-from src.ai_model_ops import schemas
+import inspect
+from dataclasses import dataclass, field, replace
+from enum import Enum
+from typing import Awaitable, Callable, Mapping, MutableSequence, Optional, Sequence
 from src.strategy.base import StrategyError
 
 from .templates import StrategySignal, StrategyTemplate
 
-__all__ = ["PredictiveModelState", "PredictiveModelRepository", "PredictiveStrategy"]
+__all__ = [
+    "FusionStrategy",
+    "FusionConfig",
+    "PredictiveModelState",
+    "PredictiveModelRepository",
+    "PredictiveStrategy",
+]
 
 
 NewsSignalProvider = Callable[[str, str, Optional[int]], Sequence[Mapping[str, object]]]
+
+
+class FusionStrategy(str, Enum):
+    EARLY = "early"
+    MID = "mid"
+    LATE = "late"
+
+
+@dataclass(slots=True)
+class FusionConfig:
+    enable_news_features: bool = False
+    strategy: FusionStrategy | str = FusionStrategy.LATE
+    confidence_threshold: float = 0.6
+    news_weight: float = 0.5
+    weights: Mapping[str, float] | None = None
+    news_model_version: str | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.strategy, str):
+            try:
+                self.strategy = FusionStrategy(self.strategy)
+            except ValueError:
+                self.strategy = FusionStrategy.LATE
+        if self.news_model_version:
+            cleaned = self.news_model_version.strip()
+            self.news_model_version = cleaned or None
+        if not self.enable_news_features:
+            self.strategy = FusionStrategy.LATE
+            if self.news_model_version:
+                self.news_model_version = None
+
+    def resolved_news_weight(self) -> float:
+        if self.weights and "news" in self.weights:
+            try:
+                value = float(self.weights["news"])
+            except (TypeError, ValueError):
+                value = self.news_weight
+            else:
+                if value < 0.0:
+                    value = 0.0
+                if value > 1.0:
+                    value = 1.0
+            return value
+        return self.news_weight
+
+    def is_default(self) -> bool:
+        if self.enable_news_features:
+            return False
+        if self.strategy is not FusionStrategy.LATE:
+            return False
+        if self.confidence_threshold != 0.6:
+            return False
+        if self.news_weight != 0.5:
+            return False
+        if self.news_model_version is not None:
+            return False
+        if self.weights:
+            return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -25,7 +90,7 @@ class PredictiveModelState:
     posterior_mean: float
     posterior_std: float
     policy_score: float
-    fusion_config: schemas.FusionConfig
+    fusion_config: FusionConfig
     metrics: Mapping[str, float] = field(default_factory=dict)
 
     @classmethod
@@ -35,7 +100,7 @@ class PredictiveModelState:
             posterior_mean=0.0,
             posterior_std=1.0,
             policy_score=0.0,
-            fusion_config=schemas.FusionConfig(),
+            fusion_config=FusionConfig(),
             metrics={},
         )
 
@@ -70,6 +135,9 @@ class PredictiveModelRepository:
         if not self._active_version:
             raise LookupError("no predictive model version has been activated")
         return self._states[self._active_version]
+
+    def get(self, version: str) -> PredictiveModelState | None:
+        return self._states.get(version)
 
     def subscribe(self, listener: Callable[[PredictiveModelState], None]) -> None:
         if listener not in self._listeners:
@@ -135,8 +203,9 @@ class PredictiveStrategy(StrategyTemplate):
         )
         self._model_state = PredictiveModelState.empty()
         self._repository: PredictiveModelRepository | None = None
-        self._fusion_defaults = schemas.FusionConfig()
+        self._fusion_defaults = FusionConfig()
         self._news_provider: NewsSignalProvider = lambda *args, **kwargs: ()
+        self._inference_client: Callable[..., Awaitable[Mapping[str, object]] | Mapping[str, object]] | None = None
         self._last_price: Optional[float] = None
         self._pending_orders: list[Mapping[str, object]] = []
         self._last_news_payload: Mapping[str, object] | None = None
@@ -167,11 +236,17 @@ class PredictiveStrategy(StrategyTemplate):
         if isinstance(repository, PredictiveModelRepository):
             self._repository = repository
         defaults = dependencies.get("predictive_fusion_defaults")
-        if isinstance(defaults, schemas.FusionConfig):
+        if isinstance(defaults, FusionConfig):
             self._fusion_defaults = defaults
         provider = dependencies.get("news_signal_provider")
         if callable(provider):
             self._news_provider = provider  # type: ignore[assignment]
+        inference_client = (
+            dependencies.get("predictive_inference_client")
+            or dependencies.get("predictive_model_inference")
+        )
+        if callable(inference_client):
+            self._inference_client = inference_client  # type: ignore[assignment]
 
     # ------------------------------------------------------------------
     async def on_start(self) -> None:
@@ -209,7 +284,12 @@ class PredictiveStrategy(StrategyTemplate):
         return_rate = (price - self._last_price) / max(self._last_price, 1e-6)
         self._last_price = price
 
-        base_probability = self._model_state.project_probability(return_rate)
+        inference_probability = await self._infer_probability(event, return_rate)
+        base_probability = (
+            inference_probability
+            if inference_probability is not None
+            else self._model_state.project_probability(return_rate)
+        )
         news_probability, news_confidence = self._resolve_news_probability(
             timestamp, base_probability
         )
@@ -235,6 +315,128 @@ class PredictiveStrategy(StrategyTemplate):
     def _on_model_update(self, state: PredictiveModelState) -> None:
         self._model_state = state
 
+    async def _infer_probability(
+        self, event: Mapping[str, object], return_rate: float
+    ) -> Optional[float]:
+        client = self._inference_client
+        if client is None:
+            return None
+
+        record = self._build_inference_record(event, return_rate)
+        request_payload = {
+            "records": [record],
+            "model_version": self._model_state.version,
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+        }
+
+        response: Mapping[str, object] | None = None
+        try:
+            response = await self._invoke_inference_client(client, request_payload)
+        except Exception:  # pragma: no cover - inference is optional
+            return None
+        if not isinstance(response, Mapping):
+            return None
+
+        probability = self._extract_inference_probability(response)
+        if probability is None:
+            return None
+        self._apply_inference_update(response)
+        return probability
+
+    async def _invoke_inference_client(
+        self,
+        client: Callable[..., Awaitable[Mapping[str, object]] | Mapping[str, object]],
+        payload: Mapping[str, object],
+    ) -> Mapping[str, object] | None:
+        infer_method = getattr(client, "infer", None)
+        if callable(infer_method):
+            result = infer_method(
+                model_version=payload.get("model_version"),
+                records=payload.get("records"),
+                symbol=payload.get("symbol"),
+                timeframe=payload.get("timeframe"),
+            )
+            if inspect.isawaitable(result):
+                awaited = await result
+                return awaited if isinstance(awaited, Mapping) else None
+            return result if isinstance(result, Mapping) else None
+        try:
+            result = client(**payload)  # type: ignore[arg-type]
+        except TypeError:
+            result = client(payload)
+        if isinstance(result, Mapping):
+            return result
+        if inspect.isawaitable(result):
+            awaited = await result
+            return awaited if isinstance(awaited, Mapping) else None
+        return None
+
+    def _build_inference_record(
+        self, event: Mapping[str, object], return_rate: float
+    ) -> Mapping[str, float]:
+        record: dict[str, float] = {"return_rate": return_rate}
+        for key in ("open", "high", "low", "close", "volume"):
+            value = event.get(key)
+            if isinstance(value, (int, float)):
+                record[key] = float(value)
+        if "close" not in record and self._last_price is not None:
+            record["close"] = float(self._last_price)
+        return record
+
+    def _extract_inference_probability(
+        self, payload: Mapping[str, object]
+    ) -> Optional[float]:
+        direct = payload.get("probability")
+        if isinstance(direct, (int, float)):
+            return float(direct)
+        probabilities = payload.get("probabilities")
+        if isinstance(probabilities, Sequence) and probabilities:
+            first = probabilities[0]
+            if isinstance(first, (int, float)):
+                return float(first)
+        return None
+
+    def _apply_inference_update(self, payload: Mapping[str, object]) -> None:
+        version = payload.get("model_version")
+        if isinstance(version, str) and version:
+            current_version = version
+        else:
+            current_version = self._model_state.version
+
+        posterior_mean = self._coerce_float(payload.get("posterior_mean"))
+        posterior_std = self._coerce_float(payload.get("posterior_std"))
+        if posterior_mean is None and isinstance(payload.get("summary"), Mapping):
+            posterior_mean = self._coerce_float(payload["summary"].get("mean"))
+        if posterior_std is None and isinstance(payload.get("summary"), Mapping):
+            variance = self._coerce_float(payload["summary"].get("variance"))
+            if variance is not None:
+                posterior_std = math.sqrt(max(variance, 0.0))
+        policy_score = self._coerce_float(payload.get("policy_score"))
+        metrics = payload.get("metrics")
+        if not isinstance(metrics, Mapping):
+            metrics = payload.get("summary")
+        if not isinstance(metrics, Mapping):
+            metrics = self._model_state.metrics
+
+        state = self._model_state
+        state = replace(
+            state,
+            version=current_version,
+            posterior_mean=posterior_mean if posterior_mean is not None else state.posterior_mean,
+            posterior_std=posterior_std if posterior_std is not None else state.posterior_std,
+            policy_score=policy_score if policy_score is not None else state.policy_score,
+            metrics=metrics if isinstance(metrics, Mapping) else state.metrics,
+        )
+        self._model_state = state
+
+    @staticmethod
+    def _coerce_float(value: object) -> Optional[float]:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def _extract_price(self, event: Mapping[str, object]) -> Optional[float]:
         for key in ("close", "price", "last_price"):
             value = event.get(key)
@@ -255,7 +457,7 @@ class PredictiveStrategy(StrategyTemplate):
         if config.is_default():
             config = self._fusion_defaults
 
-        if not config.enable_news_features or config.strategy is schemas.FusionStrategy.LATE:
+        if not config.enable_news_features or config.strategy is FusionStrategy.LATE:
             news_probability = base_probability
             news_confidence = 0.0
         else:
@@ -263,7 +465,7 @@ class PredictiveStrategy(StrategyTemplate):
                 timestamp, base_probability, config
             )
 
-        if config.enable_news_features and config.strategy is schemas.FusionStrategy.LATE:
+        if config.enable_news_features and config.strategy is FusionStrategy.LATE:
             news_probability, news_confidence = self._apply_late_adjustment(
                 timestamp, base_probability, config
             )
@@ -274,7 +476,7 @@ class PredictiveStrategy(StrategyTemplate):
         self,
         timestamp: Optional[int],
         base_probability: float,
-        config: schemas.FusionConfig,
+        config: FusionConfig,
     ) -> tuple[float, float]:
         aggregated = self._aggregate_news(timestamp, config)
         if aggregated is None:
@@ -282,7 +484,7 @@ class PredictiveStrategy(StrategyTemplate):
 
         news_probability = 0.5 * (aggregated["sentiment"] + 1.0)
         weight = config.resolved_news_weight()
-        if config.strategy is schemas.FusionStrategy.MID:
+        if config.strategy is FusionStrategy.MID:
             weight = min(1.0, weight * aggregated["confidence"])
         fused = base_probability * (1.0 - weight) + news_probability * weight
         fused = max(0.0, min(1.0, fused))
@@ -292,7 +494,7 @@ class PredictiveStrategy(StrategyTemplate):
         self,
         timestamp: Optional[int],
         base_probability: float,
-        config: schemas.FusionConfig,
+        config: FusionConfig,
     ) -> tuple[float, float]:
         aggregated = self._aggregate_news(timestamp, config)
         if aggregated is None:
@@ -311,7 +513,7 @@ class PredictiveStrategy(StrategyTemplate):
         return adjusted, aggregated["confidence"]
 
     def _aggregate_news(
-        self, timestamp: Optional[int], config: schemas.FusionConfig
+        self, timestamp: Optional[int], config: FusionConfig
     ) -> Mapping[str, float] | None:
         provider = self._news_provider
         if provider is None or timestamp is None:
@@ -382,4 +584,3 @@ class PredictiveStrategy(StrategyTemplate):
             metadata=metadata,
         )
         return signal.as_dict()
-

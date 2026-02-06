@@ -10,6 +10,7 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
+    restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.10
@@ -25,6 +26,7 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
+    restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.11
@@ -40,6 +42,7 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
+    restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.12
@@ -55,6 +58,7 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
+    restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.13
@@ -70,6 +74,7 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
+    restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.14
@@ -85,12 +90,86 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
+    restart: unless-stopped
     depends_on:
       orders-service:
         condition: service_started
     networks:
       default:
         ipv4_address: 172.21.0.15
+
+  strategy-watchdog:
+    image: ghcr.io/winglight/algo-trader/backend:latest
+    container_name: algo-trader-strategy-watchdog
+    command:
+      [
+        "python3",
+        "tools/strategy_watchdog.py",
+        "--interval",
+        "60",
+        "--startup-delay",
+        "15",
+        "--dom-threshold",
+        "120",
+        "--bar-threshold",
+        "120"
+      ]
+    environment:
+      API_SERVICE_URL: http://backend:8000
+      WATCHDOG_RESTART_MODE: api
+      STRATEGY_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-strategy
+      STRATEGY_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+      strategy-service:
+        condition: service_started
+      market-data-service:
+        condition: service_started
+
+  service-watchdog:
+    image: ghcr.io/winglight/algo-trader/backend:latest
+    container_name: algo-trader-service-watchdog
+    command:
+      [
+        "python3",
+        "tools/service_watchdog.py",
+        "--interval",
+        "20",
+        "--startup-delay",
+        "20",
+        "--timeout",
+        "3",
+        "--max-failures",
+        "3",
+        "--restart-timeout",
+        "30",
+        "--restart-cooldown",
+        "90",
+      ]
+    environment:
+      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz||restart_mode=docker,docker_container=algo-trader-backend,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz||restart_mode=docker,docker_container=algo-trader-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz||restart_mode=docker,docker_container=algo-trader-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz||restart_mode=docker,docker_container=algo-trader-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz||restart_mode=docker,docker_container=algo-trader-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz||restart_mode=docker,docker_container=algo-trader-strategy,docker_host=unix:///var/run/docker.sock"
+    volumes:
+      - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+      account-service:
+        condition: service_started
+      orders-service:
+        condition: service_started
+      market-data-service:
+        condition: service_started
+      risk-service:
+        condition: service_started
+      strategy-service:
+        condition: service_started
 
   frontend:
     image: ghcr.io/winglight/algo-trader/frontend:latest
@@ -103,6 +182,7 @@ services:
     depends_on:
       backend:
         condition: service_started
+    restart: unless-stopped
 
 networks:
   default:

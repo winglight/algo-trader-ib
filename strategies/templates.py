@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import math
 from dataclasses import dataclass
@@ -203,15 +202,12 @@ class StrategyTemplate(BaseStrategy):
             return 0.0
         try:
             result = provider(self.symbol)
-            if inspect.isawaitable(result):
-                try:
-                    asyncio.get_running_loop()
-                except RuntimeError:
-                    return float(asyncio.run(result))
-                else:
-                    # Cannot await in sync method within running loop
-                    return 0.0
-            return float(result)
+            resolved = self._resolve_maybe_awaitable_float(
+                result,
+                default=0.0,
+                label=f"{self.name}.position_provider",
+            )
+            return float(resolved or 0.0)
         except Exception:
             return 0.0
 

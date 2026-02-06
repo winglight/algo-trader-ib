@@ -16,6 +16,7 @@ from typing import (
     Callable,
     ClassVar,
     Deque,
+    Dict,
     Mapping,
     MutableMapping,
     Sequence,
@@ -1881,6 +1882,19 @@ class CandleSubscriptionStrategy(BaseStrategy):
             return False
 
         is_replay = getattr(self, "_history_replay_in_progress", False)
+        if is_replay:
+            self.logger.warning(
+                "Order suppressed during history replay for strategy %s", self.name
+            )
+            self._telemetry_log(
+                "Order suppressed during history replay",
+                tone="warning",
+            )
+            self._record_order_block(
+                "history_replay",
+                message="History replay suppressing new order",
+            )
+            return False
 
         cooldown = max(0.0, float(self.cooldown_seconds))
         if not is_replay and cooldown > 0.0 and now_monotonic < self._cooldown_until and not is_exit_like:
@@ -3213,7 +3227,14 @@ class CandleSubscriptionStrategy(BaseStrategy):
         # Use _resolve_position_state which is standard in StrategyTemplate
         current_pos, _ = self._resolve_position_state()
         if abs(current_pos) > 1e-9:
-            return False, f"Existing position {current_pos}"
+            forbid_pyramiding = bool(getattr(self, "forbid_pyramiding", False))
+            if forbid_pyramiding:
+                side_upper = str(side or "").strip().upper()
+                same_direction = (current_pos > 0 and side_upper == "BUY") or (
+                    current_pos < 0 and side_upper == "SELL"
+                )
+                if same_direction:
+                    return False, f"Existing position {current_pos}"
 
         # 2. Check risk manager circuit breaker
         risk_manager = getattr(self, "risk_manager", None)
@@ -4238,6 +4259,39 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 phase=self._PHASE_SUBSCRIPTION,
                 deduplicate=False,
             )
+
+    # ------------------------------------------------------------------
+    async def recover_streams(self, streams: set[str], reason: str | None = None) -> None:
+        if not getattr(self, "active", False):
+            return
+        target_streams = {stream for stream in streams if stream in {"bar", "ticker"}}
+        if not target_streams:
+            return
+        now = datetime.now(timezone.utc)
+        details = {
+            "streams": sorted(target_streams),
+            "reason": reason or "stream_recovery_requested",
+        }
+        self._telemetry_log(
+            "Strategy stream recovery requested",
+            level="WARN",
+            tone="warning",
+            phase=self._PHASE_SUBSCRIPTION,
+            deduplicate=False,
+            details=details,
+            timestamp=now,
+        )
+        if self._use_unified_data:
+            try:
+                await self._teardown_unified_subscription()
+            except Exception:
+                self.logger.exception("Failed to teardown unified subscription during recovery")
+            try:
+                await self._ensure_unified_subscription()
+            except Exception:
+                self.logger.exception("Failed to re-establish unified subscription during recovery")
+        else:
+            self._restart_bar_listener()
 
     # ------------------------------------------------------------------
     async def _schedule_periodic_health_check(self) -> None:

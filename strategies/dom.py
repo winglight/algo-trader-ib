@@ -287,7 +287,7 @@ class DomStreamHealthMixin:
             interval = 30.0
         interval = max(interval, 1.0)
         base_threshold = max(interval, 30.0)
-        stale_threshold = max(interval * 3.0, base_threshold * 2.0)
+        stale_threshold = max(120.0, interval * 3.0, base_threshold * 2.0)
         last_rejected_at = getattr(self, "_last_dom_rejected_at", None)
         last_dom_at: datetime | None = None
         inactive_seconds: float | None = None
@@ -848,6 +848,44 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
         return True
 
     # ------------------------------------------------------------------
+    async def recover_streams(self, streams: set[str], reason: str | None = None) -> None:
+        if not getattr(self, "active", False):
+            return
+        if "dom" not in streams:
+            return
+        now = datetime.now(timezone.utc)
+        details = {
+            "streams": ["dom"],
+            "reason": reason or "stream_recovery_requested",
+        }
+        self._telemetry_log(
+            "Strategy stream recovery requested",
+            level="WARN",
+            tone="warning",
+            deduplicate=False,
+            details=details,
+            timestamp=now,
+        )
+        self._restart_dom_listener_task()
+        symbol = self._dom_subscription_symbol or self.symbol
+        if symbol and self._dom_service is not None:
+            depth_levels = self._dom_subscription_depth_levels or self.depth_levels
+            metadata_tag = (
+                self._dom_subscription_metadata_tag or self.dom_metadata_tag or self.name
+            )
+            metadata = self._dom_subscription_metadata
+            try:
+                self.stop_dom_subscription(symbol=symbol)
+            except Exception:
+                pass
+            self.start_dom_subscription(
+                symbol=symbol,
+                depth_levels=depth_levels,
+                metadata_tag=metadata_tag,
+                metadata=metadata,
+            )
+
+    # ------------------------------------------------------------------
     async def _run_listener(self) -> None:
         assert self._pubsub is not None
         dispatcher = self._dispatch_event
@@ -1075,7 +1113,7 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
         now = datetime.now(timezone.utc)
         last_at = getattr(session, "last_dom_at", None)
         start_time = getattr(session, "start_time", now)
-        threshold = max(float(getattr(self, "dom_stream_health_check_interval", 30.0)) * 2.0, 60.0)
+        threshold = max(float(getattr(self, "dom_stream_health_check_interval", 30.0)) * 2.0, 120.0)
         inactive_seconds = (now - (last_at or start_time)).total_seconds()
         if inactive_seconds < threshold:
             return
