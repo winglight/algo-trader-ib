@@ -3,6 +3,7 @@
 [English Version](README_en.md)
 
 ![screenshot](images/screenshot.png)
+![screenshot2](images/pnl-calendar.png)
 
 ## 项目简介
 
@@ -45,6 +46,7 @@ cd algo-trader-ib
 ```
 ./setup_and_run.sh
 ```
+前端页面已开源至：https://github.com/winglight/ati-frontend ，可本地运行或部署到 CF Pages；当前项目不再自动创建前端容器。
 3. 根据提示输入IB账户（仅支持Paper账号）密码及vnc、redis、mariadb的秘码。
 
 整个初始化过程完成后，控制台会输出 “完成：中间件与服务容器已启动” 等提示信息 。您可以通过`docker compose ps `查看正在运行的容器列表，通过 `docker compose logs -f backend `等命令实时查看某服务日志。如果需要停止服务，执行 `docker compose down `即可停止并移除容器。
@@ -74,6 +76,7 @@ cd algo-trader-ib
 
 ## Release Log：
 2026-1-4 0.0.4发布了，解决了数据订阅稳定性的问题，现在理论上可以一直运行了。不过，数据库表结构有变动，需要删掉重建。
+2026-2-7 0.0.6发布了，增加了新的页面：/pnl-calendar，增加了看门狗，能够自动重启策略服务，经过测试，可以一直保持正常运行状态了
 
 ## 常见问题解答 (FAQ)
 

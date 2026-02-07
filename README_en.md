@@ -45,6 +45,7 @@ The current repository contains everything needed for deployment, including Dock
 ```bash
 ./setup_and_run.sh
 ```
+Frontend is open-sourced at https://github.com/winglight/ati-frontend . You can run it locally or deploy to CF Pages; this project no longer auto-creates a frontend container.
 
 3. Follow the prompts to enter the IB account (Paper account only supported) password and passwords for vnc, redis, and mariadb.
 
