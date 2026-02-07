@@ -180,12 +180,16 @@ services:
       [
         "tunnel",
         "--no-autoupdate",
+        "--config",
+        "/etc/cloudflared/config.yml",
         "run",
         "--token",
         "${CF_TUNNEL_TOKEN}"
       ]
     environment:
       CF_TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    volumes:
+      - ./config/cloudflared:/etc/cloudflared
     depends_on:
       backend:
         condition: service_started
