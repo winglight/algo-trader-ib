@@ -4,6 +4,19 @@ IFS=$'\n\t'
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
+FORCE_RM=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --force-rm)
+      FORCE_RM=true
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      exit 1
+      ;;
+  esac
+done
 
 copy_if_missing() {
   local src="$1" dst="$2"
@@ -108,6 +121,14 @@ sed_inplace "${MIDDLE_DIR}/.env" \
   -e "s|^MARIADB_PASSWORD=.*|MARIADB_PASSWORD=${SAFE_MARIADB_PASSWORD}|"
 
 # 5) start infra
+if [ "$FORCE_RM" = true ]; then
+  if [ -f "${ROOT_DIR}/docker-compose.yml" ]; then
+    (
+      cd "${ROOT_DIR}"
+      docker compose -f "${ROOT_DIR}/docker-compose.yml" down --rmi all --remove-orphans
+    )
+  fi
+fi
 (
   cd "${MIDDLE_DIR}"
   docker compose up -d
@@ -185,6 +206,9 @@ SERVICE_COMPOSE_PUBLIC="${ROOT_DIR}/docker-compose.yml"
 if [ -f "${SERVICE_COMPOSE_PUBLIC}" ]; then
   (
     cd "${ROOT_DIR}"
+    if [ "$FORCE_RM" = true ]; then
+      docker compose -f "${SERVICE_COMPOSE_PUBLIC}" pull
+    fi
     docker compose -f "${SERVICE_COMPOSE_PUBLIC}" up -d
   )
 else
