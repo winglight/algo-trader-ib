@@ -1,4 +1,3 @@
 ingress:
-  - hostname: atib.broyustudio.com
-    service: http://backend:8000
+  - service: http://backend:8000
   - service: http_status:404
