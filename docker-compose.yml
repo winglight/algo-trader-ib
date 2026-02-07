@@ -171,6 +171,29 @@ services:
       strategy-service:
         condition: service_started
 
+  cf-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: algo-trader-cf-tunnel
+    profiles:
+      - cf-tunnel
+    command:
+      [
+        "tunnel",
+        "--no-autoupdate",
+        "run",
+        "--token",
+        "${CF_TUNNEL_TOKEN}"
+      ]
+    environment:
+      CF_TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      default:
+        ipv4_address: 172.21.0.16
+
   frontend:
     image: ghcr.io/winglight/algo-trader/frontend:latest
     container_name: algo-trader-frontend
