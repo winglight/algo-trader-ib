@@ -32,6 +32,8 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       - stack
+    mem_limit: 2g
+    cpus: "1.5"
 
   redis:
     image: redis:7-alpine
