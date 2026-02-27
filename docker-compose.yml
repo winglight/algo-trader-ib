@@ -192,7 +192,7 @@ services:
     restart: unless-stopped
     networks:
       default:
-        ipv4_address: 172.21.0.16
+        ipv4_address: 172.21.0.30
 
   frontend:
     image: ghcr.io/winglight/algo-trader/frontend:latest
