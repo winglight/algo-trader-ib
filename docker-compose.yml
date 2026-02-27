@@ -186,9 +186,6 @@ services:
       ]
     environment:
       CF_TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
-    depends_on:
-      backend:
-        condition: service_started
     restart: unless-stopped
     networks:
       default:
