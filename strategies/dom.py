@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import inspect
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, ClassVar, Dict, Mapping
 
 from src.dom import DomSymbolConfig
-from src.server.market_data import MarketDataServiceError, MarketDataServiceUnavailable
+from src.common.market_data.api import MarketDataServiceError, MarketDataServiceUnavailable
 from src.strategy.base import BaseStrategy, StrategyError
 from src.strategy.runtime import DomRuntimeTelemetryService
 from src.strategy.types import StrategyIdentifier, normalize_strategy_identifier
@@ -254,7 +255,30 @@ class DomServiceSubscriptionMixin:
                     "attempt": attempts,
                 },
             )
+            await self._prime_dom_snapshot()
             await self._verify_dom_stream_health()
+
+    async def _prime_dom_snapshot(self) -> None:
+        service = self._dom_service
+        symbol = self._dom_subscription_symbol
+        if service is None or not symbol:
+            return
+        refresher = getattr(service, "refresh_symbol", None)
+        if not callable(refresher):
+            return
+        try:
+            primed = await refresher(symbol)
+        except Exception:
+            self.logger.exception("Failed to prime DOM snapshot for %s", symbol)
+            return
+        if primed:
+            self._telemetry_log(
+                "DOM snapshot primed from cached market data",
+                level="INFO",
+                tone="neutral",
+                deduplicate=False,
+                details={"symbol": symbol},
+            )
 
 
 def _coerce_float(value: Any) -> float:
@@ -385,13 +409,6 @@ class DomStreamHealthMixin:
             self._dom_stream_missing_logged = False
             self._dom_stream_refresh_inflight = False
             self._dom_subscription_retry_attempts = 0
-            if inactive_seconds is not None and inactive_seconds >= stale_threshold:
-                await self._force_dom_client_refresh(
-                    refresher=refresher,
-                    inactivity_seconds=inactive_seconds,
-                    stale_threshold=stale_threshold,
-                    last_snapshot_at=last_dom_at,
-                )
             return
         self._dom_subscription_active = False
         if last_rejected_at is not None:
@@ -551,6 +568,9 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
     _latest_snapshot: Mapping[str, Any] | None = field(
         default=None, init=False, repr=False
     )
+    _last_snapshot_fingerprint: tuple[Any, ...] | None = field(
+        default=None, init=False, repr=False
+    )
     runtime_telemetry: DomRuntimeTelemetryService | None = field(
         default=None, init=False, repr=False
     )
@@ -588,6 +608,10 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
     _last_dom_snapshot_at: datetime | None = field(default=None, init=False, repr=False)
     _dom_forced_refresh_next_at: float = field(default=0.0, init=False, repr=False)
     _dom_stale_log_next_at: float = field(default=0.0, init=False, repr=False)
+    _dq_message_times: deque[datetime] = field(default_factory=deque, init=False, repr=False)
+    _dq_window_seconds: float = field(default=10.0, init=False, repr=False)
+    _dq_min_rate_hz: float = field(default=2.0, init=False, repr=False)
+    _dq_stale_seconds: float = field(default=5.0, init=False, repr=False)
 
     def __post_init__(self) -> None:  # noqa: D401 - defer to parent docstring
         super().__post_init__()
@@ -623,6 +647,7 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
         self._dom_stream_health_check_interval = interval
         self._dom_forced_refresh_next_at = 0.0
         self._dom_stale_log_next_at = 0.0
+        self._dq_message_times = deque()
 
     # ------------------------------------------------------------------
     def _normalise_parameter_value(self, name: str, value: Any) -> Any:
@@ -773,10 +798,22 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
             callback = getattr(self, "_on_dom_snapshot", None)
             registrar = getattr(self._dom_service, "register_listener", None)
             if callable(registrar) and callable(callback):
-                remover = registrar(callback)
+                try:
+                    remover = registrar(
+                        callback,
+                        symbol=self.symbol,
+                        subscription_id=self.subscription_id or self.symbol or None,
+                    )
+                except TypeError:
+                    # Backward compatible with adapters that only accept callback.
+                    remover = registrar(callback)
                 if callable(remover):
                     setattr(self, "_listener_remove", remover)
-        if self._pubsub is not None and self._dispatch_event is not None:
+        if (
+            self._dom_service is None
+            and self._pubsub is not None
+            and self._dispatch_event is not None
+        ):
             loop = asyncio.get_running_loop()
             self._listener_task = loop.create_task(
                 self._run_listener(), name=f"{self.name}-dom-listener"
@@ -848,12 +885,16 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
         return True
 
     # ------------------------------------------------------------------
+    def _clear_listener_task(self, task: asyncio.Task[None] | None) -> None:
+        if self._listener_task is task:
+            self._listener_task = None
+
+    # ------------------------------------------------------------------
     async def recover_streams(self, streams: set[str], reason: str | None = None) -> None:
         if not getattr(self, "active", False):
             return
         if "dom" not in streams:
             return
-        now = datetime.now(timezone.utc)
         details = {
             "streams": ["dom"],
             "reason": reason or "stream_recovery_requested",
@@ -864,7 +905,6 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
             tone="warning",
             deduplicate=False,
             details=details,
-            timestamp=now,
         )
         self._restart_dom_listener_task()
         symbol = self._dom_subscription_symbol or self.symbol
@@ -891,6 +931,7 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
         dispatcher = self._dispatch_event
         if dispatcher is None:
             return
+        listener_task = asyncio.current_task()
         channel = self._resolve_channel(self.dom_channel)
         backoff = 1.0
         try:
@@ -903,48 +944,7 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
                                 break
                             if not isinstance(message, Mapping):
                                 continue
-                            if not self._accept_snapshot(message):
-                                try:
-                                    candidate_id = message.get("subscription_id")
-                                    symbol = message.get("symbol")
-                                except Exception:
-                                    candidate_id = None
-                                    symbol = None
-                                self._telemetry_log(
-                                    "DOM snapshot rejected",
-                                    level="INFO",
-                                    tone="neutral",
-                                    deduplicate=False,
-                                    details={
-                                        "candidate_subscription_id": candidate_id,
-                                        "candidate_symbol": symbol,
-                                        "configured_subscription_id": self.subscription_id,
-                                        "configured_symbol": self.symbol,
-                                    },
-                                )
-                                self._last_dom_rejected_at = datetime.now(timezone.utc)
-                                continue
-                            snapshot = dict(message)
-                            self._telemetry_record_snapshot(snapshot)
-                            status_token = str(snapshot.get("status") or "").strip().lower()
-                            if status_token == "no_data":
-                                await self._on_no_data_snapshot(snapshot)
-                            self._latest_snapshot = snapshot
-                            event = self._build_dom_event(snapshot)
-                            try:
-                                # Dispatch to self for local strategy processing
-                                if hasattr(self, "on_market_event") and callable(self.on_market_event):
-                                    await self.on_market_event(event)
-                                # Dispatch to external coordinator if configured
-                                if dispatcher is not None:
-                                    await dispatcher(event)
-                            except Exception:
-                                self.logger.exception("DOM event dispatch failed")
-                                self._telemetry_log(
-                                    "DOM event dispatch failed",
-                                    level="ERROR",
-                                    tone="negative",
-                                )
+                            await self._handle_snapshot_message(message, dispatcher=dispatcher)
                         backoff = 1.0
                     finally:
                         await stream.aclose()
@@ -962,12 +962,122 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
                 await asyncio.sleep(backoff)
                 backoff = min(30.0, backoff * 2)
         finally:
-            self._listener_task = None
+            self._clear_listener_task(listener_task)
             self._telemetry_log(
                 "DOM listener stopped",
                 level="INFO",
                 tone="neutral",
             )
+
+    async def _on_dom_snapshot(self, snapshot: DomSnapshot) -> None:
+        if not self.active:
+            return
+        payload = self._snapshot_payload_from_dom_service(snapshot)
+        await self._handle_snapshot_message(payload, dispatcher=self._dispatch_event)
+
+    async def _handle_snapshot_message(
+        self,
+        message: Mapping[str, Any],
+        *,
+        dispatcher: _Dispatcher | None,
+    ) -> None:
+        if not self._accept_snapshot(message):
+            try:
+                candidate_id = message.get("subscription_id")
+                symbol = message.get("symbol")
+            except Exception:
+                candidate_id = None
+                symbol = None
+            self._telemetry_log(
+                "DOM snapshot rejected",
+                level="INFO",
+                tone="neutral",
+                deduplicate=False,
+                details={
+                    "candidate_subscription_id": candidate_id,
+                    "candidate_symbol": symbol,
+                    "configured_subscription_id": self.subscription_id,
+                    "configured_symbol": self.symbol,
+                },
+            )
+            self._last_dom_rejected_at = datetime.now(timezone.utc)
+            return
+
+        snapshot = dict(message)
+        fingerprint = self._snapshot_fingerprint(snapshot)
+        if fingerprint and fingerprint == self._last_snapshot_fingerprint:
+            return
+        if fingerprint:
+            self._last_snapshot_fingerprint = fingerprint
+
+        self._telemetry_record_snapshot(snapshot)
+        status_token = str(snapshot.get("status") or "").strip().lower()
+        if status_token == "no_data":
+            await self._on_no_data_snapshot(snapshot)
+        self._latest_snapshot = snapshot
+        event = self._build_dom_event(snapshot)
+        try:
+            if hasattr(self, "on_market_event") and callable(self.on_market_event):
+                await self.on_market_event(event)
+            if dispatcher is not None:
+                await dispatcher(event)
+        except Exception:
+            self.logger.exception("DOM event dispatch failed")
+            self._telemetry_log(
+                "DOM event dispatch failed",
+                level="ERROR",
+                tone="negative",
+            )
+
+    def _snapshot_payload_from_dom_service(self, snapshot: DomSnapshot) -> Mapping[str, Any]:
+        payload = dict(snapshot.metadata or {})
+        payload.setdefault("symbol", snapshot.symbol)
+        payload.setdefault("subscription_id", self.subscription_id or snapshot.symbol)
+        payload.setdefault("timestamp", snapshot.received_at.isoformat())
+        bids = [
+            {"price": float(level.price), "size": float(level.size)}
+            for level in snapshot.bids
+        ]
+        asks = [
+            {"price": float(level.price), "size": float(level.size)}
+            for level in snapshot.asks
+        ]
+        payload["bids"] = bids
+        payload["asks"] = asks
+        payload.setdefault("depth", max(len(bids), len(asks)))
+        if bids:
+            payload.setdefault("best_bid", bids[0])
+        if asks:
+            payload.setdefault("best_ask", asks[0])
+        if bids and asks:
+            try:
+                mid_price = (float(bids[0]["price"]) + float(asks[0]["price"])) / 2.0
+                payload.setdefault("mid_price", mid_price)
+                payload.setdefault("spread", float(asks[0]["price"]) - float(bids[0]["price"]))
+            except Exception:
+                pass
+        return payload
+
+    def _snapshot_fingerprint(self, snapshot: Mapping[str, Any]) -> tuple[Any, ...]:
+        bids = snapshot.get("bids") or []
+        asks = snapshot.get("asks") or []
+        best_bid = bids[0] if bids else {}
+        best_ask = asks[0] if asks else {}
+        if not isinstance(best_bid, Mapping):
+            best_bid = {}
+        if not isinstance(best_ask, Mapping):
+            best_ask = {}
+        return (
+            str(snapshot.get("symbol") or ""),
+            str(snapshot.get("subscription_id") or ""),
+            str(snapshot.get("timestamp") or ""),
+            str(best_bid.get("price") or ""),
+            str(best_bid.get("size") or ""),
+            str(best_ask.get("price") or ""),
+            str(best_ask.get("size") or ""),
+            str(snapshot.get("depth") or ""),
+            str(snapshot.get("status") or ""),
+        )
 
     async def _on_no_data_snapshot(self, snapshot: Mapping[str, Any]) -> None:
         facade = self._coordinator_facade()
@@ -1241,17 +1351,16 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
             return base_token
         base_channel = f"{prefix}{base_token}" if prefix else base_token
         identifier = (self.subscription_id or self.symbol or "").strip()
-        wildcard_prefix = "" if prefix else "*"
         if identifier:
             suffix = identifier.upper()
             if base_channel.upper().endswith(f"-{suffix}"):
-                return f"{wildcard_prefix}{base_channel}"
+                return base_channel
             if base_channel.endswith("-"):
-                return f"{wildcard_prefix}{base_channel}{suffix}"
-            return f"{wildcard_prefix}{base_channel}-{suffix}"
+                return f"{base_channel}{suffix}"
+            return f"{base_channel}-{suffix}"
         if base_channel.endswith("-"):
-            return f"{wildcard_prefix}{base_channel}*"
-        return f"{wildcard_prefix}{base_channel}-*"
+            return f"{base_channel}*"
+        return f"{base_channel}-*"
 
     # ------------------------------------------------------------------
     def _accept_snapshot(self, snapshot: Mapping[str, Any]) -> bool:
@@ -1317,6 +1426,7 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
         asks = snapshot.get("asks") or []
         bid_volume = sum(_coerce_float(level.get("size")) for level in bids)
         ask_volume = sum(_coerce_float(level.get("size")) for level in asks)
+        data_quality = self._evaluate_data_quality(snapshot)
         event = {
             "type": "dom",
             "symbol": snapshot.get("symbol") or self.symbol,
@@ -1332,9 +1442,56 @@ class DOMSubscriptionStrategy(DomStreamHealthMixin, DomServiceSubscriptionMixin,
             "depth": snapshot.get("depth"),
             "total_bid_size": snapshot.get("total_bid_size", bid_volume),
             "total_ask_size": snapshot.get("total_ask_size", ask_volume),
+            "stream_lag_ms": data_quality["lag_ms"],
+            "dom_rate_hz": data_quality["rate_hz"],
+            "data_quality": data_quality,
             "snapshot": snapshot,
         }
         return event
+
+    def _evaluate_data_quality(self, snapshot: Mapping[str, Any]) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        self._dq_message_times.append(now)
+        window = max(1.0, float(self._dq_window_seconds))
+        while self._dq_message_times and (now - self._dq_message_times[0]).total_seconds() > window:
+            self._dq_message_times.popleft()
+        rate_hz = float(len(self._dq_message_times)) / window
+        stale_seconds = max(0.5, float(self._dq_stale_seconds))
+        lag_ms: float | None = None
+        snapshot_ts = self._parse_timestamp(snapshot.get("timestamp"))
+        if snapshot_ts is not None:
+            lag_ms = max(0.0, (now - snapshot_ts).total_seconds() * 1000.0)
+        score = 100.0
+        status = "GREEN"
+        missing_fields = 0
+        for field_name in ("best_bid", "best_ask"):
+            if snapshot.get(field_name) is None:
+                missing_fields += 1
+        if missing_fields:
+            score -= min(30.0, 10.0 * missing_fields)
+        if rate_hz < self._dq_min_rate_hz:
+            score -= min(40.0, (self._dq_min_rate_hz - rate_hz) * 20.0)
+        if lag_ms is not None and lag_ms > stale_seconds * 1000.0:
+            score -= min(60.0, (lag_ms / 1000.0 - stale_seconds) * 10.0)
+        if str(snapshot.get("status") or "").strip().lower() == "no_data":
+            score -= 50.0
+        score = max(0.0, min(100.0, score))
+        if (
+            str(snapshot.get("status") or "").strip().lower() == "no_data"
+            or (lag_ms is not None and lag_ms > stale_seconds * 1000.0)
+            or rate_hz < max(0.1, self._dq_min_rate_hz * 0.5)
+        ):
+            status = "RED"
+        elif score < 70.0:
+            status = "YELLOW"
+        return {
+            "score": round(score, 2),
+            "status": status,
+            "lag_ms": round(float(lag_ms), 2) if lag_ms is not None else None,
+            "rate_hz": round(rate_hz, 3),
+            "stale_seconds": stale_seconds,
+            "missing_fields": missing_fields,
+        }
 
     # ------------------------------------------------------------------
     def latest_snapshot(self) -> Mapping[str, Any] | None:

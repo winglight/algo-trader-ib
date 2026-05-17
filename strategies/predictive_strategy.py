@@ -298,6 +298,18 @@ class PredictiveStrategy(StrategyTemplate):
         long_threshold, short_threshold = self._policy_thresholds(self._model_state)
         self._pending_orders.clear()
 
+        # Log heartbeat for observability
+        self.logger.info(
+            "Predictive model evaluated",
+            extra={
+                "base_prob": round(base_probability, 4),
+                "news_prob": round(news_probability, 4),
+                "final_prob": round(final_probability, 4),
+                "thresholds": f"L:{long_threshold:.2f}/S:{short_threshold:.2f}",
+                "symbol": self.symbol
+            }
+        )
+
         if final_probability >= long_threshold:
             order = self._build_order("BUY", final_probability, news_confidence)
             self._pending_orders.append(order)
