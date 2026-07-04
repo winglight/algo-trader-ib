@@ -32,8 +32,6 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       - stack
-    mem_limit: 2g
-    cpus: "1.5"
 
   redis:
     image: redis:7-alpine
@@ -61,7 +59,7 @@ services:
     image: mariadb:11.4
     restart: unless-stopped
     environment:
-      - TZ=${TZ}
+      - TZ=UTC
       - MYSQL_ROOT_PASSWORD=${MARIADB_PASSWORD}
       - MYSQL_DATABASE=${MARIADB_DATABASE}
       - MYSQL_USER=${MARIADB_USER}
@@ -73,4 +71,3 @@ services:
     # 本机直连 MariaDB: mysql -h 0.0.0.0 -P 3306 -u ${MARIADB_USER} -p
     ports:
       - "0.0.0.0:3306:3306"
-

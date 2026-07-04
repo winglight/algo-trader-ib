@@ -4,19 +4,6 @@ IFS=$'\n\t'
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
-FORCE_RM=false
-
-for arg in "$@"; do
-  case "$arg" in
-    --force-rm)
-      FORCE_RM=true
-      ;;
-    *)
-      echo "Unknown argument: $arg" >&2
-      exit 1
-      ;;
-  esac
-done
 
 copy_if_missing() {
   local src="$1" dst="$2"
@@ -34,15 +21,6 @@ require_cmd() {
 
 require_cmd docker
 require_cmd sed
-
-sed_inplace() {
-  local file="$1"
-  shift
-  local tmp
-  tmp="$(mktemp "${file}.tmp.XXXXXX")"
-  sed "$@" "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
 
 # 1) middle/.env from example
 copy_if_missing "${MIDDLE_DIR}/.env.example" "${MIDDLE_DIR}/.env"
@@ -113,22 +91,14 @@ SAFE_VNC_SERVER_PASSWORD="$(sed_escape_repl_pipe "$VNC_SERVER_PASSWORD")"
 SAFE_REDIS_PASSWORD="$(sed_escape_repl_pipe "$REDIS_PASSWORD")"
 SAFE_MARIADB_PASSWORD="$(sed_escape_repl_pipe "$MARIADB_PASSWORD")"
 
-sed_inplace "${MIDDLE_DIR}/.env" \
+sed -i '' \
   -e "s|^TWS_USERID=.*|TWS_USERID=${SAFE_TWS_USERID}|" \
   -e "s|^TWS_PASSWORD=.*|TWS_PASSWORD=${SAFE_TWS_PASSWORD}|" \
   -e "s|^VNC_SERVER_PASSWORD=.*|VNC_SERVER_PASSWORD=${SAFE_VNC_SERVER_PASSWORD}|" \
   -e "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${SAFE_REDIS_PASSWORD}|" \
-  -e "s|^MARIADB_PASSWORD=.*|MARIADB_PASSWORD=${SAFE_MARIADB_PASSWORD}|"
+  -e "s|^MARIADB_PASSWORD=.*|MARIADB_PASSWORD=${SAFE_MARIADB_PASSWORD}|" "${MIDDLE_DIR}/.env"
 
 # 5) start infra
-if [ "$FORCE_RM" = true ]; then
-  if [ -f "${ROOT_DIR}/docker-compose.yml" ]; then
-    (
-      cd "${ROOT_DIR}"
-      docker compose -f "${ROOT_DIR}/docker-compose.yml" down --rmi all --remove-orphans
-    )
-  fi
-fi
 (
   cd "${MIDDLE_DIR}"
   docker compose up -d
@@ -165,7 +135,7 @@ DQ_MARIADB_PASSWORD="$(sh_escape_dq "${MARIADB_PASSWORD}")"
 SQL_MARIADB_PASSWORD="$(mysql_escape_sq "${MARIADB_PASSWORD}")"
 
 # Try root-based initialization; if it fails (e.g., root password mismatch due to persisted volume), continue gracefully
-if docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -lc "mariadb -uroot -p\"${DQ_MARIADB_PASSWORD}\" -h 127.0.0.1 -N -e \"CREATE DATABASE IF NOT EXISTS algo_trader; CREATE USER IF NOT EXISTS 'algo_trader'@'%' IDENTIFIED BY '${SQL_MARIADB_PASSWORD}'; GRANT ALL PRIVILEGES ON algo_trader.* TO 'algo_trader'@'%'; FLUSH PRIVILEGES;\"" >/dev/null 2>&1; then
+if docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -lc "mariadb -uroot -p\"${DQ_MARIADB_PASSWORD}\" -h 127.0.0.1 -N -e \"CREATE DATABASE IF NOT EXISTS algo_trader; CREATE DATABASE IF NOT EXISTS algo_trader_backtest; CREATE USER IF NOT EXISTS 'algo_trader'@'%' IDENTIFIED BY '${SQL_MARIADB_PASSWORD}'; CREATE USER IF NOT EXISTS 'algo_trader_backtest'@'%' IDENTIFIED BY '${SQL_MARIADB_PASSWORD}'; GRANT ALL PRIVILEGES ON algo_trader.* TO 'algo_trader'@'%'; GRANT ALL PRIVILEGES ON algo_trader_backtest.* TO 'algo_trader_backtest'@'%'; FLUSH PRIVILEGES;\"" >/dev/null 2>&1; then
   : # root init succeeded
 else
   echo "警告：无法以 root 完成初始化，跳过（可能因持久化卷中的 root 密码不同）。" >&2
@@ -189,26 +159,27 @@ update_env_line() {
   local escaped_value
   escaped_value="$(printf '%s' "$value" | sed -e 's/[|&]/\\&/g')"
   if grep -q "^${key}=" "$file"; then
-    sed_inplace "$file" -e "s|^${key}=.*|${key}=${escaped_value}|"
+    sed -i '' -e "s|^${key}=.*|${key}=${escaped_value}|" "$file"
   else
     printf '\n%s=%s\n' "$key" "$value" >>"$file"
   fi
 }
 
 REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
+BACKTEST_REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/8"
 MARIADB_URL="mariadb://algo_trader:${MARIADB_PASSWORD}@mariadb:3306/algo_trader"
+BACKTEST_MARIADB_URL="mariadb://algo_trader_backtest:${MARIADB_PASSWORD}@mariadb:3306/algo_trader_backtest"
 
 update_env_line "${ROOT_DIR}/.env" REDIS_URL "$REDIS_URL"
 update_env_line "${ROOT_DIR}/.env" MARIADB_URL "$MARIADB_URL"
+update_env_line "${ROOT_DIR}/.env" BACKTEST_REDIS_URL "$BACKTEST_REDIS_URL"
+update_env_line "${ROOT_DIR}/.env" BACKTEST_MARIADB_URL "$BACKTEST_MARIADB_URL"
 
 # 7) run service stack from public/docker-compose.yml
 SERVICE_COMPOSE_PUBLIC="${ROOT_DIR}/docker-compose.yml"
 if [ -f "${SERVICE_COMPOSE_PUBLIC}" ]; then
   (
     cd "${ROOT_DIR}"
-    if [ "$FORCE_RM" = true ]; then
-      docker compose -f "${SERVICE_COMPOSE_PUBLIC}" pull
-    fi
     docker compose -f "${SERVICE_COMPOSE_PUBLIC}" up -d
   )
 else

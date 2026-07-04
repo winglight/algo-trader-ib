@@ -114,28 +114,15 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
         )
         
         try:
-            primary_timeout = 180.0
-            fallback_timeout = 240.0
-            try:
-                records = await asyncio.wait_for(
-                    self._load_history_records(
-                        request=request,
-                        start=start_time,
-                        end=now,
-                        interval=delta,
-                    ),
-                    timeout=primary_timeout,
-                )
-            except asyncio.TimeoutError:
-                records = []
-                self.logger.warning(
-                    "MeanReversion primary backfill timed out",
-                    extra={
-                        "symbol": self.symbol,
-                        "interval": self.interval,
-                        "timeout_seconds": primary_timeout,
-                    },
-                )
+            records = await asyncio.wait_for(
+                self._load_history_records(
+                    request=request,
+                    start=start_time,
+                    end=now,
+                    interval=delta,
+                ),
+                timeout=60.0,
+            )
 
             # Fallback to IB if empty or insufficient
             if not records or len(records) < required_history:
@@ -147,27 +134,16 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                         "need": required_history
                     }
                 )
-                try:
-                    ib_records = await asyncio.wait_for(
-                        self._load_history_records(
-                            request=request,
-                            start=start_time,
-                            end=now,
-                            interval=delta,
-                            force_ib=True,
-                        ),
-                        timeout=fallback_timeout,
-                    )
-                except asyncio.TimeoutError:
-                    ib_records = []
-                    self.logger.warning(
-                        "MeanReversion IB fallback backfill timed out",
-                        extra={
-                            "symbol": self.symbol,
-                            "interval": self.interval,
-                            "timeout_seconds": fallback_timeout,
-                        },
-                    )
+                ib_records = await asyncio.wait_for(
+                    self._load_history_records(
+                        request=request,
+                        start=start_time,
+                        end=now,
+                        interval=delta,
+                        force_ib=True,
+                    ),
+                    timeout=90.0,
+                )
                 if not records or (ib_records and len(ib_records) > len(records)):
                     records = ib_records
             
@@ -385,9 +361,6 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
 
         price_value = float(price)
 
-        # Visible heartbeat
-        self.logger.info(f"Processing candle: {candle.get('end')} (Price: {price_value})")
-
         lookback = int(getattr(self, "lookback", 20))
         if self._history.maxlen != lookback:
             self._history = deque(self._history, maxlen=lookback)
@@ -446,10 +419,7 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                                 continue
                             closed = self._ingest_bar_payload(item)
                             if closed is not None:
-                                closed_events = closed if isinstance(closed, list) else [closed]
-                                for event in closed_events:
-                                    if isinstance(event, Mapping):
-                                        aggregated.append(event)
+                                aggregated.append(closed)
                         leftovers = self._flush_unified_bucket(close_partial=True)
                         if leftovers:
                             aggregated.extend(leftovers)
@@ -615,6 +585,25 @@ class MeanReversionStrategy(CandleSubscriptionStrategy, StrategyTemplate):
                     self._entry_price = None
             except Exception:
                 self.logger.debug("Failed to evaluate exit targets for mean reversion", exc_info=True)
+            # Track signal-generation phase telemetry for kline UI
+            try:
+                if not hasattr(self, "_signals_generated"):
+                    self._signals_generated = 0  # type: ignore[attr-defined]
+                self._signals_generated += 1  # type: ignore[attr-defined]
+            except Exception:
+                # Defensive: ensure counter does not break runtime
+                pass
+            self._telemetry_set_phase_status(
+                self._PHASE_SIGNALS,
+                status="ready",
+                status_code="signal_generated",
+            )
+            self._telemetry_update_phase_metrics(
+                self._PHASE_SIGNALS,
+                signals_generated=getattr(self, "_signals_generated", 1),
+                last_signal_side=signal.side,
+                last_signal_quantity=signal.quantity,
+            )
             details = dict(signal.metadata)
             details.update(
                 {
