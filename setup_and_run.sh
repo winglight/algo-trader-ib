@@ -43,12 +43,11 @@ read_env_value() {
   fi
 }
 
-# Use current middle/.env value if set and not default, else prompt
-get_or_prompt() {
-  local key="$1" prompt="$2"
+get_or_prompt_from_file() {
+  local file="$1" example="$2" key="$3" prompt="$4"
   local current default
-  current="$(read_env_value "${MIDDLE_DIR}/.env" "$key")"
-  default="$(read_env_value "${MIDDLE_DIR}/.env.example" "$key")"
+  current="$(read_env_value "$file" "$key")"
+  default="$(read_env_value "$example" "$key")"
   if [ -n "$current" ] && [ "$current" != "$default" ]; then
     printf '%s' "$current"
   else
@@ -56,21 +55,39 @@ get_or_prompt() {
   fi
 }
 
-TWS_USERID="$(get_or_prompt TWS_USERID "Please input TWS_USERID")"
-TWS_PASSWORD="$(get_or_prompt TWS_PASSWORD "Please input TWS_PASSWORD")"
-VNC_SERVER_PASSWORD="$(get_or_prompt VNC_SERVER_PASSWORD "Please input VNC_SERVER_PASSWORD")"
+get_or_prompt() {
+  get_or_prompt_from_file "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" "$1" "$2"
+}
+
 REDIS_PASSWORD="$(get_or_prompt REDIS_PASSWORD "Please input REDIS_PASSWORD")"
 MARIADB_PASSWORD="$(get_or_prompt MARIADB_PASSWORD "Please input MARIADB_PASSWORD")"
+ADMIN_PASSWORD="$(get_or_prompt_from_file "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" ADMIN_PASSWORD "Please input ATI web password for ati-guest")"
+JWT_SECRET="$(read_env_value "${ROOT_DIR}/.env" JWT_SECRET)"
+if [ -z "$JWT_SECRET" ] || [ "$JWT_SECRET" = "change_me" ]; then
+  JWT_SECRET="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+fi
 
 # Fixed MariaDB identifiers (per project defaults)
 MARIADB_DATABASE="algo_trader"
 MARIADB_USER="algo_trader"
 
-# 4) update middle/.env (escape sed replacement to handle '&' and delimiter)
+# 4) update env files
 sed_escape_repl_pipe() {
   # Escape characters that have special meaning in sed replacement with '|' delimiter
   # Specifically: '&' (expands to match) and '|' (our delimiter)
   printf '%s' "$1" | sed -e 's/[|&]/\\&/g'
+}
+
+update_env_line() {
+  local file="$1" key="$2" value="$3"
+  local escaped_value
+  escaped_value="$(sed_escape_repl_pipe "$value")"
+  if grep -q "^${key}=" "$file"; then
+    sed -i.bak -e "s|^${key}=.*|${key}=${escaped_value}|" "$file"
+    rm -f "${file}.bak"
+  else
+    printf '\n%s=%s\n' "$key" "$value" >>"$file"
+  fi
 }
 
 # Escape for double-quoted shell context inside container commands
@@ -85,18 +102,8 @@ mysql_escape_sq() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\'/g"
 }
 
-SAFE_TWS_USERID="$(sed_escape_repl_pipe "$TWS_USERID")"
-SAFE_TWS_PASSWORD="$(sed_escape_repl_pipe "$TWS_PASSWORD")"
-SAFE_VNC_SERVER_PASSWORD="$(sed_escape_repl_pipe "$VNC_SERVER_PASSWORD")"
-SAFE_REDIS_PASSWORD="$(sed_escape_repl_pipe "$REDIS_PASSWORD")"
-SAFE_MARIADB_PASSWORD="$(sed_escape_repl_pipe "$MARIADB_PASSWORD")"
-
-sed -i '' \
-  -e "s|^TWS_USERID=.*|TWS_USERID=${SAFE_TWS_USERID}|" \
-  -e "s|^TWS_PASSWORD=.*|TWS_PASSWORD=${SAFE_TWS_PASSWORD}|" \
-  -e "s|^VNC_SERVER_PASSWORD=.*|VNC_SERVER_PASSWORD=${SAFE_VNC_SERVER_PASSWORD}|" \
-  -e "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${SAFE_REDIS_PASSWORD}|" \
-  -e "s|^MARIADB_PASSWORD=.*|MARIADB_PASSWORD=${SAFE_MARIADB_PASSWORD}|" "${MIDDLE_DIR}/.env"
+update_env_line "${MIDDLE_DIR}/.env" REDIS_PASSWORD "$REDIS_PASSWORD"
+update_env_line "${MIDDLE_DIR}/.env" MARIADB_PASSWORD "$MARIADB_PASSWORD"
 
 # 5) start infra
 (
@@ -142,7 +149,7 @@ else
 fi
 
 # Import SQL using available credentials: prefer root, fall back to app user
-SQL_FILE="${ROOT_DIR}/mariadb_init.sql"
+SQL_FILE="${ROOT_DIR}/algo_trader.sql"
 if [ -f "${SQL_FILE}" ]; then
   if docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -lc "mariadb -uroot -p\"${DQ_MARIADB_PASSWORD}\" -h 127.0.0.1 algo_trader -N -e 'SELECT 1'" >/dev/null 2>&1; then
     docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -lc "mariadb -uroot -p\"${DQ_MARIADB_PASSWORD}\" -h 127.0.0.1 algo_trader" < "${SQL_FILE}" || echo "警告：root 导入 SQL 失败，可能因权限或密码不匹配。" >&2
@@ -153,18 +160,6 @@ else
   echo "提示：未找到 SQL 文件 ${SQL_FILE}，跳过初始数据导入。"
 fi
 
-# 6) update public .env (REDIS_URL, MARIADB_URL)
-update_env_line() {
-  local file="$1" key="$2" value="$3"
-  local escaped_value
-  escaped_value="$(printf '%s' "$value" | sed -e 's/[|&]/\\&/g')"
-  if grep -q "^${key}=" "$file"; then
-    sed -i '' -e "s|^${key}=.*|${key}=${escaped_value}|" "$file"
-  else
-    printf '\n%s=%s\n' "$key" "$value" >>"$file"
-  fi
-}
-
 REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/0"
 BACKTEST_REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/8"
 MARIADB_URL="mariadb://algo_trader:${MARIADB_PASSWORD}@mariadb:3306/algo_trader"
@@ -174,6 +169,15 @@ update_env_line "${ROOT_DIR}/.env" REDIS_URL "$REDIS_URL"
 update_env_line "${ROOT_DIR}/.env" MARIADB_URL "$MARIADB_URL"
 update_env_line "${ROOT_DIR}/.env" BACKTEST_REDIS_URL "$BACKTEST_REDIS_URL"
 update_env_line "${ROOT_DIR}/.env" BACKTEST_MARIADB_URL "$BACKTEST_MARIADB_URL"
+update_env_line "${ROOT_DIR}/.env" ADMIN_USERNAME "ati-guest"
+update_env_line "${ROOT_DIR}/.env" ADMIN_PASSWORD "$ADMIN_PASSWORD"
+update_env_line "${ROOT_DIR}/.env" JWT_SECRET "$JWT_SECRET"
+update_env_line "${ROOT_DIR}/.env" ALLOW_ANONYMOUS_ACCESS "false"
+update_env_line "${ROOT_DIR}/.env" BROKER_RUNNER_ADAPTER_ENTRYPOINT "src.broker_adapters.sim:create_adapter"
+update_env_line "${ROOT_DIR}/.env" BROKER_RUNNER_URL "http://broker-runner-service:8115"
+update_env_line "${ROOT_DIR}/.env" ACCOUNT_BROKER_RUNNER_URL "http://broker-runner-service:8115"
+update_env_line "${ROOT_DIR}/.env" ORDERS_BROKER_RUNNER_URL "http://broker-runner-service:8115"
+update_env_line "${ROOT_DIR}/.env" MARKET_DATA_BROKER_RUNNER_URL "http://broker-runner-service:8115"
 
 # 7) run service stack from public/docker-compose.yml
 SERVICE_COMPOSE_PUBLIC="${ROOT_DIR}/docker-compose.yml"

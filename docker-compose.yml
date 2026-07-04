@@ -2,8 +2,6 @@ services:
   backend:
     image: ghcr.io/winglight/algo-trader/backend:latest
     container_name: algo-trader-backend
-    ports:
-      - "8000:8000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -12,18 +10,35 @@ services:
       - ./config:/app/config
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz||restart_mode=docker,docker_container=algo-trader-backend,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz||restart_mode=docker,docker_container=algo-trader-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz||restart_mode=docker,docker_container=algo-trader-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz||restart_mode=docker,docker_container=algo-trader-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz||restart_mode=docker,docker_container=algo-trader-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz||restart_mode=docker,docker_container=algo-trader-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz||restart_mode=docker,docker_container=algo-trader-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz||restart_mode=docker,docker_container=algo-trader-strategy-spec,docker_host=unix:///var/run/docker.sock"
+      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz||restart_mode=docker,docker_container=algo-trader-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz||restart_mode=docker,docker_container=algo-trader-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz||restart_mode=docker,docker_container=algo-trader-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz||restart_mode=docker,docker_container=algo-trader-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz||restart_mode=docker,docker_container=algo-trader-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz||restart_mode=docker,docker_container=algo-trader-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz||restart_mode=docker,docker_container=algo-trader-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz||restart_mode=docker,docker_container=algo-trader-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz||restart_mode=docker,docker_container=algo-trader-strategy-spec,docker_host=unix:///var/run/docker.sock"
       OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec
     restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.10
 
+  broker-runner-service:
+    image: ghcr.io/winglight/algo-trader/broker-runner-service:latest
+    container_name: algo-trader-broker-runner
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    environment:
+      BROKER_RUNNER_ADAPTER_ENTRYPOINT: src.broker_adapters.sim:create_adapter
+      BROKER_RUNNER_SERVICE_REGISTRY_URL: http://broker-runner-service:8115
+      BROKER_RUNNER_SERVICE_REGISTRY_RESTART_MODE: docker
+      BROKER_RUNNER_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-broker-runner
+      BROKER_RUNNER_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      default:
+        ipv4_address: 172.21.0.25
+
   account-service:
     image: ghcr.io/winglight/algo-trader/account-service:latest
     container_name: algo-trader-account
-    ports:
-      - "8100:8100"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -34,7 +49,11 @@ services:
       ACCOUNT_SERVICE_REGISTRY_RESTART_MODE: docker
       ACCOUNT_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-account
       ACCOUNT_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+      ACCOUNT_BROKER_RUNNER_URL: http://broker-runner-service:8115
     restart: unless-stopped
+    depends_on:
+      broker-runner-service:
+        condition: service_started
     networks:
       default:
         ipv4_address: 172.21.0.11
@@ -42,8 +61,6 @@ services:
   orders-service:
     image: ghcr.io/winglight/algo-trader/orders-service:latest
     container_name: algo-trader-orders
-    ports:
-      - "8101:8101"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -54,7 +71,11 @@ services:
       ORDERS_SERVICE_REGISTRY_RESTART_MODE: docker
       ORDERS_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-orders
       ORDERS_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+      ORDERS_BROKER_RUNNER_URL: http://broker-runner-service:8115
     restart: unless-stopped
+    depends_on:
+      broker-runner-service:
+        condition: service_started
     networks:
       default:
         ipv4_address: 172.21.0.12
@@ -62,8 +83,6 @@ services:
   market-data-service:
     image: ghcr.io/winglight/algo-trader/market-data-service:latest
     container_name: algo-trader-market-data
-    ports:
-      - "8102:8102"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -74,7 +93,11 @@ services:
       MARKET_DATA_SERVICE_REGISTRY_RESTART_MODE: docker
       MARKET_DATA_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-market-data
       MARKET_DATA_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+      MARKET_DATA_BROKER_RUNNER_URL: http://broker-runner-service:8115
     restart: unless-stopped
+    depends_on:
+      broker-runner-service:
+        condition: service_started
     networks:
       default:
         ipv4_address: 172.21.0.13
@@ -82,8 +105,6 @@ services:
   risk-service:
     image: ghcr.io/winglight/algo-trader/risk-service:latest
     container_name: algo-trader-risk
-    ports:
-      - "8103:8103"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -102,8 +123,6 @@ services:
   simulation-service:
     image: ghcr.io/winglight/algo-trader/sim-service:latest
     container_name: algo-trader-sim
-    ports:
-      - "8111:8111"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -122,8 +141,6 @@ services:
   strategy-spec-service:
     image: ghcr.io/winglight/algo-trader/strategy-spec-service:latest
     container_name: algo-trader-strategy-spec
-    ports:
-      - "8114:8114"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -142,8 +159,6 @@ services:
   strategy-service:
     image: ghcr.io/winglight/algo-trader/strategy-service:latest
     container_name: algo-trader-strategy
-    ports:
-      - "8104:8104"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -188,7 +203,7 @@ services:
         "600",
       ]
     environment:
-      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz||restart_mode=docker,docker_container=algo-trader-backend,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz||restart_mode=docker,docker_container=algo-trader-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz||restart_mode=docker,docker_container=algo-trader-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz||restart_mode=docker,docker_container=algo-trader-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz||restart_mode=docker,docker_container=algo-trader-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz||restart_mode=docker,docker_container=algo-trader-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz||restart_mode=docker,docker_container=algo-trader-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz||restart_mode=docker,docker_container=algo-trader-strategy-spec,docker_host=unix:///var/run/docker.sock"
+      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz||restart_mode=docker,docker_container=algo-trader-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz||restart_mode=docker,docker_container=algo-trader-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz||restart_mode=docker,docker_container=algo-trader-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz||restart_mode=docker,docker_container=algo-trader-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz||restart_mode=docker,docker_container=algo-trader-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz||restart_mode=docker,docker_container=algo-trader-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz||restart_mode=docker,docker_container=algo-trader-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz||restart_mode=docker,docker_container=algo-trader-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz||restart_mode=docker,docker_container=algo-trader-strategy-spec,docker_host=unix:///var/run/docker.sock"
       SERVICE_WATCHDOG_STRATEGY_STREAM_ENABLED: "1"
     volumes:
       - ./logs:/app/logs
@@ -196,6 +211,8 @@ services:
     restart: unless-stopped
     depends_on:
       backend:
+        condition: service_started
+      broker-runner-service:
         condition: service_started
       account-service:
         condition: service_started
@@ -216,10 +233,10 @@ services:
     image: ghcr.io/winglight/algo-trader/frontend:latest
     container_name: algo-trader-frontend
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     environment:
-      VITE_API_BASE_URL: http://backend:8000
-      VITE_WS_URL: ws://backend:8000/ws
+      VITE_API_BASE_URL: ""
+      VITE_WS_URL: ""
     depends_on:
       backend:
         condition: service_started
