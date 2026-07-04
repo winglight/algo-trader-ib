@@ -39,3 +39,26 @@ services:
       - ./data/mariadb:/var/lib/mysql
     networks:
       - stack
+
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    profiles:
+      - ib
+    container_name: ib-gateway
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      - TWS_USERID=${TWS_USERID}
+      - TWS_PASSWORD=${TWS_PASSWORD}
+      - TRADING_MODE=paper
+      - TWS_SETTINGS_PATH=/home/ibgateway/tws_settings
+      - READ_ONLY_API=no
+      - API_PORT=4004
+      - VNC_SERVER_PASSWORD=${VNC_SERVER_PASSWORD}
+      - TWOFA_TIMEOUT_ACTION=restart
+      - RELOGIN_AFTER_TWOFA_TIMEOUT=yes
+      - ALLOW_BLIND_TRADING=no
+    volumes:
+      - ./data/ib-gateway/tws_settings:/home/ibgateway/tws_settings
+    networks:
+      - stack

@@ -1,8 +1,7 @@
 -- Schema initialization for local algo-trader runtime services.
 --
 -- This script provisions the MariaDB tables required by the local main
--- application and runtime services. Cloud Platform / cloud Studio /
--- cloud Agents tables belong in data/cloud_platform.sql.
+-- application and runtime services.
 
 CREATE TABLE IF NOT EXISTS config (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -577,52 +576,6 @@ DELIMITER ;
 CALL add_trade_logs_foreign_keys();
 DROP PROCEDURE add_trade_logs_foreign_keys;
 
-CREATE TABLE IF NOT EXISTS news_trade_signal (
-    signal_id VARCHAR(191) NOT NULL PRIMARY KEY,
-    symbol VARCHAR(64) NOT NULL,
-    action VARCHAR(32) NOT NULL,
-    quantity DOUBLE NULL,
-    stop_loss DOUBLE NULL,
-    take_profit DOUBLE NULL,
-    confidence DOUBLE NULL,
-    prompt_template_id VARCHAR(191) NULL,
-    news_ref LONGTEXT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'news_trade_signal'
-      AND INDEX_NAME = 'idx_news_trade_signal_symbol_created_at'
-);
-SET @sql = IF(
-    @idx_exists = 0,
-    'CREATE INDEX idx_news_trade_signal_symbol_created_at ON news_trade_signal (symbol, created_at)',
-    'DO 0'
-);
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-CREATE TABLE IF NOT EXISTS news_trade_execution (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    signal_id VARCHAR(191) NOT NULL,
-    status VARCHAR(32) NOT NULL,
-    order_id BIGINT UNSIGNED NULL,
-    reason TEXT NULL,
-    filled_qty DOUBLE NULL,
-    filled_price DOUBLE NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_news_trade_execution_signal_id (signal_id),
-    KEY idx_news_trade_execution_order_id (order_id),
-    CONSTRAINT fk_news_trade_execution_order_id FOREIGN KEY (order_id)
-        REFERENCES orders(id)
-        ON DELETE SET NULL
-        ON UPDATE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS risk_rules (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     symbol VARCHAR(191) NULL,
@@ -1016,19 +969,6 @@ CREATE TABLE IF NOT EXISTS audit_issues (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT uq_audit_issues_issue_key UNIQUE KEY (issue_key)
-);
-
-CREATE TABLE IF NOT EXISTS audit_ai_reports (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    report_id VARCHAR(64) NOT NULL,
-    from_time DATETIME NULL,
-    to_time DATETIME NULL,
-    strategy_id VARCHAR(128) NULL,
-    summary TEXT NULL,
-    suggestions_json JSON NULL,
-    payload_json JSON NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_audit_ai_reports_report_id UNIQUE KEY (report_id)
 );
 
 CREATE TABLE IF NOT EXISTS audit_config_changes (

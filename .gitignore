@@ -1,5 +1,8 @@
 .env
+middle/.env
 .DS_Store
 
+data/
+logs/
 middle/data/
 __pycache__/
