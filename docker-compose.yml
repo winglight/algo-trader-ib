@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghcr.io/winglight/algo-trader/backend:latest
+    image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-backend
     volumes:
       - ./data:/app/data
@@ -8,9 +8,8 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
-      - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz||restart_mode=docker,docker_container=algo-trader-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz||restart_mode=docker,docker_container=algo-trader-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz||restart_mode=docker,docker_container=algo-trader-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz||restart_mode=docker,docker_container=algo-trader-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz||restart_mode=docker,docker_container=algo-trader-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz||restart_mode=docker,docker_container=algo-trader-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz||restart_mode=docker,docker_container=algo-trader-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz||restart_mode=docker,docker_container=algo-trader-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz||restart_mode=docker,docker_container=algo-trader-strategy-spec,docker_host=unix:///var/run/docker.sock"
+      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=disabled;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=disabled;account|http://account-service:8100/healthz|||restart_mode=disabled;orders|http://orders-service:8101/healthz|||restart_mode=disabled;market-data|http://market-data-service:8102/healthz|||restart_mode=disabled;risk|http://risk-service:8103/healthz|||restart_mode=disabled;strategy|http://strategy-service:8104/healthz|||restart_mode=disabled;simulation|http://simulation-service:8111/healthz|||restart_mode=disabled;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=disabled"
       OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec
     restart: unless-stopped
     networks:
@@ -18,7 +17,7 @@ services:
         ipv4_address: 172.21.0.10
 
   broker-runner-service:
-    image: ghcr.io/winglight/algo-trader/broker-runner-service:latest
+    image: ghcr.io/winglight/algo-trader/broker-runner-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-broker-runner
     volumes:
       - ./data:/app/data
@@ -38,16 +37,13 @@ services:
       BROKER_RUNNER_IB_MARKET_DATA_QUEUE_SIZE: ${BROKER_RUNNER_IB_MARKET_DATA_QUEUE_SIZE:-64}
       BROKER_RUNNER_IB_HISTORICAL_TIMEOUT: ${BROKER_RUNNER_IB_HISTORICAL_TIMEOUT:-300.0}
       BROKER_RUNNER_SERVICE_REGISTRY_URL: http://broker-runner-service:8115
-      BROKER_RUNNER_SERVICE_REGISTRY_RESTART_MODE: docker
-      BROKER_RUNNER_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-broker-runner
-      BROKER_RUNNER_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
     restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.25
 
   account-service:
-    image: ghcr.io/winglight/algo-trader/account-service:latest
+    image: ghcr.io/winglight/algo-trader/account-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-account
     volumes:
       - ./data:/app/data
@@ -56,9 +52,6 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      ACCOUNT_SERVICE_REGISTRY_RESTART_MODE: docker
-      ACCOUNT_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-account
-      ACCOUNT_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
       ACCOUNT_BROKER_RUNNER_URL: http://broker-runner-service:8115
     restart: unless-stopped
     depends_on:
@@ -69,7 +62,7 @@ services:
         ipv4_address: 172.21.0.11
 
   orders-service:
-    image: ghcr.io/winglight/algo-trader/orders-service:latest
+    image: ghcr.io/winglight/algo-trader/orders-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-orders
     volumes:
       - ./data:/app/data
@@ -78,9 +71,6 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      ORDERS_SERVICE_REGISTRY_RESTART_MODE: docker
-      ORDERS_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-orders
-      ORDERS_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
       ORDERS_BROKER_RUNNER_URL: http://broker-runner-service:8115
     restart: unless-stopped
     depends_on:
@@ -91,7 +81,7 @@ services:
         ipv4_address: 172.21.0.12
 
   market-data-service:
-    image: ghcr.io/winglight/algo-trader/market-data-service:latest
+    image: ghcr.io/winglight/algo-trader/market-data-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-market-data
     volumes:
       - ./data:/app/data
@@ -100,9 +90,6 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      MARKET_DATA_SERVICE_REGISTRY_RESTART_MODE: docker
-      MARKET_DATA_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-market-data
-      MARKET_DATA_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
       MARKET_DATA_BROKER_RUNNER_URL: http://broker-runner-service:8115
     restart: unless-stopped
     depends_on:
@@ -113,7 +100,7 @@ services:
         ipv4_address: 172.21.0.13
 
   risk-service:
-    image: ghcr.io/winglight/algo-trader/risk-service:latest
+    image: ghcr.io/winglight/algo-trader/risk-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-risk
     volumes:
       - ./data:/app/data
@@ -122,16 +109,14 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      RISK_SERVICE_REGISTRY_RESTART_MODE: docker
-      RISK_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-risk
-      RISK_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+      RISK_SERVICE_NAME: risk
     restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.14
 
   simulation-service:
-    image: ghcr.io/winglight/algo-trader/sim-service:latest
+    image: ghcr.io/winglight/algo-trader/sim-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-sim
     volumes:
       - ./data:/app/data
@@ -140,16 +125,14 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      SIM_SERVICE_REGISTRY_RESTART_MODE: docker
-      SIM_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-sim
-      SIM_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+      SIM_SERVICE_REGISTRY_NAME: simulation
     restart: unless-stopped
     networks:
       default:
         ipv4_address: 172.21.0.16
 
   strategy-spec-service:
-    image: ghcr.io/winglight/algo-trader/strategy-spec-service:latest
+    image: ghcr.io/winglight/algo-trader/strategy-spec-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-strategy-spec
     volumes:
       - ./data:/app/data
@@ -157,9 +140,7 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      STRATEGY_SPEC_SERVICE_REGISTRY_RESTART_MODE: docker
-      STRATEGY_SPEC_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-strategy-spec
-      STRATEGY_SPEC_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+      STRATEGY_SPEC_SERVICE_REGISTRY_NAME: strategy-spec
     command: ["/bin/sh", "./docker/start_strategy_spec_service.sh"]
     restart: unless-stopped
     networks:
@@ -167,7 +148,7 @@ services:
         ipv4_address: 172.21.0.17
 
   strategy-service:
-    image: ghcr.io/winglight/algo-trader/strategy-service:latest
+    image: ghcr.io/winglight/algo-trader/strategy-service:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-strategy
     volumes:
       - ./data:/app/data
@@ -177,9 +158,7 @@ services:
       - ./config:/app/config
     environment:
       API_SERVICE_URL: http://backend:8000
-      STRATEGY_SERVICE_REGISTRY_RESTART_MODE: docker
-      STRATEGY_SERVICE_REGISTRY_DOCKER_CONTAINER: algo-trader-strategy
-      STRATEGY_SERVICE_REGISTRY_DOCKER_HOST: unix:///var/run/docker.sock
+      STRATEGY_SERVICE_REGISTRY_NAME: strategy
     restart: unless-stopped
     depends_on:
       orders-service:
@@ -189,32 +168,32 @@ services:
         ipv4_address: 172.21.0.15
 
   service-watchdog:
-    image: ghcr.io/winglight/algo-trader/backend:latest
+    image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-service-watchdog
+    profiles:
+      - ib
     command:
       [
         "python3",
         "tools/service_watchdog.py",
         "--interval",
-        "20",
+        "60",
         "--startup-delay",
         "20",
         "--timeout",
         "5",
         "--max-failures",
-        "6",
-        "--restart-timeout",
-        "45",
-        "--restart-cooldown",
-        "600",
-        "--min-uptime-before-restart",
-        "900",
-        "--min-unhealthy-duration",
-        "600",
+        "9999",
+        "--collector-enabled",
+        "1",
+        "--strategy-stream-enabled",
+        "0",
       ]
     environment:
-      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz||restart_mode=docker,docker_container=algo-trader-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz||restart_mode=docker,docker_container=algo-trader-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz||restart_mode=docker,docker_container=algo-trader-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz||restart_mode=docker,docker_container=algo-trader-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz||restart_mode=docker,docker_container=algo-trader-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz||restart_mode=docker,docker_container=algo-trader-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz||restart_mode=docker,docker_container=algo-trader-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz||restart_mode=docker,docker_container=algo-trader-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz||restart_mode=docker,docker_container=algo-trader-strategy-spec,docker_host=unix:///var/run/docker.sock"
-      SERVICE_WATCHDOG_STRATEGY_STREAM_ENABLED: "1"
+      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz|||restart_mode=disabled"
+      SERVICE_WATCHDOG_IB_GATEWAY_ENABLED: "1"
+      SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER: ib-gateway
+      SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
@@ -222,25 +201,9 @@ services:
     depends_on:
       backend:
         condition: service_started
-      broker-runner-service:
-        condition: service_started
-      account-service:
-        condition: service_started
-      orders-service:
-        condition: service_started
-      market-data-service:
-        condition: service_started
-      risk-service:
-        condition: service_started
-      simulation-service:
-        condition: service_started
-      strategy-spec-service:
-        condition: service_started
-      strategy-service:
-        condition: service_started
 
   frontend:
-    image: ghcr.io/winglight/algo-trader/frontend:latest
+    image: ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-0.1.0}
     container_name: algo-trader-frontend
     ports:
       - "127.0.0.1:5173:80"
