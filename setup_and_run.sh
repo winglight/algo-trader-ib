@@ -203,7 +203,11 @@ fi
 
 (
   cd "${MIDDLE_DIR}"
-  docker compose "${MIDDLE_PROFILE_ARGS[@]}" up -d
+  if [ "${#MIDDLE_PROFILE_ARGS[@]}" -gt 0 ]; then
+    docker compose "${MIDDLE_PROFILE_ARGS[@]}" up -d
+  else
+    docker compose up -d
+  fi
 )
 
 wait_for_mariadb() {
@@ -287,8 +291,13 @@ fi
 
 (
   cd "${ROOT_DIR}"
-  docker compose -f docker-compose.yml "${APP_PROFILE_ARGS[@]}" pull
-  docker compose -f docker-compose.yml "${APP_PROFILE_ARGS[@]}" up -d
+  if [ "${#APP_PROFILE_ARGS[@]}" -gt 0 ]; then
+    docker compose -f docker-compose.yml "${APP_PROFILE_ARGS[@]}" pull
+    docker compose -f docker-compose.yml "${APP_PROFILE_ARGS[@]}" up -d
+  else
+    docker compose -f docker-compose.yml pull
+    docker compose -f docker-compose.yml up -d
+  fi
 )
 
 if wait_for_http "$APP_URL" 90; then
