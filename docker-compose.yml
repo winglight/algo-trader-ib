@@ -201,6 +201,9 @@ services:
     depends_on:
       backend:
         condition: service_started
+    networks:
+      default:
+        ipv4_address: 172.21.0.26
 
   frontend:
     image: ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-0.1.0}
@@ -214,6 +217,9 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
+    networks:
+      default:
+        ipv4_address: 172.21.0.27
 
 networks:
   default:

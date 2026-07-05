@@ -14,7 +14,6 @@ __all__ = [
     "FiveMinuteMomentumStrategy",
     "MeanReversionStrategy",
     "OpeningRangeBreakoutStrategy",
-    "PredictiveStrategy",
     "ScreenerStrategy",
 ]
 
@@ -29,7 +28,6 @@ _MODULE_MAP = {
     "FiveMinuteMomentumStrategy": "src.strategies.five_minute_momentum",
     "MeanReversionStrategy": "src.strategies.mean_reversion_strategy",
     "OpeningRangeBreakoutStrategy": "src.strategies.orb_fvg",
-    "PredictiveStrategy": "src.strategies.predictive_strategy",
     "ScreenerStrategy": "src.strategies.screener",
 }
 
