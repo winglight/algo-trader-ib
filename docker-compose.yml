@@ -185,7 +185,7 @@ services:
         "--max-failures",
         "9999",
         "--collector-enabled",
-        "1",
+        "0",
         "--strategy-stream-enabled",
         "0",
       ]

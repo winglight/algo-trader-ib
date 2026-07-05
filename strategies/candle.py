@@ -1,4 +1,4 @@
-"""Candle aggregation helpers for market data driven strategies."""
+"""Candle helpers for market data driven strategies."""
 
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ from src.data_layer import (
 )
 from src.common.market_data.history import HistoryReplayConfig
 from src.common.market_data.history_chunks import load_history_with_backoff
+from src.common.symbols import build_symbol_aliases
 from src.strategy.base import BaseStrategy
 from src.strategy.runtime import DomRuntimeTelemetryService
 from src.strategy.types import StrategyIdentifier
@@ -66,10 +67,20 @@ def _parse_timestamp(value: Any) -> datetime:
         try:
             ts = datetime.fromisoformat(text)
         except ValueError:
-            ts = datetime.now(timezone.utc)
+            try:
+                seconds = float(text)
+            except Exception:
+                ts = datetime.now(timezone.utc)
+            else:
+                if abs(seconds) > 1_000_000_000_000:
+                    seconds /= 1000.0
+                ts = datetime.fromtimestamp(seconds, tz=timezone.utc)
     else:
         try:
-            ts = datetime.fromtimestamp(float(value), tz=timezone.utc)
+            seconds = float(value)
+            if abs(seconds) > 1_000_000_000_000:
+                seconds /= 1000.0
+            ts = datetime.fromtimestamp(seconds, tz=timezone.utc)
         except Exception:  # pragma: no cover - defensive
             ts = datetime.now(timezone.utc)
     if ts.tzinfo is None:
@@ -121,29 +132,29 @@ def _interval_seconds(interval: str | None) -> int | None:
     return value * multiplier
 
 
-def _base_interval_token(interval: str | None) -> str:
-    token = _normalize_interval_token(interval) or "1m"
-    if token.endswith("mo"):
-        unit = "mo"
-    else:
-        unit = token[-1]
-    if unit not in {"s", "m", "h", "d", "mo", "y"}:
-        return "1m"
-    return f"1{unit}"
+def _is_transient_market_data_health_reason(reason: str | None) -> bool:
+    token = str(reason or "").strip().lower()
+    return token in {
+        "market_data_health_check_failed",
+        "market_data_health_request_failed",
+        "market_data_unknown",
+        "market_data_streams_degraded",
+    }
 
 
 @dataclass
 class CandleSubscriptionStrategy(BaseStrategy):
-    """Base strategy that aggregates ticker updates into candles."""
+    """Base strategy that consumes closed candles from market data."""
 
     strategy_type: ClassVar[str] = "CandleSubscriptionStrategy"
     is_kline_strategy: ClassVar[bool] = True
     data_feed_mode: ClassVar[str] = "kline"
-    use_base_exit: ClassVar[bool] = True
+    use_base_exit: ClassVar[bool] = False
     _PHASE_SUBSCRIPTION: ClassVar[str] = "subscription"
     _PHASE_AGGREGATION: ClassVar[str] = "aggregation"
     _PHASE_DISPATCH: ClassVar[str] = "dispatch"
     _PHASE_SIGNALS: ClassVar[str] = "signal_generation"
+    _PHASE_EXECUTION: ClassVar[str] = "execution"
     symbol: str = ""
     interval: str = "1m"
     subscription_interval: str | None = None
@@ -159,7 +170,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
     history_retry_attempts: int = 3
     history_retry_delay: float = 2.0
     history_retry_backoff: float = 2.0
-    ticker_channel: str = "market.ticker"
+    ticker_channel: str = "market.price.latest"
     redis_channel_prefix: str | None = None
     data_layer_channel: str = "market.bar"
     cooldown_seconds: float = 15.0
@@ -218,6 +229,16 @@ class CandleSubscriptionStrategy(BaseStrategy):
         default=None, init=False, repr=False
     )
     _last_runtime_status: str | None = field(default=None, init=False, repr=False)
+    _signals_generated: int = field(default=0, init=False, repr=False)
+    _buy_signals_generated: int = field(default=0, init=False, repr=False)
+    _sell_signals_generated: int = field(default=0, init=False, repr=False)
+    _risk_evaluation_count: int = field(default=0, init=False, repr=False)
+    _risk_blocked_count: int = field(default=0, init=False, repr=False)
+    _local_order_block_count: int = field(default=0, init=False, repr=False)
+    _orders_submitted_count: int = field(default=0, init=False, repr=False)
+    _orders_rejected_count: int = field(default=0, init=False, repr=False)
+    _orders_failed_count: int = field(default=0, init=False, repr=False)
+    _orders_delegated_count: int = field(default=0, init=False, repr=False)
     _last_signal_wait_state: tuple[Any, ...] | None = field(default=None, init=False, repr=False)
     _last_subscription_wait_state: tuple[str | None, str | None] | None = field(
         default=None, init=False, repr=False
@@ -284,6 +305,9 @@ class CandleSubscriptionStrategy(BaseStrategy):
     _initial_backfill_requested: bool = field(default=False, init=False, repr=False)
     _history_replay_in_progress: bool = field(default=False, init=False, repr=False)
     _last_bar_received_at: datetime | None = field(default=None, init=False, repr=False)
+    _last_bar_received_at_by_interval: dict[str, datetime] = field(
+        default_factory=dict, init=False, repr=False
+    )
     _last_bar_skip_log_at: datetime | None = field(default=None, init=False, repr=False)
     _last_closed_candle_log_at: datetime | None = field(default=None, init=False, repr=False)
     _closed_candle_counts: dict[str, int] = field(default_factory=dict, init=False, repr=False)
@@ -291,6 +315,9 @@ class CandleSubscriptionStrategy(BaseStrategy):
     _inactivity_recovery_inflight: bool = field(default=False, init=False, repr=False)
     _inactivity_recovery_next_attempt: float = field(default=0.0, init=False, repr=False)
     _inactivity_recovery_backoff: float = field(default=30.0, init=False, repr=False)
+    _suppress_order_queue: bool = field(default=False, init=False, repr=False)
+    _symbol_aliases: set[str] = field(default_factory=set, init=False, repr=False)
+    allow_history_replay_orders: bool = field(default=False, init=False, repr=False)
 
     COMMON_PARAMETER_DEFAULTS: ClassVar[Mapping[str, float | int]] = {
         "cooldown_seconds": 15.0,
@@ -363,6 +390,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
         super().__post_init__()
         if self.symbol:
             self.symbol = self.symbol.upper()
+        self._symbol_aliases = set(build_symbol_aliases(self.symbol))
         
         # Normalize self.interval first
         interval_hint = (
@@ -468,27 +496,42 @@ class CandleSubscriptionStrategy(BaseStrategy):
 
     def _resolve_bar_source_interval(self, interval: str) -> str:
         token = _normalize_interval_token(interval) or interval
-        if token.endswith("mo"):
-            return "1mo"
-        if token.endswith("y"):
-            return "1y"
-        if token.endswith("w"):
-            return "1w"
-        if token.endswith("d"):
-            return "1d"
-        if token.endswith("h"):
-            return "1h"
-        if token.endswith("s") or token.endswith("m"):
-            return "1m"
-        return "1m"
+        return token
 
     def _resolve_subscription_intervals(self) -> list[str]:
         source_intervals: list[str] = []
         for interval in self.intervals or [self.interval]:
-            source = self._resolve_bar_source_interval(interval)
-            if source not in source_intervals:
-                source_intervals.append(source)
+            token = self._resolve_bar_source_interval(interval)
+            if token not in source_intervals:
+                source_intervals.append(token)
         return source_intervals
+
+    def _force_runtime_intervals(
+        self,
+        *,
+        interval: str,
+        intervals: Sequence[str] | None = None,
+    ) -> None:
+        """Override persisted interval drift with strategy-owned runtime intervals."""
+
+        normalized_interval = _normalize_interval_token(interval) or "1m"
+        normalized_intervals = [
+            _normalize_interval_token(item) or normalized_interval
+            for item in (intervals or [normalized_interval])
+        ]
+        if normalized_interval not in normalized_intervals:
+            normalized_intervals.insert(0, normalized_interval)
+        self.interval = normalized_interval
+        self.intervals = list(dict.fromkeys(normalized_intervals))
+        try:
+            self._interval_delta = _interval_to_delta(self.interval)
+        except ValueError:
+            self.interval = "1m"
+            self._interval_delta = _interval_to_delta(self.interval)
+        self._reset_unified_bucket()
+        self._last_processed_candle_start = None
+        self._last_processed_candle_end = None
+        self._refresh_interval_state()
 
     def _aggregate_history_records(
         self,
@@ -625,6 +668,10 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 for interval, history in self._candles.items():
                     self._candles[interval] = deque(history, maxlen=limit)
         symbol_changed = "symbol" in applied and self.symbol != previous_symbol
+        if symbol_changed:
+            normalized_symbol = (self.symbol or "").strip().upper()
+            self.symbol = normalized_symbol
+            self._symbol_aliases = set(build_symbol_aliases(normalized_symbol))
         if (symbol_changed or interval_changed) and self.active and self._use_unified_data:
             self._schedule_coroutine(self._resubscribe_unified(reason="parameter_change"))
         return applied
@@ -861,7 +908,29 @@ class CandleSubscriptionStrategy(BaseStrategy):
         self._telemetry_update_phase_metrics(
             self._PHASE_SIGNALS,
             signals_generated=0,
+            buy_signals=0,
+            sell_signals=0,
             last_signal_side=None,
+        )
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status="idle",
+            status_code="awaiting_signal",
+            status_reason="Awaiting generated orders for risk evaluation",
+        )
+        self._telemetry_update_phase_metrics(
+            self._PHASE_EXECUTION,
+            risk_evaluation_count=0,
+            risk_blocked_count=0,
+            local_blocked_count=0,
+            orders_submitted_count=0,
+            orders_rejected_count=0,
+            orders_failed_count=0,
+            orders_delegated_count=0,
+            last_risk_reason=None,
+            last_order_status=None,
+            last_order_reason=None,
+            last_order_at=None,
         )
         mode = get_data_layer_mode()
         self._use_unified_data = is_unified_mode(mode)
@@ -915,6 +984,25 @@ class CandleSubscriptionStrategy(BaseStrategy):
             self._schedule_coroutine(self._await_market_data_ready_and_subscribe())
             return True
 
+        if self._dispatch_event is None or self._pubsub is None:
+            manager = getattr(self, "strategy_manager", None)
+            dependencies = getattr(manager, "_dependencies", None)
+            if isinstance(dependencies, Mapping):
+                updates: dict[str, Any] = {}
+                for key in (
+                    "pubsub",
+                    "event_dispatcher",
+                    "candle_history_loader",
+                    "data_layer_manager",
+                    "background_event_loop",
+                    "market_data_subscription_health",
+                ):
+                    value = dependencies.get(key)
+                    if value is not None:
+                        updates[key] = value
+                if updates:
+                    self.set_dependencies(**updates)
+        
         if self._dispatch_event is None or self._pubsub is None:
             self.logger.warning(
                 "CandleSubscriptionStrategy missing pubsub/event dispatcher dependencies"
@@ -999,9 +1087,15 @@ class CandleSubscriptionStrategy(BaseStrategy):
         self._listener_task = None
 
     # ------------------------------------------------------------------
+    def _clear_listener_task(self, task: asyncio.Task[None] | None) -> None:
+        if self._listener_task is task:
+            self._listener_task = None
+
+    # ------------------------------------------------------------------
     async def _run_listener(self) -> None:
         self.logger.debug(f"DEBUG: _run_listener STARTED for {self.name} {self.symbol} {self.intervals}")
         assert self._pubsub is not None
+        listener_task = asyncio.current_task()
         
         # History loader logic needs to handle multiple intervals if applicable
         # Current logic only loads for self.interval
@@ -1102,7 +1196,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 await asyncio.sleep(backoff)
                 backoff = min(30.0, backoff * 2)
         finally:
-            self._listener_task = None
+            self._clear_listener_task(listener_task)
             self._telemetry_log(
                 "Candle listener stopped",
                 level="INFO",
@@ -1175,9 +1269,20 @@ class CandleSubscriptionStrategy(BaseStrategy):
     # ------------------------------------------------------------------
     def _accept_tick(self, tick: Mapping[str, Any]) -> bool:
         symbol = str(tick.get("symbol", "")).strip().upper()
-        if symbol and symbol != (self.symbol or "").upper():
+        if symbol and not self._matches_symbol(symbol):
             return False
         return True
+
+    # ------------------------------------------------------------------
+    def _matches_symbol(self, symbol: str | None) -> bool:
+        strategy_symbol = (self.symbol or "").strip().upper()
+        if not strategy_symbol:
+            return True
+        incoming_aliases = set(build_symbol_aliases(symbol))
+        if not incoming_aliases:
+            return False
+        aliases = self._symbol_aliases or set(build_symbol_aliases(strategy_symbol))
+        return not aliases.isdisjoint(incoming_aliases)
 
     # ------------------------------------------------------------------
     async def _process_tick(self, tick: Mapping[str, Any]) -> list[Mapping[str, Any]] | None:
@@ -1442,29 +1547,22 @@ class CandleSubscriptionStrategy(BaseStrategy):
         for target_interval in candidates:
             # 1. Direct Match
             if interval_hint == target_interval and close_bool:
-                try:
-                    delta = _interval_to_delta(target_interval)
-                except ValueError:
-                    delta = self._interval_delta
-                normalized = MinuteBarAggregator._normalise_record(record)
-                if normalized is not None:
-                    timestamp = normalized["timestamp"]
-                    if _floor_timestamp(timestamp, delta) == timestamp:
-                        if hasattr(self, "_multi_aggregators") and target_interval in self._multi_aggregators:
-                            self._multi_aggregators[target_interval].reset()
-                        events.append({
-                            "symbol": self.symbol,
-                            "interval": target_interval,
-                            "start": _floor_timestamp(timestamp, delta),
-                            "end": _floor_timestamp(timestamp, delta) + delta,
-                            "open": normalized["open"],
-                            "high": normalized["high"],
-                            "low": normalized["low"],
-                            "close": normalized["close"],
-                            "volume": normalized["volume"],
-                            "is_closed": True,
-                            "is_partial": False,
-                        })
+                normalized_candle = self._normalise_candle(
+                    record,
+                    is_closed=True,
+                    interval_label=target_interval,
+                )
+                if normalized_candle is not None:
+                    if (
+                        hasattr(self, "_multi_aggregators")
+                        and target_interval in self._multi_aggregators
+                    ):
+                        self._multi_aggregators[target_interval].reset()
+                    event = dict(normalized_candle)
+                    event["symbol"] = self.symbol
+                    event["interval"] = target_interval
+                    event["is_partial"] = False
+                    events.append(event)
 
             # 2. Aggregation
             target_delta = _interval_to_delta(target_interval)
@@ -1544,6 +1642,37 @@ class CandleSubscriptionStrategy(BaseStrategy):
         if details:
             payload["details"] = dict(details)
         self._last_order_block = payload
+        try:
+            extra: dict[str, Any] = {
+                "event": "strategy.order.blocked_local",
+                "strategy": self.name,
+                "symbol": self.symbol,
+                "block_code": code,
+            }
+            if message:
+                extra["block_message"] = message
+            if details:
+                extra["block_details"] = dict(details)
+            is_backtest = str(getattr(self, "runtime_mode", "") or "").strip().lower() == "backtest"
+            log_method = self.logger.info if code == "history_replay" or is_backtest else self.logger.warning
+            log_method(
+                "Order blocked for strategy %s (%s)", self.name, code, extra=extra
+            )
+        except Exception:
+            pass
+        self._telemetry_log(
+            "Order blocked",
+            level="WARN",
+            tone="warning",
+            phase=self._PHASE_DISPATCH,
+            deduplicate=False,
+            details=payload,
+        )
+        self._telemetry_record_local_block(
+            code,
+            message=message,
+            details=details,
+        )
 
     # ------------------------------------------------------------------
     def pop_last_order_block(self) -> Mapping[str, Any] | None:
@@ -1560,7 +1689,6 @@ class CandleSubscriptionStrategy(BaseStrategy):
         interval_label: str | None = None,
     ) -> Mapping[str, Any] | None:
         try:
-            ts = _parse_timestamp(raw.get("start") or raw.get("timestamp"))
             open_ = float(raw["open"])
             high = float(raw["high"])
             low = float(raw["low"])
@@ -1580,16 +1708,17 @@ class CandleSubscriptionStrategy(BaseStrategy):
              # Fallback
              delta = self._interval_delta
              
-        if raw.get("end") or raw.get("close_time"):
-             # If end provided, verify?
-             pass
-             
-        # Floor timestamp logic?
-        # Usually data from service is already floored.
-        # But safety check:
-        # start = _floor_timestamp(ts, delta)
-        # However, _floor_timestamp needs delta.
-        start = _floor_timestamp(ts, delta)
+        start_value = raw.get("start") or raw.get("open_time")
+        end_value = raw.get("end") or raw.get("close_time")
+        timestamp_value = raw.get("timestamp") or raw.get("time")
+
+        if start_value is not None:
+            start = _floor_timestamp(_parse_timestamp(start_value), delta)
+        elif end_value is not None:
+            end = _parse_timestamp(end_value)
+            start = _floor_timestamp(end - delta, delta)
+        else:
+            start = _floor_timestamp(_parse_timestamp(timestamp_value), delta)
         
         return {
             "start": start,
@@ -1851,6 +1980,15 @@ class CandleSubscriptionStrategy(BaseStrategy):
     # ------------------------------------------------------------------
     def queue_order(self, order: Mapping[str, Any]) -> bool:
         self._last_order_block = None
+        history_replay = bool(getattr(self, "_history_replay_in_progress", False))
+        suppress_queue = bool(getattr(self, "_suppress_order_queue", False))
+        allow_replay_orders = bool(getattr(self, "allow_history_replay_orders", False))
+        if (history_replay or suppress_queue) and not allow_replay_orders:
+            self._record_order_block(
+                "history_replay",
+                message="Order queue suppressed during history replay",
+            )
+            return False
         now_monotonic = self._monotonic_now()
         side_raw = order.get("side") or order.get("action")
         try:
@@ -1882,8 +2020,9 @@ class CandleSubscriptionStrategy(BaseStrategy):
             )
             return False
 
-        is_replay = getattr(self, "_history_replay_in_progress", False)
-        if is_replay:
+        is_replay = bool(getattr(self, "_history_replay_in_progress", False))
+        allow_replay_orders = bool(getattr(self, "allow_history_replay_orders", False))
+        if is_replay and not allow_replay_orders:
             self.logger.warning(
                 "Order suppressed during history replay for strategy %s", self.name
             )
@@ -1982,44 +2121,12 @@ class CandleSubscriptionStrategy(BaseStrategy):
         self._cooldown_until = max(now_monotonic, self._cooldown_until) + cooldown
         self._last_order_block = None
 
-        side_value = normalised.get("side") or normalised.get("action")
-        telemetry = self._telemetry()
-        if telemetry is not None and isinstance(side_value, str):
-            side_token = side_value.strip().upper()
-            if side_token in {"BUY", "SELL"}:
-                quantity = normalised.get("quantity") or order.get("quantity")
-                signal_timestamp = None
-                metadata = normalised.get("metadata")
-                if isinstance(metadata, Mapping):
-                    raw_ts = (
-                        metadata.get("interval_end")
-                        or metadata.get("timestamp")
-                        or metadata.get("bar_end")
-                    )
-                    if raw_ts is not None:
-                        try:
-                            signal_timestamp = _parse_timestamp(raw_ts)
-                        except Exception:
-                            signal_timestamp = None
-                try:
-                    telemetry.record_signal(
-                        self._telemetry_strategy_id(),
-                        side_token,
-                        stage=self._PHASE_SIGNALS,
-                        quantity=quantity,
-                        timestamp=signal_timestamp,
-                        notes=normalised.get("reason") or order.get("reason"),
-                    )
-                except KeyError:
-                    pass
-        recorder = getattr(self, "_telemetry_record_signal", None)
-        if callable(recorder) and isinstance(side_value, str):
-            side_token = side_value.strip().upper()
-            if side_token in {"BUY", "SELL"}:
-                try:
-                    recorder(side_token)
-                except Exception:  # pragma: no cover - defensive telemetry
-                    self.logger.debug("Failed to record telemetry signal", exc_info=True)
+        self._telemetry_record_generated_signal(
+            normalised.get("side") or normalised.get("action"),
+            quantity=normalised.get("quantity") or order.get("quantity"),
+            reason=normalised.get("reason") or order.get("reason"),
+            metadata=normalised.get("metadata"),
+        )
         return True
 
     # ------------------------------------------------------------------
@@ -2155,6 +2262,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
         end: datetime,
         interval: timedelta,
         force_ib: bool = False,
+        cached_only: bool = False,
     ) -> list[Mapping[str, Any]]:
         if not symbol:
             return []
@@ -2167,12 +2275,18 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 timeframe=timeframe,
                 start=start,
                 end=end,
+                source="cache" if cached_only else None,
                 force_ib=force_ib if force_ib else None,
             )
         except Exception:
             self.logger.debug(
                 "Market data history request failed",
-                extra={"timeframe": timeframe, "symbol": symbol, "force_ib": force_ib},
+                extra={
+                    "timeframe": timeframe,
+                    "symbol": symbol,
+                    "force_ib": force_ib,
+                    "cached_only": cached_only,
+                },
                 exc_info=True,
             )
             return []
@@ -2208,6 +2322,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
         interval: timedelta,
         config: HistoryReplayConfig | None = None,
         force_ib: bool = False,
+        cached_only: bool = False,
         raise_on_failure: bool = False,
     ) -> list[Mapping[str, Any]]:
         if config is None:
@@ -2220,9 +2335,12 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 manager = None
         if manager is not None:
             try:
-                if force_ib:
+                if force_ib or cached_only:
                     options = dict(request.options or {})
-                    options["force_ib"] = True
+                    if force_ib:
+                        options["force_ib"] = True
+                    if cached_only:
+                        options["source"] = "cache"
                     effective_request = DataSubscriptionRequest(
                         channel=request.channel,
                         symbol=request.symbol,
@@ -2240,13 +2358,15 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     config=config,
                     logger=self.logger,
                 )
-                if records or not force_ib:
+                if records or not force_ib or cached_only:
                     return records
                 self.logger.debug(
                     "Data layer backfill returned empty result with force_ib; falling back to market data service",
                     extra={"symbol": request.symbol, "interval": request.interval},
                 )
             except DataSourceError:
+                if cached_only:
+                    return []
                 if self._resolve_market_data_client() is None and raise_on_failure:
                     raise
                 self.logger.debug(
@@ -2255,6 +2375,8 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     exc_info=True,
                 )
             except Exception:
+                if cached_only:
+                    return []
                 if self._resolve_market_data_client() is None and raise_on_failure:
                     raise DataSourceError("historical market data unavailable")
                 self.logger.debug(
@@ -2276,6 +2398,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
             end=end,
             interval=interval,
             force_ib=force_ib,
+            cached_only=cached_only,
         )
         if records or not raise_on_failure:
             return records
@@ -2351,7 +2474,12 @@ class CandleSubscriptionStrategy(BaseStrategy):
                         interval=delta,
                         config=config,
                         raise_on_failure=True,
-                        force_ib=True,
+                        # Startup should only consult local/cache-backed history.
+                        # If cache is cold, proceed with live subscription first
+                        # and let the background retry path perform heavier
+                        # historical recovery later.
+                        cached_only=True,
+                        force_ib=False,
                     )
                     history_list = list(history_records or [])
                     history_by_interval[interval] = history_list
@@ -2426,7 +2554,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
                             if not candle:
                                 continue
                             symbol = str(candle.get("symbol") or "").upper()
-                            if symbol and symbol != self.symbol:
+                            if symbol and not self._matches_symbol(symbol):
                                 continue
                             normalised = self._normalise_candle(
                                 candle, is_closed=True, interval_label=interval
@@ -2462,6 +2590,9 @@ class CandleSubscriptionStrategy(BaseStrategy):
         self._data_layer_subscriptions = []
         self._event_bus_tokens = []
         self._unified_event_channels = []
+        primary_source_interval = self._resolve_bar_source_interval(self.interval)
+        primary_subscription_channel: str | None = None
+        primary_event_pattern: str | None = None
         for interval in source_intervals:
             channel = self._resolve_bar_channel_for_interval(interval)
             request = DataSubscriptionRequest(
@@ -2482,17 +2613,20 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 self._event_bus_token = token
             if self._unified_event_channel is None:
                 self._unified_event_channel = pattern
+            if primary_subscription_channel is None or interval == primary_source_interval:
+                primary_subscription_channel = channel
+                primary_event_pattern = pattern
             self.logger.info(
                 "Subscribed to unified candle stream symbol=%s interval=%s",
                 self.symbol,
                 interval,
             )
-            self._telemetry_update_phase_metrics(
-                self._PHASE_SUBSCRIPTION,
-                subscription_channel=channel,
-                event_pattern=pattern,
-            )
-        self.logger.warning(
+        self._telemetry_update_phase_metrics(
+            self._PHASE_SUBSCRIPTION,
+            subscription_channel=primary_subscription_channel,
+            event_pattern=primary_event_pattern,
+        )
+        self.logger.debug(
             "Unified candle subscription configured",
             extra={
                 "event": "strategy.candle.subscription_configured",
@@ -2515,7 +2649,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 cause_code="subscription_connected",
                 details={
                     "history_replay_count": total_replayed,
-                    "subscription_channel": request.channel,
+                    "subscription_channel": primary_subscription_channel,
                 },
             )
 
@@ -2639,7 +2773,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
         symbol_hint: str | None = None,
     ) -> None:
         symbol = (payload.get("symbol") or symbol_hint or "").upper()
-        if symbol and symbol != self.symbol:
+        if symbol and not self._matches_symbol(symbol):
             try:
                 self._telemetry_log(
                     "Incoming bar symbol mismatch; skipping",
@@ -2754,8 +2888,9 @@ class CandleSubscriptionStrategy(BaseStrategy):
             for item in (self.intervals or [self.interval])
         }
         source_intervals = set(self._resolve_subscription_intervals())
-        dated_candidates: list[tuple[datetime, str, Mapping[str, Any]]] = []
+        dated_candidates: list[tuple[datetime, str, Mapping[str, Any], bool]] = []
         saw_open_candidate = False
+        saw_relevant_candidate = False
         skip_reason: str | None = None
         skip_details: dict[str, Any] = {}
         for candidate in candidates:
@@ -2775,6 +2910,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
                         "source_intervals": list(source_intervals),
                     }
                     continue
+            saw_relevant_candidate = True
             source_seconds = _interval_seconds(interval_hint)
             if interval_hint is not None and target_token is not None:
                 if interval_hint != target_token and interval_hint not in target_intervals:
@@ -2878,7 +3014,8 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     "guard_seconds": guard_seconds,
                 }
                 continue
-            dated_candidates.append((end_ts, interval_hint, candidate))
+            candidate_is_snapshot = bool(candidate.get("is_snapshot")) or payload_is_snapshot
+            dated_candidates.append((end_ts, interval_hint, candidate, candidate_is_snapshot))
 
         if not dated_candidates:
             if saw_open_candidate:
@@ -2918,35 +3055,42 @@ class CandleSubscriptionStrategy(BaseStrategy):
                         or (bar_payload or payload).get("timeframe")
                         or (bar_payload or payload).get("bar_size")
                     )
-                    self.logger.warning(
+                    runtime_details = {
+                        "event": "strategy.candle.payload_skipped",
+                        "strategy": self.name,
+                        "symbol": self.symbol,
+                        "incoming_interval": str(interval_hint) if interval_hint is not None else None,
+                        "incoming_topic": (
+                            payload.get("stream_topic")
+                            if isinstance(payload, Mapping)
+                            else None
+                        )
+                        or (
+                            bar_payload.get("stream_topic")
+                            if isinstance(bar_payload, Mapping)
+                            else None
+                        ),
+                        "target_intervals": list(self.intervals or []),
+                        "source_intervals": self._resolve_subscription_intervals(),
+                        "skip_reason": skip_reason,
+                        "skip_details": skip_details or None,
+                    }
+                    self._telemetry_log(
                         "Skipped bar payload after validation",
-                        extra={
-                            "event": "strategy.candle.payload_skipped",
-                            "strategy": self.name,
-                            "symbol": self.symbol,
-                            "incoming_interval": str(interval_hint) if interval_hint is not None else None,
-                            "incoming_topic": (
-                                payload.get("stream_topic")
-                                if isinstance(payload, Mapping)
-                                else None
-                            )
-                            or (
-                                bar_payload.get("stream_topic")
-                                if isinstance(bar_payload, Mapping)
-                                else None
-                            ),
-                            "target_intervals": list(self.intervals or []),
-                            "source_intervals": self._resolve_subscription_intervals(),
-                            "skip_reason": skip_reason,
-                            "skip_details": skip_details or None,
-                        },
+                        level="INFO",
+                        tone="neutral",
+                        details=runtime_details,
+                    )
+                    self.logger.info(
+                        "Skipped bar payload after validation",
+                        extra=runtime_details,
                     )
             except Exception:
                 pass
             return
 
         ordered = sorted(dated_candidates, key=lambda item: item[0])
-        for end_ts, interval_hint, candidate in ordered:
+        for end_ts, interval_hint, candidate, is_snapshot_candidate in ordered:
             last_end = self._last_processed_candle_end_by_interval.get(interval_hint)
             if end_ts is not None and last_end is not None:
                 if end_ts <= last_end:
@@ -2989,6 +3133,8 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 )
             with self._candles_lock:
                 target_deque = self.get_candles(interval_hint)
+                while target_deque and not isinstance(target_deque[-1], Mapping):
+                    target_deque.pop()
                 if target_deque:
                     last = target_deque[-1]
                     if last.get("end") == normalised.get("end"):
@@ -3006,7 +3152,23 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 timestamp=end_ts,
             )
             self._record_closed_candle_summary(interval_hint, end_ts)
-            await self._invoke_candle_handlers(normalised)
+            # Snapshot payloads are historical catch-up bars emitted after (re)subscription.
+            # Keep indicators up to date, but only suppress order generation for stale replay bars.
+            previous_replay_state = bool(getattr(self, "_history_replay_in_progress", False))
+            treat_snapshot_as_replay = bool(
+                is_snapshot_candidate
+                and self._should_treat_snapshot_as_history_replay(
+                    end_ts=end_ts,
+                    interval_hint=interval_hint,
+                )
+            )
+            if treat_snapshot_as_replay:
+                self._history_replay_in_progress = True
+            try:
+                await self._invoke_candle_handlers(normalised)
+            finally:
+                if treat_snapshot_as_replay:
+                    self._history_replay_in_progress = previous_replay_state
 
     # ------------------------------------------------------------------
     async def on_market_event(self, event: Mapping[str, Any]) -> None:
@@ -3082,8 +3244,35 @@ class CandleSubscriptionStrategy(BaseStrategy):
         return None
 
     # ------------------------------------------------------------------
+    def _should_treat_snapshot_as_history_replay(
+        self,
+        *,
+        end_ts: datetime,
+        interval_hint: str,
+    ) -> bool:
+        """Only stale catch-up snapshot bars should suppress order generation."""
+
+        if end_ts.tzinfo is None:
+            normalized_end = end_ts.replace(tzinfo=timezone.utc)
+        else:
+            normalized_end = end_ts.astimezone(timezone.utc)
+        interval_seconds = _interval_seconds(interval_hint)
+        if interval_seconds is None:
+            try:
+                interval_seconds = int(_interval_to_delta(interval_hint).total_seconds())
+            except ValueError:
+                interval_seconds = int(self._interval_delta.total_seconds())
+        allowed_lag = max(float(interval_seconds) * 2.0, 300.0)
+        try:
+            now = datetime.fromtimestamp(self._wall_clock_now(), tz=timezone.utc)
+        except Exception:
+            now = datetime.now(timezone.utc)
+        return now - normalized_end > timedelta(seconds=allowed_lag)
+
+    # ------------------------------------------------------------------
     async def _invoke_candle_handlers(self, candle: Mapping[str, Any]) -> None:
         snapshot = dict(candle)
+        is_backtest = getattr(self, "runtime_mode", "") == "backtest"
         interval = _normalize_interval_token(snapshot.get("interval")) or self.interval
         start = self._maybe_parse_timestamp(
             snapshot.get("start") or snapshot.get("open_time")
@@ -3097,50 +3286,81 @@ class CandleSubscriptionStrategy(BaseStrategy):
             except ValueError:
                 delta = self._interval_delta
             end = start + delta
+        stale_replay = False
+        if end is not None:
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            try:
+                now = datetime.fromtimestamp(self._wall_clock_now(), tz=timezone.utc)
+            except Exception:
+                now = datetime.now(timezone.utc)
+            interval_seconds = _interval_seconds(interval)
+            if interval_seconds is None:
+                interval_seconds = int(self._interval_delta.total_seconds())
+            allowed_lag = max(float(interval_seconds) * 2.0, 300.0)
+            if now - end > timedelta(seconds=allowed_lag):
+                stale_replay = True
         last_end = self._last_processed_candle_end_by_interval.get(interval)
         if end is not None and last_end is not None:
             if end <= last_end:
                 return
         self._record_last_processed(interval, start=start, end=end)
+        previous_replay_state = bool(getattr(self, "_history_replay_in_progress", False))
+        if stale_replay and not previous_replay_state:
+            self._history_replay_in_progress = True
+        history_replay = bool(getattr(self, "_history_replay_in_progress", False))
+        if history_replay:
+            snapshot["is_history"] = True
+        else:
+            snapshot["is_history"] = False
+        previous_suppress_state = bool(getattr(self, "_suppress_order_queue", False))
+        if history_replay and not bool(getattr(self, "allow_history_replay_orders", False)):
+            self._suppress_order_queue = True
         try:
             res = self.on_candle(dict(snapshot))
             if asyncio.iscoroutine(res):
                 await res
-            self._telemetry_set_phase_status(
-                self._PHASE_AGGREGATION,
-                status="active",
-                status_code="aggregated",
-                status_reason="Candle data aggregated",
-            )
-            self._telemetry_set_phase_status(
-                self._PHASE_DISPATCH,
-                status="active",
-                status_code="dispatched",
-                status_reason="Candle data dispatched",
-            )
-            self._telemetry_set_phase_status(
-                self._PHASE_SIGNALS,
-                status="active",
-                status_code="monitoring",
-                status_reason="Monitoring for signals",
-            )
+            if not is_backtest:
+                self._telemetry_set_phase_status(
+                    self._PHASE_AGGREGATION,
+                    status="active",
+                    status_code="aggregated",
+                    status_reason="Candle data aggregated",
+                )
+                self._telemetry_set_phase_status(
+                    self._PHASE_DISPATCH,
+                    status="active",
+                    status_code="dispatched",
+                    status_reason="Candle data dispatched",
+                )
+                self._telemetry_set_phase_status(
+                    self._PHASE_SIGNALS,
+                    status="active",
+                    status_code="monitoring",
+                    status_reason="Monitoring for signals",
+                )
         except Exception:  # pragma: no cover - defensive logging
             self.logger.exception("Candle handler failed for %s", self.symbol)
         try:
             self._maybe_execute_base_exit(snapshot)
         except Exception:  # pragma: no cover - defensive logging
             self.logger.exception("Base exit evaluation failed for %s", self.symbol)
+        if history_replay and not bool(getattr(self, "allow_history_replay_orders", False)):
+            self._suppress_order_queue = previous_suppress_state
+        if stale_replay and not previous_replay_state:
+            self._history_replay_in_progress = previous_replay_state
         dispatcher = self._dispatch_event
         if dispatcher is None:
             return
 
         # Update dispatch status to active
-        self._telemetry_set_phase_status(
-            self._PHASE_DISPATCH,
-            status="active",
-            status_code="dispatching",
-            status_reason="Dispatching candle event",
-        )
+        if not is_backtest:
+            self._telemetry_set_phase_status(
+                self._PHASE_DISPATCH,
+                status="active",
+                status_code="dispatching",
+                status_reason="Dispatching candle event",
+            )
 
         coroutine = dispatcher(dict(snapshot))
         if asyncio.iscoroutine(coroutine):
@@ -3156,7 +3376,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
                         last_order_side = last_order.get("side")
                         last_order_quantity = last_order.get("quantity")
                         last_order_type = last_order.get("type")
-            if queued_orders:
+            if queued_orders and not is_backtest:
                 self._telemetry_log(
                     "Dispatching candle with queued orders",
                     level="INFO",
@@ -3227,8 +3447,16 @@ class CandleSubscriptionStrategy(BaseStrategy):
         # 1. Check current position (prevent pyramiding if not supported)
         # Use _resolve_position_state which is standard in StrategyTemplate
         current_pos, _ = self._resolve_position_state()
+        if abs(current_pos) <= 1e-9:
+            current_position_getter = getattr(self, "_get_current_position", None)
+            if callable(current_position_getter):
+                try:
+                    current_pos = float(current_position_getter() or 0.0)
+                except Exception:
+                    current_pos = 0.0
         if abs(current_pos) > 1e-9:
-            forbid_pyramiding = bool(getattr(self, "forbid_pyramiding", False))
+            allow_pyramiding = bool(getattr(self, "allow_pyramiding", True))
+            forbid_pyramiding = bool(getattr(self, "forbid_pyramiding", False)) or not allow_pyramiding
             if forbid_pyramiding:
                 side_upper = str(side or "").strip().upper()
                 same_direction = (current_pos > 0 and side_upper == "BUY") or (
@@ -3333,9 +3561,10 @@ class CandleSubscriptionStrategy(BaseStrategy):
     def _maybe_execute_base_exit(self, candle: Mapping[str, Any]) -> None:
         if not getattr(self, "use_base_exit", True):
             return
-        if getattr(self, "use_risk_service_exit", False):
-            return
-        if getattr(self, "_history_replay_in_progress", False):
+        if (
+            getattr(self, "_history_replay_in_progress", False)
+            and not bool(getattr(self, "allow_history_replay_orders", False))
+        ):
             return
         
         # We need valid prices
@@ -3346,6 +3575,51 @@ class CandleSubscriptionStrategy(BaseStrategy):
                  return
         
         position, entry_price = self._resolve_position_state()
+
+        # Guard against stale strategy-local position state. A stale non-zero
+        # position can produce phantom exit signals (e.g. BUY to close short)
+        # that never progress to risk/order logs when the account is actually flat.
+        account_position: float | None = None
+        current_position = getattr(self, "_current_position", None)
+        if callable(current_position):
+            try:
+                observed = self._resolve_maybe_awaitable_float(
+                    current_position(),
+                    default=None,
+                    label=f"{self.name}.current_position",
+                )
+            except Exception:
+                observed = None
+            if observed is not None:
+                account_position = float(observed)
+
+        runtime_mode = str(getattr(self, "runtime_mode", "") or "").strip().lower()
+        if (
+            runtime_mode != "backtest"
+            and (
+            account_position is not None
+            and abs(account_position) <= 1e-9
+            and abs(position) > 1e-9
+            )
+        ):
+            self.logger.info(
+                "Skipping base exit due to stale position state for %s",
+                self.symbol,
+                extra={
+                    "event": "strategy.exit.position_mismatch",
+                    "strategy": self.name,
+                    "symbol": self.symbol,
+                    "strategy_position": float(position),
+                    "account_position": float(account_position),
+                },
+            )
+            try:
+                setattr(self, "_position", 0.0)
+                setattr(self, "_entry_price", None)
+            except Exception:
+                pass
+            self._base_exit_dispatched = False
+            return
 
         if abs(position) <= 1e-9:
             self._base_exit_dispatched = False
@@ -3360,50 +3634,22 @@ class CandleSubscriptionStrategy(BaseStrategy):
         )
         if exit_targets is None:
             return
-        stop_price = exit_targets.stop_loss
-        take_profit = exit_targets.take_profit
-        if stop_price is None and take_profit is None:
-            return
-
-        triggered_sl, triggered_tp, exit_price = self.check_exit_conditions(
-            candle, float(position), stop_price, take_profit
-        )
-
-        if not (triggered_sl or triggered_tp):
-            return
-        if self._base_exit_dispatched:
-            return
-
-        order_payload, exit_label = self._build_exit_order_payload(
-            position=position,
-            entry_price=entry_price,
-            exit_targets=exit_targets,
-            triggered_tp=triggered_tp,
-            triggered_sl=triggered_sl,
-        )
-        # Override price if we calculated a better fill price (optional, 
-        # but market orders usually take care of this. Limit orders might need it.)
-        # For now, we keep it as MARKET order so exit_price is indicative.
-        
         try:
             setattr(self, "_position", float(position))
         except Exception:
             pass
-        if self.queue_order(order_payload):
-            self._base_exit_dispatched = True
-            self._telemetry_log(
-                exit_label,
-                level="INFO",
-                tone="positive",
-                phase=self._PHASE_SIGNALS,
-                details={
-                    "side": order_payload.get("side"),
-                    "quantity": float(order_payload.get("quantity") or 0.0),
-                    "trigger": "take_profit" if triggered_tp else "stop_loss",
-                    "estimated_fill": exit_price,
-                },
-                deduplicate=False,
-            )
+        self._process_exit_trigger(
+            position=float(position),
+            entry_price=entry_price,
+            exit_targets=exit_targets,
+            trigger_evaluator=lambda: self.check_exit_conditions(
+                candle,
+                float(position),
+                exit_targets.stop_loss,
+                exit_targets.take_profit,
+            ),
+            dispatch_flag_attr="_base_exit_dispatched",
+        )
 
     async def _retry_history_backfill_after_delay(self) -> None:
         if not self._use_unified_data:
@@ -3488,7 +3734,10 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 continue
             closed = self._ingest_bar_payload(item)
             if closed is not None:
-                aggregated.append(closed)
+                closed_events = closed if isinstance(closed, list) else [closed]
+                for event in closed_events:
+                    if isinstance(event, Mapping):
+                        aggregated.append(event)
         leftovers = self._flush_unified_bucket(close_partial=True)
         if leftovers:
             aggregated.extend(leftovers)
@@ -3843,9 +4092,21 @@ class CandleSubscriptionStrategy(BaseStrategy):
         self._last_tick_timestamp = None
         self._current_candle_volume = 0.0
         self._last_closed_timestamp = None
+        self._last_bar_received_at = None
+        self._last_bar_received_at_by_interval.clear()
         self._last_closed_volume = 0.0
         self._last_closed_price = 0.0
         self._last_runtime_status = None
+        self._signals_generated = 0
+        self._buy_signals_generated = 0
+        self._sell_signals_generated = 0
+        self._risk_evaluation_count = 0
+        self._risk_blocked_count = 0
+        self._local_order_block_count = 0
+        self._orders_submitted_count = 0
+        self._orders_rejected_count = 0
+        self._orders_failed_count = 0
+        self._orders_delegated_count = 0
 
     # ------------------------------------------------------------------
     def _telemetry(self) -> DomRuntimeTelemetryService | None:
@@ -3949,6 +4210,165 @@ class CandleSubscriptionStrategy(BaseStrategy):
             return
         except Exception:  # pragma: no cover - defensive
             self.logger.exception("Failed to update telemetry metrics")
+
+    def _telemetry_record_generated_signal(
+        self,
+        side: Any,
+        *,
+        quantity: Any = None,
+        reason: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        if not isinstance(side, str):
+            return
+        side_token = side.strip().upper()
+        if side_token not in {"BUY", "SELL"}:
+            return
+        self._signals_generated += 1
+        if side_token == "BUY":
+            self._buy_signals_generated += 1
+        else:
+            self._sell_signals_generated += 1
+        signal_timestamp = None
+        if isinstance(metadata, Mapping):
+            raw_ts = (
+                metadata.get("interval_end")
+                or metadata.get("timestamp")
+                or metadata.get("bar_end")
+            )
+            if raw_ts is not None:
+                try:
+                    signal_timestamp = _parse_timestamp(raw_ts)
+                except Exception:
+                    signal_timestamp = None
+        telemetry = self._telemetry()
+        if telemetry is not None:
+            try:
+                telemetry.record_signal(
+                    self._telemetry_strategy_id(),
+                    side_token,
+                    stage=self._PHASE_SIGNALS,
+                    quantity=quantity,
+                    timestamp=signal_timestamp,
+                    notes=reason,
+                )
+            except KeyError:
+                pass
+            except Exception:  # pragma: no cover - defensive
+                self.logger.debug("Failed to record telemetry signal", exc_info=True)
+        self._telemetry_set_phase_status(
+            self._PHASE_SIGNALS,
+            status="ready",
+            status_code="signal_generated",
+        )
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status="running",
+            status_code="awaiting_risk",
+            status_reason="Generated signal awaiting risk evaluation and order submission",
+        )
+        self._telemetry_update_phase_metrics(
+            self._PHASE_SIGNALS,
+            signals_generated=self._signals_generated,
+            buy_signals=self._buy_signals_generated,
+            sell_signals=self._sell_signals_generated,
+            last_signal_side=side_token,
+            last_signal_quantity=quantity,
+            last_signal_reason=reason,
+            last_signal_at=signal_timestamp or datetime.now(timezone.utc),
+        )
+
+    def _telemetry_record_local_block(
+        self,
+        code: str,
+        *,
+        message: str | None = None,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        self._local_order_block_count += 1
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status="blocked",
+            status_code="local_guard_blocked",
+            status_reason=message or code,
+            status_details=details,
+        )
+        self._telemetry_update_phase_metrics(
+            self._PHASE_EXECUTION,
+            local_blocked_count=self._local_order_block_count,
+            last_order_status="blocked_local",
+            last_order_reason=message or code,
+            last_order_at=datetime.now(timezone.utc),
+        )
+
+    def _telemetry_record_risk_outcome(
+        self,
+        *,
+        permitted: bool,
+        reason: str | None = None,
+        order: Mapping[str, Any] | None = None,
+    ) -> None:
+        self._risk_evaluation_count += 1
+        if not permitted:
+            self._risk_blocked_count += 1
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status="running" if permitted else "blocked",
+            status_code="risk_permitted" if permitted else "risk_blocked",
+            status_reason=reason,
+            status_details={"order": dict(order)} if isinstance(order, Mapping) else None,
+        )
+        self._telemetry_update_phase_metrics(
+            self._PHASE_EXECUTION,
+            risk_evaluation_count=self._risk_evaluation_count,
+            risk_blocked_count=self._risk_blocked_count,
+            last_risk_reason=reason,
+            last_order_status="risk_permitted" if permitted else "risk_blocked",
+            last_order_reason=reason,
+            last_order_at=datetime.now(timezone.utc),
+        )
+
+    def _telemetry_record_order_submission(
+        self,
+        status: str,
+        *,
+        reason: str | None = None,
+        order: Mapping[str, Any] | None = None,
+        response: Mapping[str, Any] | None = None,
+    ) -> None:
+        status_token = str(status).strip().lower()
+        if status_token == "submitted":
+            self._orders_submitted_count += 1
+        elif status_token == "rejected":
+            self._orders_rejected_count += 1
+        elif status_token == "failed":
+            self._orders_failed_count += 1
+        elif status_token == "delegated":
+            self._orders_delegated_count += 1
+        phase_status = "ready" if status_token == "submitted" else "blocked"
+        phase_code = f"order_{status_token}" if status_token else "order_update"
+        details: dict[str, Any] = {}
+        if isinstance(order, Mapping):
+            details["order"] = dict(order)
+        if isinstance(response, Mapping):
+            details["response"] = dict(response)
+        self._telemetry_set_phase_status(
+            self._PHASE_EXECUTION,
+            status=phase_status,
+            status_code=phase_code,
+            status_reason=reason,
+            status_details=details or None,
+        )
+        self._telemetry_update_phase_metrics(
+            self._PHASE_EXECUTION,
+            orders_submitted_count=self._orders_submitted_count,
+            orders_rejected_count=self._orders_rejected_count,
+            orders_failed_count=self._orders_failed_count,
+            orders_delegated_count=self._orders_delegated_count,
+            last_order_status=status_token or None,
+            last_order_reason=reason,
+            last_order_at=datetime.now(timezone.utc),
+        )
 
     def _telemetry_log(
         self,
@@ -4220,17 +4640,76 @@ class CandleSubscriptionStrategy(BaseStrategy):
         return None
 
     # ------------------------------------------------------------------
-    def _bar_inactivity_threshold_seconds(self) -> float:
+    def _bar_inactivity_threshold_seconds(self, interval: str | None = None) -> float:
         base_interval = max(10.0, float(getattr(self, "_health_check_interval", 30.0)))
         threshold = max(base_interval * 2.0, 60.0)
-        try:
-            interval_seconds = float(self._interval_delta.total_seconds())
-        except Exception:
-            interval_seconds = 0.0
+        interval_seconds = 0.0
+        target_interval = _normalize_interval_token(interval) if interval is not None else None
+        if target_interval:
+            resolved = _interval_seconds(target_interval)
+            if resolved is not None and resolved > 0:
+                interval_seconds = float(resolved)
+        else:
+            # Prefer the smallest target candle interval for general strategy
+            # health metrics, but per-interval checks should pass the interval.
+            candidate_seconds = [
+                float(value)
+                for value in (
+                    _interval_seconds(token)
+                    for token in (self.intervals or [self.interval])
+                )
+                if value is not None and value > 0
+            ]
+            if candidate_seconds:
+                interval_seconds = min(candidate_seconds)
+            else:
+                try:
+                    interval_seconds = float(self._interval_delta.total_seconds())
+                except Exception:
+                    interval_seconds = 0.0
         if interval_seconds > 0:
             # Require at least two full bars (or 120s) before declaring inactivity.
             threshold = max(threshold, interval_seconds * 2.0, 120.0)
         return threshold
+
+    # ------------------------------------------------------------------
+    def _mark_bar_stream_activity(
+        self,
+        *,
+        seen_at: datetime | None = None,
+        interval: str | None = None,
+    ) -> None:
+        """Mark the stream as alive when we receive relevant bar payloads."""
+        if seen_at is None:
+            seen_at = datetime.now(timezone.utc)
+        if seen_at.tzinfo is None:
+            seen_at = seen_at.replace(tzinfo=timezone.utc)
+        else:
+            seen_at = seen_at.astimezone(timezone.utc)
+        self._last_bar_received_at = seen_at
+        interval_token = _normalize_interval_token(interval) if interval is not None else None
+        if interval_token:
+            self._last_bar_received_at_by_interval[interval_token] = seen_at
+        if self._bar_stream_missing or self._bar_stream_refresh_inflight:
+            self._bar_stream_missing = False
+            self._bar_stream_refresh_inflight = False
+            self._inactivity_recovery_next_attempt = 0.0
+            self._inactivity_recovery_backoff = 30.0
+            self._telemetry_update_phase_metrics(
+                self._PHASE_SUBSCRIPTION,
+                stream_status="active",
+                missing_stream=None,
+                last_bar_at=self._telemetry_format_value(seen_at),
+            )
+
+    def _latest_bar_activity_for_interval(
+        self,
+        interval: str | None,
+    ) -> datetime | None:
+        interval_token = _normalize_interval_token(interval) if interval is not None else None
+        if interval_token:
+            return self._last_bar_received_at_by_interval.get(interval_token)
+        return self._last_bar_received_at
 
     # ------------------------------------------------------------------
     def _restart_bar_listener(self) -> None:
@@ -4389,7 +4868,10 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     self.logger.exception("Health check failed with exception: %s", exc)
                     ready = False
                     health_reason = "market_data_health_check_failed"
-            if not ready:
+            transient_health_failure = (
+                not ready and _is_transient_market_data_health_reason(health_reason)
+            )
+            if not ready and not transient_health_failure:
                 if self._subscription_wait_state_changed(
                     "awaiting_market_data_ready", health_reason
                 ):
@@ -4411,6 +4893,12 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     )
                 await asyncio.sleep(wait_interval)
                 continue
+            if transient_health_failure:
+                self.logger.warning(
+                    "Market data readiness probe returned transient failure for %s; attempting subscription registration anyway (%s)",
+                    self.name,
+                    health_reason,
+                )
 
             registered = True
             if callable(registrar) and self.symbol:
@@ -4439,11 +4927,27 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     registered = False
             if not registered and callable(registration_checker):
                 try:
-                    registered = await registration_checker(self.name)
+                    registration_candidates: list[str] = []
+                    telemetry_id = self._telemetry_strategy_id()
+                    registration_candidates.append(str(telemetry_id))
+                    if self.name not in registration_candidates:
+                        registration_candidates.append(self.name)
+                    for candidate in registration_candidates:
+                        registered = await registration_checker(candidate)
+                        if registered:
+                            break
                     if not registered:
-                        self.logger.warning(f"Strategy {self.name} registration check failed via coordinator")
+                        self.logger.info(
+                            "Strategy %s registration check pending via coordinator",
+                            self.name,
+                            extra={"event": "strategy.subscription.registration_pending"},
+                        )
                 except Exception as e:
-                    self.logger.warning(f"Strategy {self.name} registration check raised exception: {e}")
+                    self.logger.info(
+                        "Strategy %s registration check raised transient exception: %s",
+                        self.name,
+                        e,
+                    )
                     registered = False
             
             if not registered:
@@ -4806,19 +5310,52 @@ class CandleSubscriptionStrategy(BaseStrategy):
 
     async def _check_bar_stream_health(self) -> None:
         facade = self._coordinator_facade()
-        checker = getattr(facade, "ensure_stream_active", None) if facade else None
         refresher = getattr(facade, "refresh_subscription", None) if facade else None
         now = datetime.now(timezone.utc)
-        inactive_seconds: float | None = None
-        if self._last_bar_received_at is not None:
-            inactive_seconds = max(
-                0.0, (now - self._last_bar_received_at).total_seconds()
+        source_intervals = tuple(self._resolve_subscription_intervals())
+        stale_intervals: list[tuple[str, float | None, float]] = []
+        metric_stale_intervals: list[dict[str, Any]] = []
+        connected_runtime_seconds: float | None = None
+        if self._subscription_connected_at is not None:
+            connected_runtime_seconds = max(
+                0.0, (now - self._subscription_connected_at).total_seconds()
             )
-        threshold_seconds = self._bar_inactivity_threshold_seconds()
-        data_recent = (
-            inactive_seconds is not None and inactive_seconds < threshold_seconds
-        )
-        if data_recent:
+
+        for interval in source_intervals:
+            threshold_seconds = self._bar_inactivity_threshold_seconds(interval)
+            last_bar_at = self._latest_bar_activity_for_interval(interval)
+            effective_last_bar_at = last_bar_at
+            if (
+                effective_last_bar_at is not None
+                and self._subscription_connected_at is not None
+                and self._subscription_connected_at > effective_last_bar_at
+            ):
+                effective_last_bar_at = self._subscription_connected_at
+            inactive_seconds: float | None = None
+            if effective_last_bar_at is not None:
+                inactive_seconds = max(0.0, (now - effective_last_bar_at).total_seconds())
+            elif (
+                connected_runtime_seconds is not None
+                and connected_runtime_seconds >= threshold_seconds
+            ):
+                inactive_seconds = connected_runtime_seconds
+
+            if inactive_seconds is not None:
+                metric_stale_intervals.append(
+                    {
+                        "interval": interval,
+                        "inactive_seconds": round(inactive_seconds, 1),
+                        "threshold_seconds": round(threshold_seconds, 1),
+                        "last_bar_at": self._telemetry_format_value(last_bar_at),
+                        "effective_last_bar_at": self._telemetry_format_value(
+                            effective_last_bar_at
+                        ),
+                    }
+                )
+            if inactive_seconds is not None and inactive_seconds >= threshold_seconds:
+                stale_intervals.append((interval, inactive_seconds, threshold_seconds))
+
+        if not stale_intervals:
             if self._bar_stream_missing or self._bar_stream_refresh_inflight:
                 self._bar_stream_missing = False
                 self._bar_stream_refresh_inflight = False
@@ -4833,6 +5370,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     self._PHASE_SUBSCRIPTION,
                     stream_status="active",
                     missing_stream=None,
+                    stale_intervals=[],
                 )
                 self._telemetry_log(
                     "Unified bar stream restored",
@@ -4842,59 +5380,29 @@ class CandleSubscriptionStrategy(BaseStrategy):
                     deduplicate=False,
                     timestamp=now,
                 )
-            return
-        is_active: bool | None = None
-        if checker is not None and callable(checker):
-            try:
-                is_active = await checker(self.name, "bar")
-            except Exception:
-                self.logger.exception(
-                    "Failed to verify unified bar stream health via coordinator"
+            elif metric_stale_intervals:
+                self._telemetry_update_phase_metrics(
+                    self._PHASE_SUBSCRIPTION,
+                    stream_status="active",
+                    stale_intervals=metric_stale_intervals,
                 )
-                is_active = None
+            return
+
+        max_inactive_seconds = max(
+            inactive_seconds or 0.0 for _, inactive_seconds, _ in stale_intervals
+        )
+        max_threshold_seconds = max(
+            threshold_seconds for _, _, threshold_seconds in stale_intervals
+        )
         recovery_triggered = False
-        if inactive_seconds is not None and inactive_seconds >= threshold_seconds:
+        if stale_intervals:
             recovery_triggered = await self._recover_from_bar_inactivity(
-                inactive_seconds=inactive_seconds,
-                threshold_seconds=threshold_seconds,
+                inactive_seconds=max_inactive_seconds,
+                threshold_seconds=max_threshold_seconds,
                 refresher=refresher if callable(refresher) else None,
             )
             if self._recovering_after_inactivity:
                 return
-        if is_active:
-            if self._bar_stream_missing or self._bar_stream_refresh_inflight:
-                self._bar_stream_missing = False
-                self._bar_stream_refresh_inflight = False
-                self._inactivity_recovery_next_attempt = 0.0
-                self._inactivity_recovery_backoff = 30.0
-                self._telemetry_set_phase_status(
-                    self._PHASE_SUBSCRIPTION,
-                    status="connected",
-                    status_code="subscribed",
-                )
-                self._telemetry_update_phase_metrics(
-                    self._PHASE_SUBSCRIPTION,
-                    stream_status="active",
-                    missing_stream=None,
-                )
-                self._telemetry_log(
-                    "Unified bar stream restored",
-                    level="INFO",
-                    tone="positive",
-                    phase=self._PHASE_SUBSCRIPTION,
-                    deduplicate=False,
-                    timestamp=now,
-                )
-            return
-        if is_active is None:
-            if inactive_seconds is not None:
-                self._telemetry_update_phase_metrics(
-                    self._PHASE_SUBSCRIPTION,
-                    inactive_seconds=round(inactive_seconds, 1),
-                    inactivity_threshold_seconds=threshold_seconds,
-                    last_bar_at=self._telemetry_format_value(self._last_bar_received_at),
-                )
-            return
         if recovery_triggered:
             return
         if not self._bar_stream_missing:
@@ -4902,12 +5410,26 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 self._PHASE_SUBSCRIPTION,
                 status="waiting",
                 status_code="awaiting_bar_stream",
-                status_details={"stream": "bar"},
+                status_details={
+                    "stream": "bar",
+                    "stale_intervals": [
+                        {
+                            "interval": interval,
+                            "inactive_seconds": round(inactive_seconds or 0.0, 1),
+                            "threshold_seconds": round(threshold_seconds, 1),
+                            "last_bar_at": self._telemetry_format_value(
+                                self._latest_bar_activity_for_interval(interval)
+                            ),
+                        }
+                        for interval, inactive_seconds, threshold_seconds in stale_intervals
+                    ],
+                },
             )
             self._telemetry_update_phase_metrics(
                 self._PHASE_SUBSCRIPTION,
                 stream_status="missing",
                 missing_stream="bar",
+                stale_intervals=metric_stale_intervals,
             )
             self._telemetry_log(
                 "Unified bar stream inactive; awaiting coordinator refresh",
@@ -4915,6 +5437,16 @@ class CandleSubscriptionStrategy(BaseStrategy):
                 tone="warning",
                 phase=self._PHASE_SUBSCRIPTION,
                 deduplicate=False,
+                details={
+                    "stale_intervals": [
+                        {
+                            "interval": interval,
+                            "inactive_seconds": round(inactive_seconds or 0.0, 1),
+                            "threshold_seconds": round(threshold_seconds, 1),
+                        }
+                        for interval, inactive_seconds, threshold_seconds in stale_intervals
+                    ]
+                },
                 timestamp=now,
             )
         self._bar_stream_missing = True
@@ -4977,11 +5509,17 @@ class CandleSubscriptionStrategy(BaseStrategy):
                         tone="negative",
                         phase=self._PHASE_SUBSCRIPTION,
                         deduplicate=False,
-                        details=(
-                            {"refresh_reason": refresh_reason}
-                            if refresh_reason
-                            else None
-                        ),
+                        details={
+                            "refresh_reason": refresh_reason,
+                            "stale_intervals": [
+                                {
+                                    "interval": interval,
+                                    "inactive_seconds": round(inactive_seconds or 0.0, 1),
+                                    "threshold_seconds": round(threshold_seconds, 1),
+                                }
+                                for interval, inactive_seconds, threshold_seconds in stale_intervals
+                            ],
+                        },
                         timestamp=now,
                     )
             finally:
@@ -5037,13 +5575,15 @@ class CandleSubscriptionStrategy(BaseStrategy):
         if telemetry is None:
             return
         event_ts = self._maybe_parse_timestamp(timestamp)
-        subscription_id = interval or self.interval
+        interval_token = _normalize_interval_token(interval) or self.interval
+        subscription_id = interval_token
         try:
             normalised = telemetry.record_data_event(
                 self._telemetry_strategy_id(),
                 timestamp=event_ts,
                 subscription_id=subscription_id,
                 symbol=self.symbol or None,
+                interval=interval_token,
             )
         except KeyError:
             return
@@ -5058,6 +5598,7 @@ class CandleSubscriptionStrategy(BaseStrategy):
         if event_ts is None:
             event_ts = seen_at
         self._last_bar_received_at = seen_at
+        self._last_bar_received_at_by_interval[interval_token] = seen_at
         self._tick_count += 1
         self._last_tick_timestamp = seen_at
         self._current_candle_volume = float(volume or 0.0)
