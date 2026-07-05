@@ -10,6 +10,8 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 
 本地版用于运行和验证自己的交易环境；云端 Studio 用于托管式 workflow 设计、云端试用和后续订阅能力。公开安装包不包含云平台服务、云端镜像、Agents、AI Model Ops、News 或私有平台代码。
 
+首次安装后，本地环境在未绑定云平台用户前可试用 24 小时。绑定云平台用户后，本地服务会按云平台订阅等级下发的能力启用或禁用。
+
 ![ATI Local Runtime](images/screenshot.png)
 
 ## 功能概览
@@ -86,6 +88,7 @@ docker compose --profile ib logs -f ib-gateway
 - 默认不发布 Redis、MariaDB、后端 API 服务端口。
 - 默认不启用云平台、云端 Studio、Agents、AI Model Ops 或 News 服务。
 - 默认不把 Docker socket 挂载给业务容器；只有选择 `ib` 时，watchdog 容器会获得 Docker socket，用于控制 `ib-gateway`。
+- 未绑定云平台用户时，本地环境只提供 24 小时试用；绑定后按云平台订阅等级控制本地服务能力。
 - `.env`、`middle/.env`、`data/`、`logs/` 不应提交到公开仓库。
 
 ## 目录说明

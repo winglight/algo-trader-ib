@@ -10,6 +10,8 @@ Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustud
 
 Use the local runtime for your own trading environment and local validation. Use Cloud Strategy Studio for hosted workflow design, trial access, and future subscription features. This public package does not include cloud platform services, cloud images, Agents, AI Model Ops, News, or private platform code.
 
+After the first installation, the local environment can run for 24 hours before it is bound to a cloud account. After binding, local services are enabled or disabled according to the capabilities attached to the cloud subscription tier.
+
 ![ATI Local Runtime](images/screenshot_en.png)
 
 ## Features
@@ -86,6 +88,7 @@ docker compose --profile ib logs -f ib-gateway
 - Redis, MariaDB, and backend API service ports are not published by default.
 - Cloud platform, Cloud Studio, Agents, AI Model Ops, and News services are not started by default.
 - Application containers do not mount the Docker socket by default. If `ib` mode is selected, the watchdog container mounts the Docker socket to control `ib-gateway`.
+- Before cloud account binding, the local environment has a 24-hour trial window. After binding, local runtime capabilities follow the cloud subscription tier.
 - Do not commit `.env`, `middle/.env`, `data/`, or `logs/`.
 
 ## Files
