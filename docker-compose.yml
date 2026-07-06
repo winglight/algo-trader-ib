@@ -9,7 +9,8 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=disabled;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=disabled;account|http://account-service:8100/healthz|||restart_mode=disabled;orders|http://orders-service:8101/healthz|||restart_mode=disabled;market-data|http://market-data-service:8102/healthz|||restart_mode=disabled;risk|http://risk-service:8103/healthz|||restart_mode=disabled;strategy|http://strategy-service:8104/healthz|||restart_mode=disabled;simulation|http://simulation-service:8111/healthz|||restart_mode=disabled;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=disabled"
+      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=watchdog;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=watchdog;account|http://account-service:8100/healthz|||restart_mode=watchdog;orders|http://orders-service:8101/healthz|||restart_mode=watchdog;market-data|http://market-data-service:8102/healthz|||restart_mode=watchdog;risk|http://risk-service:8103/healthz|||restart_mode=watchdog;strategy|http://strategy-service:8104/healthz|||restart_mode=watchdog;simulation|http://simulation-service:8111/healthz|||restart_mode=watchdog;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=watchdog"
+      SERVICE_WATCHDOG_URL: http://service-watchdog:8110
       OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec
     restart: unless-stopped
     networks:
@@ -170,36 +171,39 @@ services:
   service-watchdog:
     image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-service-watchdog
-    profiles:
-      - ib
-    command:
-      [
-        "python3",
-        "tools/service_watchdog.py",
-        "--interval",
-        "60",
-        "--startup-delay",
-        "20",
-        "--timeout",
-        "5",
-        "--max-failures",
-        "9999",
-        "--collector-enabled",
-        "0",
-        "--strategy-stream-enabled",
-        "0",
-      ]
+    env_file:
+      - path: ./config/service_watchdog_public.env.example
+      - path: ./config/service_watchdog.env
+        required: false
+    command: ["python3", "tools/service_watchdog.py"]
+    ports:
+      - "127.0.0.1:${SERVICE_WATCHDOG_PORT:-8110}:8110"
     environment:
-      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz|||restart_mode=disabled"
-      SERVICE_WATCHDOG_IB_GATEWAY_ENABLED: "1"
-      SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER: ib-gateway
-      SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST: unix:///var/run/docker.sock
+      SERVICE_WATCHDOG_IB_GATEWAY_ENABLED: ${SERVICE_WATCHDOG_IB_GATEWAY_ENABLED:-0}
+      SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER: ${SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER:-ib-gateway}
+      SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST: ${SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
       - ./logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     depends_on:
       backend:
+        condition: service_started
+      broker-runner-service:
+        condition: service_started
+      account-service:
+        condition: service_started
+      orders-service:
+        condition: service_started
+      market-data-service:
+        condition: service_started
+      risk-service:
+        condition: service_started
+      simulation-service:
+        condition: service_started
+      strategy-spec-service:
+        condition: service_started
+      strategy-service:
         condition: service_started
     networks:
       default:

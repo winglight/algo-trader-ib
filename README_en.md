@@ -58,9 +58,9 @@ Use the web login password you entered during installation.
 
 ## Broker Modes
 
-`sim` is the default mode. It does not require a broker account and does not mount the host Docker socket.
+`sim` is the default mode and does not require a broker account. The main app starts `service-watchdog`, and only the watchdog container mounts the host Docker socket so it can restart managed application containers; application containers do not mount the Docker socket by default.
 
-`ib` starts the `ib-gateway` profile from `middle/docker-compose.yml` and enables the main `service-watchdog` profile. That profile mounts the host Docker socket only into the watchdog container so the app can start, stop, or restart `ib-gateway`; application containers do not mount the Docker socket by default.
+`ib` additionally starts the `ib-gateway` profile from `middle/docker-compose.yml` and allows watchdog to start, stop, or restart `ib-gateway` through the UI or API.
 
 ## Operations
 
@@ -88,7 +88,7 @@ docker compose --profile ib logs -f ib-gateway
 - Only the frontend port `127.0.0.1:5173` is published by default.
 - Redis, MariaDB, and backend API service ports are not published by default.
 - Cloud platform, Cloud Studio, Agents, AI Model Ops, and News services are not started by default.
-- Application containers do not mount the Docker socket by default. If `ib` mode is selected, the watchdog container mounts the Docker socket to control `ib-gateway`.
+- Application containers do not mount the Docker socket by default. The Docker socket is mounted only into the watchdog container, which restarts configured application containers and controls `ib-gateway` when `ib` mode is selected.
 - Before cloud account binding, the local environment has a 24-hour trial window. After binding, local runtime capabilities follow the cloud subscription tier.
 - Do not commit `.env`, `middle/.env`, `data/`, or `logs/`.
 

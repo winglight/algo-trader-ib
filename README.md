@@ -58,9 +58,9 @@ ati-guest
 
 ## Broker 模式
 
-`sim` 是默认模式，不需要券商账号，也不会挂载宿主机 Docker socket。
+`sim` 是默认模式，不需要券商账号。主应用会启动 `service-watchdog`，并且只有 watchdog 容器会挂载宿主机 Docker socket，用于受控重启业务容器；其他业务容器默认不挂载 Docker socket。
 
-`ib` 模式会启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile，并在主应用中启用 `service-watchdog` profile。该 profile 会把宿主机 Docker socket 只挂载给 watchdog 容器，用于通过页面或接口控制 `ib-gateway` start/stop/restart；其他业务容器默认不挂载 Docker socket。
+`ib` 模式会额外启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile，并允许 watchdog 通过页面或接口控制 `ib-gateway` start/stop/restart。
 
 ## 管理命令
 
@@ -88,7 +88,7 @@ docker compose --profile ib logs -f ib-gateway
 - 默认只发布前端端口 `127.0.0.1:5173`。
 - 默认不发布 Redis、MariaDB、后端 API 服务端口。
 - 默认不启用云平台、云端 Studio、Agents、AI Model Ops 或 News 服务。
-- 默认不把 Docker socket 挂载给业务容器；只有选择 `ib` 时，watchdog 容器会获得 Docker socket，用于控制 `ib-gateway`。
+- 默认不把 Docker socket 挂载给业务容器；Docker socket 只挂载给 watchdog 容器，用于按配置重启业务容器，并在 `ib` 模式下控制 `ib-gateway`。
 - 未绑定云平台用户时，本地环境只提供 24 小时试用；绑定后按云平台订阅等级控制本地服务能力。
 - `.env`、`middle/.env`、`data/`、`logs/` 不应提交到公开仓库。
 

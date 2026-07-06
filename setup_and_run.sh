@@ -190,7 +190,6 @@ update_env_line "${MIDDLE_DIR}/.env" MARIADB_USER "$MARIADB_USER"
 update_env_line "${MIDDLE_DIR}/.env" MARIADB_PASSWORD "$MARIADB_PASSWORD"
 
 MIDDLE_PROFILE_ARGS=()
-APP_PROFILE_ARGS=()
 if [ "$BROKER_ADAPTER_MODE" = "ib" ]; then
   TWS_USERID="$(get_or_prompt_from_file "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" TWS_USERID "IBKR paper username" 0)"
   TWS_PASSWORD="$(get_or_prompt_from_file "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" TWS_PASSWORD "IBKR paper password" 1)"
@@ -272,6 +271,8 @@ update_env_line "${ROOT_DIR}/.env" MARKET_DATA_BROKER_RUNNER_URL "http://broker-
 update_env_line "${ROOT_DIR}/.env" APP_DOCS_URL ""
 update_env_line "${ROOT_DIR}/.env" APP_REDOC_URL ""
 update_env_line "${ROOT_DIR}/.env" APP_OPENAPI_URL ""
+update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_URL "http://service-watchdog:8110"
+update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_ENABLED "1"
 
 if [ "$BROKER_ADAPTER_MODE" = "ib" ]; then
   update_env_line "${ROOT_DIR}/.env" BROKER_RUNNER_ADAPTER_ENTRYPOINT "src.broker_adapters.ibkr_paper:create_adapter"
@@ -279,25 +280,20 @@ if [ "$BROKER_ADAPTER_MODE" = "ib" ]; then
   update_env_line "${ROOT_DIR}/.env" BROKER_RUNNER_IB_GATEWAY_PORT "4004"
   update_env_line "${ROOT_DIR}/.env" BROKER_RUNNER_IB_CLIENT_ID "40"
   update_env_line "${ROOT_DIR}/.env" BROKER_RUNNER_IB_READ_ONLY "false"
-  update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_URL "http://service-watchdog:8110"
+  update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_IB_GATEWAY_ENABLED "1"
+  update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER "ib-gateway"
+  update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST "unix:///var/run/docker.sock"
   update_env_line "${ROOT_DIR}/.env" MARKET_DATA_IB_RESTART_URL "http://backend:8000/runtime/ib-gateway/restart"
-  update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_ENABLED "1"
-  APP_PROFILE_ARGS=(--profile ib)
 else
   update_env_line "${ROOT_DIR}/.env" BROKER_RUNNER_ADAPTER_ENTRYPOINT "src.broker_adapters.sim:create_adapter"
+  update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_IB_GATEWAY_ENABLED "0"
   update_env_line "${ROOT_DIR}/.env" MARKET_DATA_IB_RESTART_URL ""
-  update_env_line "${ROOT_DIR}/.env" SERVICE_WATCHDOG_ENABLED "0"
 fi
 
 (
   cd "${ROOT_DIR}"
-  if [ "${#APP_PROFILE_ARGS[@]}" -gt 0 ]; then
-    docker compose -f docker-compose.yml "${APP_PROFILE_ARGS[@]}" pull
-    docker compose -f docker-compose.yml "${APP_PROFILE_ARGS[@]}" up -d
-  else
-    docker compose -f docker-compose.yml pull
-    docker compose -f docker-compose.yml up -d
-  fi
+  docker compose -f docker-compose.yml pull
+  docker compose -f docker-compose.yml up -d
 )
 
 if wait_for_http "$APP_URL" 90; then
