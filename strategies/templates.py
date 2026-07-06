@@ -324,12 +324,6 @@ class StrategyTemplate(BaseStrategy):
         return await super().generate_orders()
 
 def __getattr__(name: str) -> Any:
-    if name == "DomStructureStrategy":
-        from .dom_structure_strategy import DomStructureStrategy as cls
-        return cls
-    if name == "DomMomentumStrategy":
-        from .dom_momentum_strategy import DomMomentumStrategy as cls
-        return cls
     if name == "MeanReversionStrategy":
         from .mean_reversion_strategy import MeanReversionStrategy as cls
         return cls
