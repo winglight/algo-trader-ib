@@ -5,8 +5,9 @@
 ATI Local Runtime is the local runtime package for Algo Trading Intelligence. It runs the trading workspace, API, account, orders, market data, risk, strategy, simulation, and strategy spec services as a Docker Compose environment on your own machine or server.
 
 Official website: [ati.broyustudio.com](https://ati.broyustudio.com)  
-Cloud console: [ati-cloud.broyustudio.com](https://ati-cloud.broyustudio.com)  
-Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)
+Membership and product page: [ati.broyustudio.com](https://ati.broyustudio.com)  
+Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)  
+Local trading system demo: [ati-trading.broyustudio.com](https://ati-trading.broyustudio.com)
 
 Use the local runtime for your own trading environment and local validation. Use Cloud Strategy Studio for hosted workflow design, trial access, and future subscription features. This public package does not include cloud platform services, cloud images, Agents, AI Model Ops, News, or private platform code.
 

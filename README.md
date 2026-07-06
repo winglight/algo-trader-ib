@@ -5,8 +5,9 @@
 ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交易工作台、API、账户、订单、行情、风控、策略、仿真和策略规格服务打包为一套 Docker Compose 环境，适合在个人电脑或自有服务器上运行。
 
 官方网站：[ati.broyustudio.com](https://ati.broyustudio.com)  
-云平台入口：[ati-cloud.broyustudio.com](https://ati-cloud.broyustudio.com)  
-云端 Strategy Studio：[ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)
+会员与产品页入口：[ati.broyustudio.com](https://ati.broyustudio.com)  
+云端 Strategy Studio：[ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)  
+本地交易系统 Demo：[ati-trading.broyustudio.com](https://ati-trading.broyustudio.com)
 
 本地版用于运行和验证自己的交易环境；云端 Studio 用于托管式 workflow 设计、云端试用和后续订阅能力。公开安装包不包含云平台服务、云端镜像、Agents、AI Model Ops、News 或私有平台代码。
 
