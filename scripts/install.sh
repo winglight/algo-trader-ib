@@ -10,6 +10,34 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+dir_has_entries() {
+  [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ]
+}
+
+confirm_remove_install_dir() {
+  local reason="$1" reply
+  echo "$reason"
+  echo "Install directory: $INSTALL_DIR"
+  read -r -p "Delete all files in this directory and reinstall? [y/N]: " reply
+  case "$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')" in
+    y|yes)
+      ;;
+    *)
+      echo "Installation aborted. Please move, commit, or back up the existing files, then rerun this installer." >&2
+      exit 1
+      ;;
+  esac
+
+  case "$INSTALL_DIR" in
+    ""|"/"|"$HOME")
+      echo "Refusing to remove unsafe install directory: $INSTALL_DIR" >&2
+      exit 1
+      ;;
+  esac
+
+  rm -rf "$INSTALL_DIR"
+}
+
 prompt_install_dir() {
   local value
   read -r -p "Install directory [${INSTALL_DIR}]: " value
@@ -19,17 +47,31 @@ prompt_install_dir() {
 }
 
 download_with_git() {
-  if [ -d "${INSTALL_DIR}/.git" ]; then
-    git -C "$INSTALL_DIR" pull --ff-only
-  elif [ ! -e "$INSTALL_DIR" ] || [ -z "$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ]; then
+  if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
+    confirm_remove_install_dir "Install path already exists and is not a directory."
+    git clone "$REPO_URL" "$INSTALL_DIR"
+  elif [ -d "${INSTALL_DIR}/.git" ]; then
+    if [ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]; then
+      confirm_remove_install_dir "Existing installation has local changes that would block an update."
+      git clone "$REPO_URL" "$INSTALL_DIR"
+    else
+      git -C "$INSTALL_DIR" pull --ff-only
+    fi
+  elif [ ! -e "$INSTALL_DIR" ] || ! dir_has_entries "$INSTALL_DIR"; then
     git clone "$REPO_URL" "$INSTALL_DIR"
   else
-    download_with_archive
+    confirm_remove_install_dir "Existing install directory is not empty and is not a Git checkout."
+    git clone "$REPO_URL" "$INSTALL_DIR"
   fi
 }
 
 download_with_archive() {
   local tmp
+  if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
+    confirm_remove_install_dir "Install path already exists and is not a directory."
+  elif dir_has_entries "$INSTALL_DIR"; then
+    confirm_remove_install_dir "Existing install directory is not empty."
+  fi
   tmp="$(mktemp -d)"
   curl -fsSL "$ARCHIVE_URL" -o "${tmp}/ati-local-runtime.tar.gz"
   mkdir -p "$INSTALL_DIR"

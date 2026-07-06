@@ -83,7 +83,7 @@ docker compose --profile ib logs -f ib-gateway
 
 ## Security Boundary
 
-- Public images default to version `0.1.0`; override `ATI_IMAGE_TAG` in `.env` only when you intentionally move to another release.
+- Public images default to the `latest` tag; set `ATI_IMAGE_TAG` in `.env` when you intentionally pin a specific release.
 - Only the frontend port `127.0.0.1:5173` is published by default.
 - Redis, MariaDB, and backend API service ports are not published by default.
 - Cloud platform, Cloud Studio, Agents, AI Model Ops, and News services are not started by default.

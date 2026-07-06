@@ -83,7 +83,7 @@ docker compose --profile ib logs -f ib-gateway
 
 ## 安全边界
 
-- 默认使用 `0.1.0` 版本公开镜像；如需覆盖，可在 `.env` 中修改 `ATI_IMAGE_TAG`。
+- 默认使用 `latest` 公开镜像；如需固定到特定版本，可在 `.env` 中设置 `ATI_IMAGE_TAG`。
 - 默认只发布前端端口 `127.0.0.1:5173`。
 - 默认不发布 Redis、MariaDB、后端 API 服务端口。
 - 默认不启用云平台、云端 Studio、Agents、AI Model Ops 或 News 服务。

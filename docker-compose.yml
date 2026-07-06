@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-backend
     volumes:
       - ./data:/app/data
@@ -17,7 +17,7 @@ services:
         ipv4_address: 172.21.0.10
 
   broker-runner-service:
-    image: ghcr.io/winglight/algo-trader/broker-runner-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/broker-runner-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-broker-runner
     volumes:
       - ./data:/app/data
@@ -43,7 +43,7 @@ services:
         ipv4_address: 172.21.0.25
 
   account-service:
-    image: ghcr.io/winglight/algo-trader/account-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/account-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-account
     volumes:
       - ./data:/app/data
@@ -62,7 +62,7 @@ services:
         ipv4_address: 172.21.0.11
 
   orders-service:
-    image: ghcr.io/winglight/algo-trader/orders-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/orders-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-orders
     volumes:
       - ./data:/app/data
@@ -81,7 +81,7 @@ services:
         ipv4_address: 172.21.0.12
 
   market-data-service:
-    image: ghcr.io/winglight/algo-trader/market-data-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/market-data-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-market-data
     volumes:
       - ./data:/app/data
@@ -100,7 +100,7 @@ services:
         ipv4_address: 172.21.0.13
 
   risk-service:
-    image: ghcr.io/winglight/algo-trader/risk-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/risk-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-risk
     volumes:
       - ./data:/app/data
@@ -116,7 +116,7 @@ services:
         ipv4_address: 172.21.0.14
 
   simulation-service:
-    image: ghcr.io/winglight/algo-trader/sim-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/sim-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-sim
     volumes:
       - ./data:/app/data
@@ -132,7 +132,7 @@ services:
         ipv4_address: 172.21.0.16
 
   strategy-spec-service:
-    image: ghcr.io/winglight/algo-trader/strategy-spec-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/strategy-spec-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-strategy-spec
     volumes:
       - ./data:/app/data
@@ -148,7 +148,7 @@ services:
         ipv4_address: 172.21.0.17
 
   strategy-service:
-    image: ghcr.io/winglight/algo-trader/strategy-service:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/strategy-service:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-strategy
     volumes:
       - ./data:/app/data
@@ -168,7 +168,7 @@ services:
         ipv4_address: 172.21.0.15
 
   service-watchdog:
-    image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-service-watchdog
     profiles:
       - ib
@@ -206,7 +206,7 @@ services:
         ipv4_address: 172.21.0.26
 
   frontend:
-    image: ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-0.1.0}
+    image: ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-latest}
     container_name: algo-trader-frontend
     ports:
       - "127.0.0.1:5173:80"
