@@ -2,8 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-REPO_URL="${ATI_PUBLIC_REPO_URL:-https://github.com/winglight/algo-trader-ib.git}"
-ARCHIVE_URL="${ATI_PUBLIC_ARCHIVE_URL:-https://github.com/winglight/algo-trader-ib/archive/refs/heads/main.tar.gz}"
+ARCHIVE_URL="${ATI_PUBLIC_ARCHIVE_URL:-https://github.com/winglight/algo-trader-ib/archive/refs/heads/main.zip}"
 INSTALL_DIR="${ATI_INSTALL_DIR:-$HOME/ati-local-runtime}"
 
 has_cmd() {
@@ -14,16 +13,16 @@ dir_has_entries() {
   [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ]
 }
 
-confirm_remove_install_dir() {
+confirm_update_install_dir() {
   local reason="$1" reply
   echo "$reason"
   echo "Install directory: $INSTALL_DIR"
-  read -r -p "Delete all files in this directory and reinstall? [y/N]: " reply
+  read -r -p "Replace application files and keep local .env files? [y/N]: " reply
   case "$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')" in
     y|yes)
       ;;
     *)
-      echo "Installation aborted. Please move, commit, or back up the existing files, then rerun this installer." >&2
+      echo "Installation aborted. Please move or back up the existing files, then rerun this installer." >&2
       exit 1
       ;;
   esac
@@ -34,8 +33,6 @@ confirm_remove_install_dir() {
       exit 1
       ;;
   esac
-
-  rm -rf "$INSTALL_DIR"
 }
 
 prompt_install_dir() {
@@ -46,58 +43,79 @@ prompt_install_dir() {
   fi
 }
 
-download_with_git() {
-  if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
-    confirm_remove_install_dir "Install path already exists and is not a directory."
-    git clone "$REPO_URL" "$INSTALL_DIR"
-  elif [ -d "${INSTALL_DIR}/.git" ]; then
-    if [ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]; then
-      confirm_remove_install_dir "Existing installation has local changes that would block an update."
-      git clone "$REPO_URL" "$INSTALL_DIR"
-    else
-      git -C "$INSTALL_DIR" pull --ff-only
-    fi
-  elif [ ! -e "$INSTALL_DIR" ] || ! dir_has_entries "$INSTALL_DIR"; then
-    git clone "$REPO_URL" "$INSTALL_DIR"
-  else
-    confirm_remove_install_dir "Existing install directory is not empty and is not a Git checkout."
-    git clone "$REPO_URL" "$INSTALL_DIR"
+backup_env_files() {
+  local backup_dir="$1" manifest="$2"
+  if [ ! -d "$INSTALL_DIR" ]; then
+    return 0
   fi
+  (
+    cd "$INSTALL_DIR"
+    find . -type f \( -name '.env' -o -name '*.env' \) -print
+  ) | while IFS= read -r rel_path; do
+    rel_path="${rel_path#./}"
+    mkdir -p "${backup_dir}/$(dirname "$rel_path")"
+    cp "${INSTALL_DIR}/${rel_path}" "${backup_dir}/${rel_path}"
+    printf '%s\n' "$rel_path" >>"$manifest"
+  done
 }
 
-download_with_archive() {
-  local tmp
+restore_env_files() {
+  local backup_dir="$1" manifest="$2" rel_path
+  if [ ! -f "$manifest" ]; then
+    return 0
+  fi
+  while IFS= read -r rel_path; do
+    mkdir -p "${INSTALL_DIR}/$(dirname "$rel_path")"
+    cp "${backup_dir}/${rel_path}" "${INSTALL_DIR}/${rel_path}"
+  done <"$manifest"
+}
+
+replace_install_dir_contents() {
+  local extracted="$1" env_backup="$2" env_manifest="$3"
+  if [ -d "$INSTALL_DIR" ]; then
+    find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  elif [ -e "$INSTALL_DIR" ]; then
+    rm -f "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+  else
+    mkdir -p "$INSTALL_DIR"
+  fi
+  cp -R "${extracted}/." "$INSTALL_DIR/"
+  restore_env_files "$env_backup" "$env_manifest"
+}
+
+download_with_zip() {
+  local tmp env_backup env_manifest extracted
   if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
-    confirm_remove_install_dir "Install path already exists and is not a directory."
+    confirm_update_install_dir "Install path already exists and is not a directory."
   elif dir_has_entries "$INSTALL_DIR"; then
-    confirm_remove_install_dir "Existing install directory is not empty."
+    confirm_update_install_dir "Existing install directory is not empty."
   fi
   tmp="$(mktemp -d)"
-  curl -fsSL "$ARCHIVE_URL" -o "${tmp}/ati-local-runtime.tar.gz"
-  mkdir -p "$INSTALL_DIR"
-  tar -xzf "${tmp}/ati-local-runtime.tar.gz" -C "$tmp"
-  local extracted
+  env_backup="${tmp}/env-backup"
+  env_manifest="${tmp}/env-files.txt"
+  mkdir -p "$env_backup"
+  touch "$env_manifest"
+  backup_env_files "$env_backup" "$env_manifest"
+  curl -fsSL "$ARCHIVE_URL" -o "${tmp}/ati-local-runtime.zip"
+  unzip -q "${tmp}/ati-local-runtime.zip" -d "$tmp"
   extracted="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d -name 'algo-trader-ib-*' | head -n 1)"
   if [ -z "$extracted" ]; then
     echo "Unable to locate downloaded installer files." >&2
     exit 1
   fi
-  cp -R "${extracted}/." "$INSTALL_DIR/"
+  replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest"
   rm -rf "$tmp"
 }
 
 prompt_install_dir
 mkdir -p "$(dirname "$INSTALL_DIR")"
 
-if has_cmd git; then
-  download_with_git
-else
-  if ! has_cmd curl || ! has_cmd tar; then
-    echo "This installer needs git, or curl and tar." >&2
-    exit 1
-  fi
-  download_with_archive
+if ! has_cmd curl || ! has_cmd unzip; then
+  echo "This installer needs curl and unzip." >&2
+  exit 1
 fi
+download_with_zip
 
 chmod +x "${INSTALL_DIR}/setup_and_run.sh" "${INSTALL_DIR}/scripts/install_docker.sh" || true
 cd "$INSTALL_DIR"
