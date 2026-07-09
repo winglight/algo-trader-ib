@@ -2,7 +2,7 @@
 
 [中文说明](README.md)
 
-ATI Local Runtime is the local runtime package for Algo Trading Intelligence. It runs the trading workspace, API, account, orders, market data, risk, strategy, simulation, and strategy spec services as a Docker Compose environment on your own machine or server.
+ATI Local Runtime is the local runtime package for Algo Trading Intelligence. It runs the trading console, API, account, orders, market data, risk, strategy, simulation, and strategy spec services as a Docker Compose environment on your own machine or server.
 
 Official website: [ati.broyustudio.com](https://ati.broyustudio.com)  
 Membership and product page: [ati.broyustudio.com](https://ati.broyustudio.com)  
@@ -17,7 +17,7 @@ After the first installation, the local environment can run for 24 hours before 
 
 ## Features
 
-- Local trading workspace at `http://127.0.0.1:5173`.
+- Local trading console at `http://127.0.0.1:5173`.
 - Broker adapter selection: default `sim` paper-like simulator, or `ib` for IBKR Paper Gateway.
 - Core runtime services: API, account, orders, market data, risk, strategy, simulation, and strategy spec.
 - Local strategy mount: `strategies/` is mounted into the containers for examples and custom strategies.
