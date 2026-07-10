@@ -21,7 +21,7 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 - Broker adapter 可选：默认 `sim` 模拟交易，也可选择 `ib` 连接 IBKR Paper Gateway。
 - 核心服务完整运行：API、account、orders、market data、risk、strategy、simulation、strategy spec。
 - 本地策略目录：`strategies/` 会挂载到容器中，便于查看示例和添加自定义策略。
-- 数据持久化：`.env`、`middle/.env`、`data/`、`logs/` 都保留在本机。
+- 数据持久化：`.env`、`middle/.env`、`data/`、`logs/` 都保留在本机；其中云端绑定状态与本机安装身份保存在 `data/license/`，更新镜像、重建容器或清理日志都不会要求重新绑定。
 - 默认关闭后端 docs/redoc/openapi，默认不暴露后端、Redis、MariaDB 到宿主机公网端口。
 
 ![PnL Calendar](images/pnl-calendar.png)
