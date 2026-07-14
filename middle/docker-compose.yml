@@ -24,7 +24,8 @@ services:
     volumes:
       - redis-data:/data
     networks:
-      - stack
+      stack:
+        ipv4_address: 172.21.0.30
 
   mariadb:
     image: mariadb:11.4
@@ -38,7 +39,8 @@ services:
     volumes:
       - mariadb-data:/var/lib/mysql
     networks:
-      - stack
+      stack:
+        ipv4_address: 172.21.0.31
 
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
@@ -61,7 +63,8 @@ services:
     volumes:
       - ./data/ib-gateway/tws_settings:/home/ibgateway/tws_settings
     networks:
-      - stack
+      stack:
+        ipv4_address: 172.21.0.32
 
 volumes:
   redis-data:

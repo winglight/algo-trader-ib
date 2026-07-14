@@ -2,11 +2,12 @@
 
 [中文说明](README.md)
 
-ATI Local Runtime is the local runtime package for Algo Trading Intelligence. It runs the trading workspace, API, account, orders, market data, risk, strategy, simulation, and strategy spec services as a Docker Compose environment on your own machine or server.
+ATI Local Runtime is the local runtime package for Algo Trading Intelligence. It runs the trading console, API, account, orders, market data, risk, strategy, simulation, and strategy spec services as a Docker Compose environment on your own machine or server.
 
 Official website: [ati.broyustudio.com](https://ati.broyustudio.com)  
-Cloud console: [ati-cloud.broyustudio.com](https://ati-cloud.broyustudio.com)  
-Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)
+Membership and product page: [ati.broyustudio.com](https://ati.broyustudio.com)  
+Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)  
+Local trading system demo: [ati-trading.broyustudio.com](https://ati-trading.broyustudio.com)
 
 Use the local runtime for your own trading environment and local validation. Use Cloud Strategy Studio for hosted workflow design, trial access, and future subscription features. This public package does not include cloud platform services, cloud images, Agents, AI Model Ops, News, or private platform code.
 
@@ -16,7 +17,7 @@ After the first installation, the local environment can run for 24 hours before 
 
 ## Features
 
-- Local trading workspace at `http://127.0.0.1:5173`.
+- Local trading console at `http://127.0.0.1:5173`.
 - Broker adapter selection: default `sim` paper-like simulator, or `ib` for IBKR Paper Gateway.
 - Core runtime services: API, account, orders, market data, risk, strategy, simulation, and strategy spec.
 - Local strategy mount: `strategies/` is mounted into the containers for examples and custom strategies.
@@ -57,9 +58,9 @@ Use the web login password you entered during installation.
 
 ## Broker Modes
 
-`sim` is the default mode. It does not require a broker account and does not mount the host Docker socket.
+`sim` is the default mode and does not require a broker account. The main app starts `service-watchdog`, and only the watchdog container mounts the host Docker socket so it can restart managed application containers; application containers do not mount the Docker socket by default.
 
-`ib` starts the `ib-gateway` profile from `middle/docker-compose.yml` and enables the main `service-watchdog` profile. That profile mounts the host Docker socket only into the watchdog container so the app can start, stop, or restart `ib-gateway`; application containers do not mount the Docker socket by default.
+`ib` additionally starts the `ib-gateway` profile from `middle/docker-compose.yml` and allows watchdog to start, stop, or restart `ib-gateway` through the UI or API.
 
 ## Operations
 
@@ -83,11 +84,11 @@ docker compose --profile ib logs -f ib-gateway
 
 ## Security Boundary
 
-- Public images default to version `0.1.0`; override `ATI_IMAGE_TAG` in `.env` only when you intentionally move to another release.
+- Public images default to the `latest` tag; set `ATI_IMAGE_TAG` in `.env` when you intentionally pin a specific release.
 - Only the frontend port `127.0.0.1:5173` is published by default.
 - Redis, MariaDB, and backend API service ports are not published by default.
 - Cloud platform, Cloud Studio, Agents, AI Model Ops, and News services are not started by default.
-- Application containers do not mount the Docker socket by default. If `ib` mode is selected, the watchdog container mounts the Docker socket to control `ib-gateway`.
+- Application containers do not mount the Docker socket by default. The Docker socket is mounted only into the watchdog container, which restarts configured application containers and controls `ib-gateway` when `ib` mode is selected.
 - Before cloud account binding, the local environment has a 24-hour trial window. After binding, local runtime capabilities follow the cloud subscription tier.
 - Do not commit `.env`, `middle/.env`, `data/`, or `logs/`.
 

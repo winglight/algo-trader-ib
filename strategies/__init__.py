@@ -9,13 +9,11 @@ __all__ = [
     "BRRStrategy",
     "BuyTheDipStrategy",
     "CandleSubscriptionStrategy",
-    "DOMSubscriptionStrategy",
     "DynamicORBStrategy",
     "FiveMinuteMomentumStrategy",
     "MeanReversionStrategy",
     "OpeningRangeBreakoutStrategy",
-    "PredictiveStrategy",
-    "ScreenerStrategy",
+    "VwapMeanReversionStrategy",
 ]
 
 
@@ -24,13 +22,11 @@ _MODULE_MAP = {
     "BRRStrategy": "src.strategies.brr_strategy",
     "BuyTheDipStrategy": "src.strategies.buy_the_dip",
     "CandleSubscriptionStrategy": "src.strategies.candle",
-    "DOMSubscriptionStrategy": "src.strategies.dom",
     "DynamicORBStrategy": "src.strategies.orb_dynamic",
     "FiveMinuteMomentumStrategy": "src.strategies.five_minute_momentum",
     "MeanReversionStrategy": "src.strategies.mean_reversion_strategy",
     "OpeningRangeBreakoutStrategy": "src.strategies.orb_fvg",
-    "PredictiveStrategy": "src.strategies.predictive_strategy",
-    "ScreenerStrategy": "src.strategies.screener",
+    "VwapMeanReversionStrategy": "src.strategies.vwap_mean_reversion_strategy",
 }
 
 

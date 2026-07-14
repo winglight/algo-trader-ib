@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Mapping, Sequence
 from collections import deque
 import time
-from src.orders.models import OrderSide
+from src.common.orders import OrderSide
 
 from src.strategy.base import BaseStrategy
 
@@ -302,6 +302,17 @@ class StrategyTemplate(BaseStrategy):
         if not accepted:
             return False
         self._signals.append(signal)
+        recorder = getattr(self, "_telemetry_record_generated_signal", None)
+        if callable(recorder):
+            try:
+                recorder(
+                    signal.side,
+                    quantity=signal.quantity,
+                    reason=signal.reason,
+                    metadata=signal.metadata,
+                )
+            except Exception:
+                pass
         now_monotonic = self._monotonic_now()
         self._last_signal_monotonic = now_monotonic
         self._last_signal_wall = self._wall_clock_now()
@@ -310,128 +321,13 @@ class StrategyTemplate(BaseStrategy):
         return True
 
     async def generate_orders(self) -> Sequence[Mapping[str, Any]]:
-        if not getattr(self, "_signals", None):
-            return []
-        
-        orders: list[Mapping[str, Any]] = []
-        current_position = await self.current_position()
-        
-        # Virtual position tracker to prevent duplicate orders in the same batch
-        virtual_position = float(current_position)
-        has_opened_in_batch = False
-
-        while self._signals:
-            signal = self._signals.popleft()
-            payload = signal.as_dict()
-            metadata = payload.get("metadata")
-            
-            # 1. Handle Close Position Signals
-            if isinstance(metadata, Mapping) and metadata.get("close_position"):
-                if abs(virtual_position) <= 1e-9:
-                    # Try to resolve fallback if strictly zero, just in case
-                    fallback_position, _ = self._resolve_position_state(
-                        use_strategy_position=False
-                    )
-                    virtual_position = fallback_position
-
-                if abs(virtual_position) <= 1e-9:
-                    # Still zero? Check if the signal carried a quantity hint to clear
-                    fallback_quantity = self._coerce_float(payload.get("quantity") or 0.0)
-                    side_value = str(payload.get("side", "")).strip().upper()
-                    if fallback_quantity and side_value in {
-                        OrderSide.BUY.value,
-                        OrderSide.SELL.value,
-                    }:
-                        # Assume the intention was to close this specific quantity
-                        # effectively setting virtual pos to allow the close
-                        virtual_position = (
-                            fallback_quantity
-                            if side_value == OrderSide.BUY.value
-                            else -fallback_quantity
-                        )
-
-                if abs(virtual_position) <= 1e-9:
-                    # Already closed or no position to close
-                    continue
-
-                # Generate closing order
-                payload["side"] = (
-                    OrderSide.SELL.value if virtual_position > 0 else OrderSide.BUY.value
-                )
-                payload["quantity"] = abs(float(virtual_position))
-                orders.append(payload)
-                
-                # Update state
-                virtual_position = 0.0
-                continue
-
-            # 2. Handle Normal Entry/Exit Signals
-            raw_quantity = float(payload.get("quantity", 0))
-            if raw_quantity <= 0:
-                continue
-
-            side_value = str(payload.get("side", "")).strip().upper()
-            is_buy = side_value == OrderSide.BUY.value
-            signed_change = raw_quantity if is_buy else -raw_quantity
-            
-            # Determine if this signal increases the position exposure (Open/Add)
-            # or reduces it (Close/Reduce).
-            # Note: Crossing 0 (flipping) counts as increasing after the flip.
-            is_increasing = False
-            
-            if virtual_position == 0:
-                is_increasing = True
-            elif virtual_position > 0 and is_buy:
-                is_increasing = True
-            elif virtual_position < 0 and not is_buy:
-                is_increasing = True
-            
-            # Guard against duplicate entries in the same batch
-            if is_increasing:
-                if has_opened_in_batch:
-                    # Determine if we should allow multiple entries. 
-                    # Default to False for safety unless explicitly configured.
-                    # For now, we log and skip to prevent the "4 duplicate orders" bug.
-                    # self.logger.warning("Skipping duplicate entry signal in batch: %s", payload)
-                    continue
-                has_opened_in_batch = True
-
-            # Calculate Exit Targets (Stop Loss / Take Profit)
-            # Use the virtual position + signal to estimate the post-trade state
-            # for exit calculation purposes, or just the signal quantity.
-            exit_targets = self.evaluate_exit_signal(
-                position=signed_change,
-                entry_price=self._coerce_float(
-                    payload["metadata"].get("entry_price_hint")
-                ),
-                account_equity=getattr(self, "account_equity", None),
-                is_dom=getattr(self, "_is_dom_strategy", False),
-            )
-            
-            if exit_targets is not None:
-                payload["metadata"]["exit_mode"] = exit_targets.mode.value
-                if exit_targets.stop_loss is not None:
-                    payload["metadata"]["evaluated_stop_loss"] = float(
-                        exit_targets.stop_loss
-                    )
-                if exit_targets.take_profit is not None:
-                    payload["metadata"]["evaluated_take_profit"] = float(
-                        exit_targets.take_profit
-                    )
-            
-            orders.append(payload)
-            virtual_position += signed_change
-
-        return orders
+        return await super().generate_orders()
 
 def __getattr__(name: str) -> Any:
-    if name == "DomStructureStrategy":
-        from .dom_structure_strategy import DomStructureStrategy as cls
-        return cls
-    if name == "DomMomentumStrategy":
-        from .dom_momentum_strategy import DomMomentumStrategy as cls
-        return cls
     if name == "MeanReversionStrategy":
         from .mean_reversion_strategy import MeanReversionStrategy as cls
+        return cls
+    if name == "VwapMeanReversionStrategy":
+        from .vwap_mean_reversion_strategy import VwapMeanReversionStrategy as cls
         return cls
     raise AttributeError(f"module 'src.strategies.templates' has no attribute {name!r}")
