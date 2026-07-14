@@ -22,7 +22,7 @@ services:
       - TZ=${TZ}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:
-      - ./data/redis:/data
+      - redis-data:/data
     networks:
       - stack
 
@@ -36,7 +36,7 @@ services:
       - MYSQL_USER=${MARIADB_USER}
       - MYSQL_PASSWORD=${MARIADB_PASSWORD}
     volumes:
-      - ./data/mariadb:/var/lib/mysql
+      - mariadb-data:/var/lib/mysql
     networks:
       - stack
 
@@ -62,3 +62,7 @@ services:
       - ./data/ib-gateway/tws_settings:/home/ibgateway/tws_settings
     networks:
       - stack
+
+volumes:
+  redis-data:
+  mariadb-data:
