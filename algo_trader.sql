@@ -147,8 +147,10 @@ CREATE TABLE IF NOT EXISTS orders (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     command_id VARCHAR(191) NULL,
     client_order_id VARCHAR(191) NULL,
-    ib_order_id VARCHAR(191) NULL,
-    ib_perm_id VARCHAR(191) NULL,
+    adapter_id VARCHAR(64) NOT NULL,
+    adapter_order_id VARCHAR(191) NULL,
+    adapter_order_ref VARCHAR(191) NULL,
+    adapter_metadata JSON NOT NULL,
     symbol VARCHAR(64) NOT NULL,
     action VARCHAR(64) NULL,
     side VARCHAR(16) NULL,
@@ -171,7 +173,6 @@ CREATE TABLE IF NOT EXISTS orders (
     strategy_name VARCHAR(191) NULL,
     metrics_owner_id VARCHAR(191) NULL,
     rule_id VARCHAR(191) NULL,
-    ib_open_close VARCHAR(16) NULL,
     position_effect VARCHAR(16) NULL,
     parent_order_id VARCHAR(191) NULL,
     exchange VARCHAR(64) NULL,
@@ -220,8 +221,9 @@ CREATE TABLE IF NOT EXISTS orders (
     correlation_id VARCHAR(191) NULL,
     pricing_policy VARCHAR(64) NULL,
     is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-    CONSTRAINT uq_orders_ib_perm_id UNIQUE KEY (ib_perm_id),
-    CONSTRAINT uq_orders_ib_order_id UNIQUE KEY (ib_order_id)
+    CONSTRAINT uq_orders_adapter_ref UNIQUE KEY (adapter_id, adapter_order_ref),
+    CONSTRAINT uq_orders_adapter_order UNIQUE KEY (adapter_id, adapter_order_id),
+    KEY idx_orders_adapter_created (adapter_id, created_at, id)
 );
 
 
@@ -444,7 +446,9 @@ DROP PROCEDURE backfill_orders_metrics_owner;
 CREATE TABLE IF NOT EXISTS order_fills (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     order_id BIGINT UNSIGNED NOT NULL,
-    exec_id VARCHAR(191) NOT NULL,
+    adapter_id VARCHAR(64) NOT NULL,
+    adapter_execution_id VARCHAR(191) NOT NULL,
+    adapter_metadata JSON NOT NULL,
     fill_time DATETIME NOT NULL,
     quantity DOUBLE NULL,
     price DOUBLE NULL,
@@ -456,7 +460,7 @@ CREATE TABLE IF NOT EXISTS order_fills (
     price_multiplier DOUBLE NULL,
     source_hash VARCHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_order_fills_exec (exec_id),
+    UNIQUE KEY uq_order_fills_adapter_exec (adapter_id, adapter_execution_id),
     KEY idx_order_fills_order_id (order_id),
     CONSTRAINT fk_order_fills_orders FOREIGN KEY (order_id)
         REFERENCES orders(id)
