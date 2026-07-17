@@ -148,7 +148,9 @@ Use the explicit `--update` mode for an existing installation. After confirmatio
 the installer writes a complete logical MariaDB backup to the sibling directory
 `ati-local-runtime-backups/update-<UTC timestamp>/`, pins the update channel to
 `latest`, pulls current images from GHCR, and recreates the local containers. A
-backup failure aborts the update before any running container is replaced.
+backup failure aborts the update before any running container is replaced. The
+installer preserves the `data`, `logs`, `strategies`, and `middle/data` runtime
+directories while replacing installer files.
 
 ```bash
 bash public/scripts/install.sh --update

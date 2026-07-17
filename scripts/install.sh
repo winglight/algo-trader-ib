@@ -118,22 +118,52 @@ restore_env_files() {
   done <"$manifest"
 }
 
+preserve_runtime_paths() {
+  local backup_dir="$1" rel_path
+  [ -d "$INSTALL_DIR" ] || return 0
+  for rel_path in data logs strategies middle/data; do
+    if [ -e "${INSTALL_DIR}/${rel_path}" ]; then
+      mkdir -p "${backup_dir}/$(dirname "$rel_path")"
+      mv "${INSTALL_DIR}/${rel_path}" "${backup_dir}/${rel_path}"
+    fi
+  done
+}
+
+restore_runtime_paths() {
+  local backup_dir="$1" rel_path
+  for rel_path in data logs strategies middle/data; do
+    if [ -e "${backup_dir}/${rel_path}" ]; then
+      rm -rf "${INSTALL_DIR:?}/${rel_path}"
+      mkdir -p "${INSTALL_DIR}/$(dirname "$rel_path")"
+      mv "${backup_dir}/${rel_path}" "${INSTALL_DIR}/${rel_path}"
+    fi
+  done
+}
+
 replace_install_dir_contents() {
-  local extracted="$1" env_backup="$2" env_manifest="$3"
+  local extracted="$1" env_backup="$2" env_manifest="$3" runtime_backup="$4"
   if [ -d "$INSTALL_DIR" ]; then
-    find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    preserve_runtime_paths "$runtime_backup"
+    if ! find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; then
+      restore_runtime_paths "$runtime_backup"
+      return 1
+    fi
   elif [ -e "$INSTALL_DIR" ]; then
     rm -f "$INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
   else
     mkdir -p "$INSTALL_DIR"
   fi
-  cp -R "${extracted}/." "$INSTALL_DIR/"
+  if ! cp -R "${extracted}/." "$INSTALL_DIR/"; then
+    restore_runtime_paths "$runtime_backup"
+    return 1
+  fi
+  restore_runtime_paths "$runtime_backup"
   restore_env_files "$env_backup" "$env_manifest"
 }
 
 download_with_zip() {
-  local tmp env_backup env_manifest extracted
+  local tmp env_backup env_manifest runtime_backup extracted
   if [ "$UPDATE_MODE" = "1" ] && ! dir_has_entries "$INSTALL_DIR"; then
     echo "Update mode requires an existing installation: $INSTALL_DIR" >&2
     exit 1
@@ -150,7 +180,8 @@ download_with_zip() {
   tmp="$(mktemp -d)"
   env_backup="${tmp}/env-backup"
   env_manifest="${tmp}/env-files.txt"
-  mkdir -p "$env_backup"
+  runtime_backup="${tmp}/runtime-backup"
+  mkdir -p "$env_backup" "$runtime_backup"
   touch "$env_manifest"
   backup_env_files "$env_backup" "$env_manifest"
   curl -fsSL "$ARCHIVE_URL" -o "${tmp}/ati-local-runtime.zip"
@@ -160,7 +191,7 @@ download_with_zip() {
     echo "Unable to locate downloaded installer files." >&2
     exit 1
   fi
-  replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest"
+  replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest" "$runtime_backup"
   rm -rf "$tmp"
 }
 
