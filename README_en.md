@@ -84,11 +84,18 @@ Plaintext credential arguments are rejected. Add `--dry-run` to validate candida
 
 ```bash
 docker compose ps
-docker compose logs -f frontend
-docker compose logs -f backend
-docker compose restart backend
-docker compose down
+curl -X POST http://127.0.0.1:8110/watchdog/actions/services/api/restart \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"operator_restart","source":"operator"}'
 ```
+
+The installer may use Compose for initial stack creation. After startup,
+backend, Broker Runner, business-service, and frontend lifecycle actions must go
+through watchdog HTTP actions. `SERVICE_WATCHDOG_PORT` defaults to loopback port
+`8110`; it is a local operations control plane, not a public business endpoint.
+`FRONTEND_PORT` defaults to `5173`. Installer overrides for ports, network,
+container prefix, and IB Gateway name are persisted to `.env` so later recreates
+remain isolated.
 
 Middleware is managed under `middle/`:
 
@@ -103,7 +110,7 @@ docker compose --profile ib logs -f ib-gateway
 ## Security Boundary
 
 - Public images default to the `latest` tag; set `ATI_IMAGE_TAG` in `.env` when you intentionally pin a specific release.
-- Only the frontend port `127.0.0.1:5173` is published by default.
+- The frontend `127.0.0.1:5173` and local watchdog management port `127.0.0.1:8110` are published by default; watchdog must never bind to a public interface.
 - Redis, MariaDB, and backend API service ports are not published by default.
 - Cloud platform, Cloud Studio, Agents, AI Model Ops, and News services are not started by default.
 - Application containers do not mount the Docker socket by default. The Docker socket is mounted only into the watchdog container, which restarts configured application containers and controls `ib-gateway` when `ib` mode is selected.

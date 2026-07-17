@@ -1,7 +1,7 @@
 services:
   backend:
     image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-backend
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-backend
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -22,7 +22,7 @@ services:
 
   broker-runner-service:
     image: ${BROKER_RUNNER_IMAGE:-ghcr.io/winglight/algo-trader/broker-runner-service:${ATI_IMAGE_TAG:-latest}}
-    container_name: algo-trader-broker-runner
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -60,7 +60,7 @@ services:
 
   account-service:
     image: ghcr.io/winglight/algo-trader/account-service:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-account
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-account
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -79,7 +79,7 @@ services:
 
   orders-service:
     image: ghcr.io/winglight/algo-trader/orders-service:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-orders
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-orders
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -99,7 +99,7 @@ services:
 
   market-data-service:
     image: ghcr.io/winglight/algo-trader/market-data-service:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-market-data
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-market-data
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -118,7 +118,7 @@ services:
 
   risk-service:
     image: ghcr.io/winglight/algo-trader/risk-service:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-risk
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-risk
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -134,7 +134,7 @@ services:
 
   simulation-service:
     image: ghcr.io/winglight/algo-trader/sim-service:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-sim
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-sim
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -150,7 +150,7 @@ services:
 
   strategy-spec-service:
     image: ghcr.io/winglight/algo-trader/strategy-spec-service:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-strategy-spec
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-strategy-spec
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -168,7 +168,7 @@ services:
 
   strategy-service:
     image: ghcr.io/winglight/algo-trader/strategy-service:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-strategy
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-strategy
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -190,7 +190,7 @@ services:
 
   service-watchdog:
     image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
-    container_name: algo-trader-service-watchdog
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-service-watchdog
     env_file:
       - path: ./config/service_watchdog_public.env.example
       - path: ./config/service_watchdog.env
@@ -200,6 +200,7 @@ services:
       - "127.0.0.1:${SERVICE_WATCHDOG_PORT:-8110}:8110"
     environment:
       REDIS_URL: ${REDIS_URL}
+      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy-spec,docker_host=unix:///var/run/docker.sock;frontend|http://frontend/|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-frontend,docker_host=unix:///var/run/docker.sock"
       SERVICE_WATCHDOG_IB_GATEWAY_ENABLED: ${SERVICE_WATCHDOG_IB_GATEWAY_ENABLED:-0}
       SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER: ${SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER:-ib-gateway}
       SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST: ${SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST:-unix:///var/run/docker.sock}
@@ -233,7 +234,7 @@ services:
 
   frontend:
     image: ${FRONTEND_IMAGE:-ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-latest}}
-    container_name: algo-trader-frontend
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-frontend
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
     depends_on:

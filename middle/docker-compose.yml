@@ -46,7 +46,7 @@ services:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     profiles:
       - ib
-    container_name: ib-gateway
+    container_name: ${ATI_IB_GATEWAY_CONTAINER_NAME:-ib-gateway}
     restart: unless-stopped
     environment:
       - TZ=${TZ:-UTC}

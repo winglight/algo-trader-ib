@@ -256,6 +256,47 @@ def test_install_matrix(
         assert secret not in combined_output
 
 
+def test_runtime_isolation_overrides_are_persisted(
+    runtime: tuple[Path, dict[str, str], Path],
+) -> None:
+    root, env, _docker_log = runtime
+    env.update(
+        {
+            "ATI_NETWORK_NAME": "ati-phase8-stack",
+            "ATI_NETWORK_SUBNET": "172.30.0.0/16",
+            "ATI_NETWORK_PREFIX": "172.30.0",
+            "ATI_CONTAINER_PREFIX": "ati-phase8",
+            "FRONTEND_PORT": "25173",
+            "SERVICE_WATCHDOG_PORT": "28110",
+            "COMPOSE_PROJECT_NAME": "ati_phase8",
+            "ATI_IB_GATEWAY_CONTAINER_NAME": "ati-phase8-ib-gateway",
+        }
+    )
+    files = _secret_files(root)
+    result = _run(
+        root,
+        env,
+        _base_args(files) + _adapter_args("sim", "sim", files),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    values = _read_env(root / ".env")
+    assert values["ATI_NETWORK_NAME"] == "ati-phase8-stack"
+    assert values["ATI_NETWORK_SUBNET"] == "172.30.0.0/16"
+    assert values["ATI_NETWORK_PREFIX"] == "172.30.0"
+    assert values["ATI_CONTAINER_PREFIX"] == "ati-phase8"
+    assert values["FRONTEND_PORT"] == "25173"
+    assert values["SERVICE_WATCHDOG_PORT"] == "28110"
+    assert values["COMPOSE_PROJECT_NAME"] == "ati_phase8"
+    assert values["ATI_IB_GATEWAY_CONTAINER_NAME"] == "ati-phase8-ib-gateway"
+    assert values["SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER"] == "ati-phase8-ib-gateway"
+
+    compose_text = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "${ATI_CONTAINER_PREFIX:-algo-trader}-backend" in compose_text
+    assert "${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner" in compose_text
+    assert "${ATI_CONTAINER_PREFIX:-algo-trader}-frontend" in compose_text
+    assert "docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-backend" in compose_text
+
+
 @pytest.mark.parametrize(
     "extra_args",
     [

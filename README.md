@@ -84,11 +84,15 @@ ati-guest
 
 ```bash
 docker compose ps
-docker compose logs -f frontend
-docker compose logs -f backend
-docker compose restart backend
-docker compose down
+curl -X POST http://127.0.0.1:8110/watchdog/actions/services/api/restart \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"operator_restart","source":"operator"}'
 ```
+
+installer 首次整体创建可调用 Compose；运行后 backend、Broker Runner、业务服务和 frontend 的启停/重启
+必须通过 watchdog action。`SERVICE_WATCHDOG_PORT` 默认在 loopback 发布为 `8110`，用于本机运维控制面，
+不是业务或公网端口。`FRONTEND_PORT` 默认 `5173`；若安装时覆盖端口、network、container prefix 或 IB
+Gateway 名称，installer 会把这些隔离参数持久化到 `.env`，后续 recreate 不会漂移回默认栈。
 
 中间件在 `middle/` 下单独管理：
 
@@ -103,7 +107,7 @@ docker compose --profile ib logs -f ib-gateway
 ## 安全边界
 
 - 默认使用 `latest` 公开镜像；如需固定到特定版本，可在 `.env` 中设置 `ATI_IMAGE_TAG`。
-- 默认只发布前端端口 `127.0.0.1:5173`。
+- 默认发布前端 `127.0.0.1:5173` 和本机 watchdog 管理端口 `127.0.0.1:8110`；watchdog 不得绑定公网地址。
 - 默认不发布 Redis、MariaDB、后端 API 服务端口。
 - 默认不启用云平台、云端 Studio、Agents、AI Model Ops 或 News 服务。
 - 默认不把 Docker socket 挂载给业务容器；Docker socket 只挂载给 watchdog 容器，用于按配置重启业务容器，并在 `ib` 模式下控制 `ib-gateway`。
