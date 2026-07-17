@@ -1,5 +1,9 @@
 .env
 middle/.env
+.env.candidate.*
+middle/.env.candidate.*
+.installer-backup.*
+.ati-adapter-build/
 .DS_Store
 
 data/

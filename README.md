@@ -18,7 +18,7 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 ## 功能概览
 
 - 本地交易工作台：浏览器访问 `http://127.0.0.1:5173`。
-- Broker adapter 可选：默认 `sim` 模拟交易，也可选择 `ib` 连接 IBKR Paper Gateway。
+- Broker adapter 支持 `sim`、`ibkr_paper` 和 `alpaca_paper`；`sim` 始终安装，可同时启用多个 Paper profile。
 - 核心服务完整运行：API、account、orders、market data、risk、strategy、simulation、strategy spec。
 - 本地策略目录：`strategies/` 会挂载到容器中，便于查看示例和添加自定义策略。
 - 数据持久化：`.env`、`middle/.env`、`data/`、`logs/` 都保留在本机；其中云端绑定状态与本机安装身份保存在 `data/license/`，更新镜像、重建容器或清理日志都不会要求重新绑定。
@@ -39,8 +39,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib
 - Redis 密码
 - MariaDB 密码
 - Web 登录密码
-- Broker adapter：`sim` 或 `ib`
-- 如果选择 `ib`：IBKR Paper 用户名、密码和 IB Gateway VNC 密码
+- 是否启用 IBKR Paper 和 Alpaca Paper
+- 初始使用的 adapter
+- 如果启用 IBKR：IBKR Paper 用户名、密码和 IB Gateway VNC 密码
+- 如果启用 Alpaca：Alpaca Paper API key、secret 和 `iex`/`sip` data feed
 
 安装完成后打开：
 
@@ -56,11 +58,27 @@ ati-guest
 
 密码为安装时填写的 Web 登录密码。
 
-## Broker 模式
+## Broker profiles
 
-`sim` 是默认模式，不需要券商账号。主应用会启动 `service-watchdog`，并且只有 watchdog 容器会挂载宿主机 Docker socket，用于受控重启业务容器；其他业务容器默认不挂载 Docker socket。
+`sim` 始终启用且不需要券商账号。`ibkr_paper` 会额外启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile；`alpaca_paper` 不增加容器，安装器只在选择它时从固定 commit 和 checksum 构建本地 Broker Runner 派生镜像。
 
-`ib` 模式会额外启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile，并允许 watchdog 通过页面或接口控制 `ib-gateway` start/stop/restart。
+安装完成后可在顶部栏查看已安装 profile。切换动作受后端 gate 和确认流程控制。只有 watchdog 容器挂载宿主机 Docker socket，其他业务容器默认不挂载。
+
+自动化安装必须通过权限为 `0600` 或 `0400` 的文件传入 secret，例如：
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,alpaca_paper \
+  --initial-adapter alpaca_paper \
+  --alpaca-data-feed iex \
+  --redis-password-file /secure/redis \
+  --mariadb-password-file /secure/mariadb \
+  --admin-password-file /secure/web \
+  --alpaca-api-key-id-file /secure/alpaca-key \
+  --alpaca-secret-key-file /secure/alpaca-secret
+```
+
+明文 credential 命令行参数会被拒绝。可先加 `--dry-run` 验证候选配置；dry-run 不提交 env，也不启动容器。
 
 ## 管理命令
 

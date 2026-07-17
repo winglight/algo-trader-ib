@@ -1,11 +1,11 @@
 networks:
   stack:
-    name: stack
+    name: ${ATI_NETWORK_NAME:-stack}
     driver: bridge
     ipam:
       driver: default
       config:
-        - subnet: 172.21.0.0/16
+        - subnet: ${ATI_NETWORK_SUBNET:-172.21.0.0/16}
 
 
 
@@ -25,7 +25,7 @@ services:
       - redis-data:/data
     networks:
       stack:
-        ipv4_address: 172.21.0.30
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.30
 
   mariadb:
     image: mariadb:11.4
@@ -40,7 +40,7 @@ services:
       - mariadb-data:/var/lib/mysql
     networks:
       stack:
-        ipv4_address: 172.21.0.31
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.31
 
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
@@ -64,7 +64,7 @@ services:
       - ./data/ib-gateway/tws_settings:/home/ibgateway/tws_settings
     networks:
       stack:
-        ipv4_address: 172.21.0.32
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.32
 
 volumes:
   redis-data:

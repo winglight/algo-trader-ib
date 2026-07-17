@@ -1,0 +1,13 @@
+ARG BASE_IMAGE=ghcr.io/winglight/algo-trader/broker-runner-service:latest
+FROM ${BASE_IMAGE}
+
+COPY .ati-adapter-build/wheelhouse/ /tmp/alpaca-wheelhouse/
+COPY .ati-adapter-build/source/packages/alpaca-paper /tmp/alpaca-paper
+COPY docker/alpaca-paper.spdx.json /app/sbom/alpaca-paper.spdx.json
+RUN cd /tmp/alpaca-wheelhouse \
+    && sha256sum -c SHA256SUMS \
+    && python -m pip install --no-cache-dir --no-index --no-deps ./*.whl \
+    && python -m pip install --no-cache-dir --no-index --no-deps --no-build-isolation /tmp/alpaca-paper \
+    && python -m pip check \
+    && python -c "from alpaca.data.historical import StockHistoricalDataClient; from alpaca.trading.client import TradingClient; from importlib.metadata import entry_points, version; entries=entry_points().select(group='algo_trader.broker_adapters', name='alpaca_paper'); assert len(tuple(entries)) == 1; assert version('alpaca-py') == '0.43.5'; assert version('pandas') == '2.2.3'; assert version('algo-trader-broker-adapter-alpaca-paper') == '0.1.0'" \
+    && rm -rf /tmp/alpaca-paper /tmp/alpaca-wheelhouse

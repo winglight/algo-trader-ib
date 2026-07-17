@@ -1,0 +1,178 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "creationInfo": {
+    "created": "2026-07-17T00:00:00Z",
+    "creators": [
+      "Tool: ATI Phase 7 public installer"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentDescribes": [
+    "SPDXRef-AlpacaPaperAdapter",
+    "SPDXRef-AlpacaPy",
+    "SPDXRef-Pandas",
+    "SPDXRef-Pytz",
+    "SPDXRef-Requests",
+    "SPDXRef-SseclientPy",
+    "SPDXRef-Urllib3",
+    "SPDXRef-CharsetNormalizer"
+  ],
+  "documentNamespace": "https://github.com/winglight/algo-trader-broker-adapters/spdx/69aaa90750f92e0d7d05c8eba21783fe57d5d681/alpaca-paper-public",
+  "name": "ati-public-alpaca-paper-adapter-0.1.0",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-AlpacaPaperAdapter",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e9481d3a411e5907d51204beeb85426cfb758c4587fc894c8661f8979d6b174e"
+        }
+      ],
+      "downloadLocation": "https://github.com/winglight/algo-trader-broker-adapters/archive/69aaa90750f92e0d7d05c8eba21783fe57d5d681.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "name": "algo-trader-broker-adapter-alpaca-paper",
+      "versionInfo": "0.1.0"
+    },
+    {
+      "SPDXID": "SPDXRef-AlpacaPy",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0b4cac9b743851310f19f6a9aa84f57ddf95ae75b601350395746a893f54a2da"
+        }
+      ],
+      "downloadLocation": "https://files.pythonhosted.org/packages/02/40/83c7ef8bc3e74e73cda6308f7107fe57815dcfc808dc9cd03bd09aa22dd3/alpaca_py-0.43.5-py3-none-any.whl",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "name": "alpaca-py",
+      "versionInfo": "0.43.5"
+    },
+    {
+      "SPDXID": "SPDXRef-Pandas",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "cd8d0c3be0515c12fed0bdbae072551c8b54b7192c7b1fda0ba56059a0179698"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c124333816c3a9b03fbeef3a9f230ba9a737e9e5bb4060aa2107a86cc0a497fc"
+        }
+      ],
+      "downloadLocation": "https://pypi.org/project/pandas/2.2.3/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "name": "pandas",
+      "versionInfo": "2.2.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Pytz",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5ddf76296dd8c44c26eb8f4b6f35488f3ccbf6fbbd7adee0b7262d43f0ec2f00"
+        }
+      ],
+      "downloadLocation": "https://pypi.org/project/pytz/2025.2/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "name": "pytz",
+      "versionInfo": "2025.2"
+    },
+    {
+      "SPDXID": "SPDXRef-Requests",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6"
+        }
+      ],
+      "downloadLocation": "https://pypi.org/project/requests/2.32.5/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "name": "requests",
+      "versionInfo": "2.32.5"
+    },
+    {
+      "SPDXID": "SPDXRef-SseclientPy",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "340062b1587fc2880892811e2ab5b176d98ef3eee98b3672ff3a3ba1e8ed0f6f"
+        }
+      ],
+      "downloadLocation": "https://pypi.org/project/sseclient-py/1.9.0/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "name": "sseclient-py",
+      "versionInfo": "1.9.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Urllib3",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc"
+        }
+      ],
+      "downloadLocation": "https://pypi.org/project/urllib3/2.5.0/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "name": "urllib3",
+      "versionInfo": "2.5.0"
+    },
+    {
+      "SPDXID": "SPDXRef-CharsetNormalizer",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7a32c560861a02ff789ad905a2fe94e3f840803362c84fecf1851cb4cf3dc37f"
+        }
+      ],
+      "downloadLocation": "https://pypi.org/project/charset-normalizer/3.4.4/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "name": "charset-normalizer",
+      "versionInfo": "3.4.4"
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-AlpacaPy",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-AlpacaPaperAdapter"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Pandas",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-AlpacaPy"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Pytz",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-AlpacaPy"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Requests",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-AlpacaPy"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-SseclientPy",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-AlpacaPy"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Urllib3",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Requests"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-CharsetNormalizer",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Requests"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
+}

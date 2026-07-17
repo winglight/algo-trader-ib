@@ -18,7 +18,7 @@ After the first installation, the local environment can run for 24 hours before 
 ## Features
 
 - Local trading console at `http://127.0.0.1:5173`.
-- Broker adapter selection: default `sim` paper-like simulator, or `ib` for IBKR Paper Gateway.
+- Broker profiles: `sim`, `ibkr_paper`, and `alpaca_paper`; `sim` is always installed and multiple Paper profiles may be enabled together.
 - Core runtime services: API, account, orders, market data, risk, strategy, simulation, and strategy spec.
 - Local strategy mount: `strategies/` is mounted into the containers for examples and custom strategies.
 - Local persistence: `.env`, `middle/.env`, `data/`, and `logs/` stay on your machine.
@@ -39,8 +39,10 @@ The installer asks for:
 - Redis password
 - MariaDB password
 - Web login password
-- Broker adapter: `sim` or `ib`
-- If `ib` is selected: IBKR Paper username, password, and IB Gateway VNC password
+- Whether to enable IBKR Paper and Alpaca Paper
+- Initial adapter profile
+- If IBKR is enabled: IBKR Paper username, password, and IB Gateway VNC password
+- If Alpaca is enabled: Alpaca Paper API key, secret, and `iex`/`sip` data feed
 
 After installation, open:
 
@@ -56,11 +58,27 @@ ati-guest
 
 Use the web login password you entered during installation.
 
-## Broker Modes
+## Broker Profiles
 
-`sim` is the default mode and does not require a broker account. The main app starts `service-watchdog`, and only the watchdog container mounts the host Docker socket so it can restart managed application containers; application containers do not mount the Docker socket by default.
+`sim` is always enabled and does not require a broker account. `ibkr_paper` additionally starts the `ib-gateway` profile from `middle/docker-compose.yml`. `alpaca_paper` adds no container; only when selected, the installer builds a local derived Broker Runner image from a pinned commit and checksum.
 
-`ib` additionally starts the `ib-gateway` profile from `middle/docker-compose.yml` and allows watchdog to start, stop, or restart `ib-gateway` through the UI or API.
+Installed profiles are shown in the top bar. Adapter changes use the backend gate and confirmation flow. Only the watchdog container mounts the host Docker socket; application containers do not mount it.
+
+Non-interactive installation accepts secrets only through files with mode `0600` or `0400`:
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,alpaca_paper \
+  --initial-adapter alpaca_paper \
+  --alpaca-data-feed iex \
+  --redis-password-file /secure/redis \
+  --mariadb-password-file /secure/mariadb \
+  --admin-password-file /secure/web \
+  --alpaca-api-key-id-file /secure/alpaca-key \
+  --alpaca-secret-key-file /secure/alpaca-secret
+```
+
+Plaintext credential arguments are rejected. Add `--dry-run` to validate candidate configuration without committing env files or starting containers.
 
 ## Operations
 

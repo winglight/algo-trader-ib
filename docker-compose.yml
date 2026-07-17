@@ -12,13 +12,16 @@ services:
       APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=watchdog;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=watchdog;account|http://account-service:8100/healthz|||restart_mode=watchdog;orders|http://orders-service:8101/healthz|||restart_mode=watchdog;market-data|http://market-data-service:8102/healthz|||restart_mode=watchdog;risk|http://risk-service:8103/healthz|||restart_mode=watchdog;strategy|http://strategy-service:8104/healthz|||restart_mode=watchdog;simulation|http://simulation-service:8111/healthz|||restart_mode=watchdog;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=watchdog"
       SERVICE_WATCHDOG_URL: http://service-watchdog:8110
       OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec
+      BROKER_ADAPTER_SWITCH_ENABLED: ${BROKER_ADAPTER_SWITCH_ENABLED}
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
+      BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED: ${BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED}
     restart: unless-stopped
     networks:
       default:
-        ipv4_address: 172.21.0.10
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.10
 
   broker-runner-service:
-    image: ghcr.io/winglight/algo-trader/broker-runner-service:${ATI_IMAGE_TAG:-latest}
+    image: ${BROKER_RUNNER_IMAGE:-ghcr.io/winglight/algo-trader/broker-runner-service:${ATI_IMAGE_TAG:-latest}}
     container_name: algo-trader-broker-runner
     volumes:
       - ./data:/app/data
@@ -26,7 +29,12 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      BROKER_RUNNER_ADAPTER_ENTRYPOINT: ${BROKER_RUNNER_ADAPTER_ENTRYPOINT:-src.broker_adapters.sim:create_adapter}
+      BROKER_RUNNER_PROFILE_REGISTRY_ENABLED: ${BROKER_RUNNER_PROFILE_REGISTRY_ENABLED}
+      BROKER_RUNNER_ENABLED_ADAPTERS: ${BROKER_RUNNER_ENABLED_ADAPTERS}
+      BROKER_RUNNER_DEFAULT_ADAPTER_ID: ${BROKER_RUNNER_DEFAULT_ADAPTER_ID}
+      BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY: ${BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY}
+      BROKER_RUNNER_IBKR_PAPER_PROVIDER: ${BROKER_RUNNER_IBKR_PAPER_PROVIDER}
+      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED}
       BROKER_RUNNER_IB_GATEWAY_HOST: ${BROKER_RUNNER_IB_GATEWAY_HOST:-ib-gateway}
       BROKER_RUNNER_IB_GATEWAY_PORT: ${BROKER_RUNNER_IB_GATEWAY_PORT:-4004}
       BROKER_RUNNER_IB_CLIENT_ID: ${BROKER_RUNNER_IB_CLIENT_ID:-40}
@@ -37,11 +45,18 @@ services:
       BROKER_RUNNER_IB_MARKET_DATA_DEPTH_ROWS: ${BROKER_RUNNER_IB_MARKET_DATA_DEPTH_ROWS:-10}
       BROKER_RUNNER_IB_MARKET_DATA_QUEUE_SIZE: ${BROKER_RUNNER_IB_MARKET_DATA_QUEUE_SIZE:-64}
       BROKER_RUNNER_IB_HISTORICAL_TIMEOUT: ${BROKER_RUNNER_IB_HISTORICAL_TIMEOUT:-300.0}
+      BROKER_RUNNER_ALPACA_API_KEY_ID: ${BROKER_RUNNER_ALPACA_API_KEY_ID:-}
+      BROKER_RUNNER_ALPACA_SECRET_KEY: ${BROKER_RUNNER_ALPACA_SECRET_KEY:-}
+      BROKER_RUNNER_ALPACA_DATA_FEED: ${BROKER_RUNNER_ALPACA_DATA_FEED:-iex}
+      BROKER_RUNNER_ALPACA_REQUEST_TIMEOUT_SECONDS: ${BROKER_RUNNER_ALPACA_REQUEST_TIMEOUT_SECONDS:-15.0}
+      BROKER_RUNNER_ALPACA_RECONCILE_LOOKBACK_HOURS: ${BROKER_RUNNER_ALPACA_RECONCILE_LOOKBACK_HOURS:-72}
+      BROKER_RUNNER_ALPACA_MAX_CONCURRENCY: ${BROKER_RUNNER_ALPACA_MAX_CONCURRENCY:-8}
+      BROKER_RUNNER_ALPACA_STREAM_QUEUE_SIZE: ${BROKER_RUNNER_ALPACA_STREAM_QUEUE_SIZE:-512}
       BROKER_RUNNER_SERVICE_REGISTRY_URL: http://broker-runner-service:8115
     restart: unless-stopped
     networks:
       default:
-        ipv4_address: 172.21.0.25
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.25
 
   account-service:
     image: ghcr.io/winglight/algo-trader/account-service:${ATI_IMAGE_TAG:-latest}
@@ -60,7 +75,7 @@ services:
         condition: service_started
     networks:
       default:
-        ipv4_address: 172.21.0.11
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.11
 
   orders-service:
     image: ghcr.io/winglight/algo-trader/orders-service:${ATI_IMAGE_TAG:-latest}
@@ -73,13 +88,14 @@ services:
       - ./config:/app/config
     environment:
       ORDERS_BROKER_RUNNER_URL: http://broker-runner-service:8115
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
     restart: unless-stopped
     depends_on:
       broker-runner-service:
         condition: service_started
     networks:
       default:
-        ipv4_address: 172.21.0.12
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.12
 
   market-data-service:
     image: ghcr.io/winglight/algo-trader/market-data-service:${ATI_IMAGE_TAG:-latest}
@@ -98,7 +114,7 @@ services:
         condition: service_started
     networks:
       default:
-        ipv4_address: 172.21.0.13
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.13
 
   risk-service:
     image: ghcr.io/winglight/algo-trader/risk-service:${ATI_IMAGE_TAG:-latest}
@@ -114,7 +130,7 @@ services:
     restart: unless-stopped
     networks:
       default:
-        ipv4_address: 172.21.0.14
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.14
 
   simulation-service:
     image: ghcr.io/winglight/algo-trader/sim-service:${ATI_IMAGE_TAG:-latest}
@@ -130,7 +146,7 @@ services:
     restart: unless-stopped
     networks:
       default:
-        ipv4_address: 172.21.0.16
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.16
 
   strategy-spec-service:
     image: ghcr.io/winglight/algo-trader/strategy-spec-service:${ATI_IMAGE_TAG:-latest}
@@ -142,11 +158,13 @@ services:
       - ./config:/app/config
     environment:
       STRATEGY_SPEC_SERVICE_REGISTRY_NAME: strategy-spec
+      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED}
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
     command: ["/bin/sh", "./docker/start_strategy_spec_service.sh"]
     restart: unless-stopped
     networks:
       default:
-        ipv4_address: 172.21.0.17
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.17
 
   strategy-service:
     image: ghcr.io/winglight/algo-trader/strategy-service:${ATI_IMAGE_TAG:-latest}
@@ -160,13 +178,15 @@ services:
     environment:
       API_SERVICE_URL: http://backend:8000
       STRATEGY_SERVICE_REGISTRY_NAME: strategy
+      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED}
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
     restart: unless-stopped
     depends_on:
       orders-service:
         condition: service_started
     networks:
       default:
-        ipv4_address: 172.21.0.15
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.15
 
   service-watchdog:
     image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
@@ -209,29 +229,26 @@ services:
         condition: service_started
     networks:
       default:
-        ipv4_address: 172.21.0.26
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.26
 
   frontend:
-    image: ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-latest}
+    image: ${FRONTEND_IMAGE:-ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-latest}}
     container_name: algo-trader-frontend
     ports:
-      - "127.0.0.1:5173:80"
-    environment:
-      VITE_API_BASE_URL: ""
-      VITE_WS_URL: ""
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
     depends_on:
       backend:
         condition: service_started
     restart: unless-stopped
     networks:
       default:
-        ipv4_address: 172.21.0.27
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.27
 
 networks:
   default:
-    name: stack
+    name: ${ATI_NETWORK_NAME:-stack}
     external: true
     ipam:
       driver: default
       config:
-        - subnet: 172.21.0.0/16
+        - subnet: ${ATI_NETWORK_SUBNET:-172.21.0.0/16}

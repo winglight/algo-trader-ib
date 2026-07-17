@@ -4,6 +4,11 @@ IFS=$'\n\t'
 
 ARCHIVE_URL="${ATI_PUBLIC_ARCHIVE_URL:-https://github.com/winglight/algo-trader-ib/archive/refs/heads/main.zip}"
 INSTALL_DIR="${ATI_INSTALL_DIR:-$HOME/ati-local-runtime}"
+SETUP_ARGS=("$@")
+NON_INTERACTIVE=0
+for arg in "${SETUP_ARGS[@]}"; do
+  [ "$arg" = "--non-interactive" ] && NON_INTERACTIVE=1
+done
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
@@ -17,6 +22,13 @@ confirm_update_install_dir() {
   local reason="$1" reply
   echo "$reason"
   echo "Install directory: $INSTALL_DIR"
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    [ "${ATI_ALLOW_UPDATE:-0}" = "1" ] || {
+      echo "Non-interactive update requires ATI_ALLOW_UPDATE=1." >&2
+      exit 1
+    }
+    return 0
+  fi
   read -r -p "Replace application files and keep local .env files? [y/N]: " reply
   case "$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')" in
     y|yes)
@@ -37,6 +49,7 @@ confirm_update_install_dir() {
 
 prompt_install_dir() {
   local value
+  [ "$NON_INTERACTIVE" = "1" ] && return 0
   read -r -p "Install directory [${INSTALL_DIR}]: " value
   if [ -n "$value" ]; then
     INSTALL_DIR="$value"
@@ -119,4 +132,4 @@ download_with_zip
 
 chmod +x "${INSTALL_DIR}/setup_and_run.sh" "${INSTALL_DIR}/scripts/install_docker.sh" || true
 cd "$INSTALL_DIR"
-exec bash ./setup_and_run.sh
+exec bash ./setup_and_run.sh "${SETUP_ARGS[@]}"
