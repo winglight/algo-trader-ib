@@ -289,12 +289,42 @@ def test_runtime_isolation_overrides_are_persisted(
     assert values["COMPOSE_PROJECT_NAME"] == "ati_phase8"
     assert values["ATI_IB_GATEWAY_CONTAINER_NAME"] == "ati-phase8-ib-gateway"
     assert values["SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER"] == "ati-phase8-ib-gateway"
+    middle_values = _read_env(root / "middle" / ".env")
+    assert middle_values["ATI_NETWORK_NAME"] == "ati-phase8-stack"
+    assert middle_values["ATI_NETWORK_SUBNET"] == "172.30.0.0/16"
+    assert middle_values["ATI_NETWORK_PREFIX"] == "172.30.0"
+    assert middle_values["COMPOSE_PROJECT_NAME"] == "ati_phase8"
+    assert middle_values["ATI_IB_GATEWAY_CONTAINER_NAME"] == "ati-phase8-ib-gateway"
 
     compose_text = (root / "docker-compose.yml").read_text(encoding="utf-8")
     assert "${ATI_CONTAINER_PREFIX:-algo-trader}-backend" in compose_text
     assert "${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner" in compose_text
     assert "${ATI_CONTAINER_PREFIX:-algo-trader}-frontend" in compose_text
     assert "docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-backend" in compose_text
+    installer_text = (root / "setup_and_run.sh").read_text(encoding="utf-8")
+    assert 'APP_URL="http://127.0.0.1:$(read_env_value "$ROOT_CANDIDATE" FRONTEND_PORT)"' in installer_text
+
+    persisted_env = dict(env)
+    for key in (
+        "ATI_NETWORK_NAME",
+        "ATI_NETWORK_SUBNET",
+        "ATI_NETWORK_PREFIX",
+        "ATI_CONTAINER_PREFIX",
+        "FRONTEND_PORT",
+        "SERVICE_WATCHDOG_PORT",
+        "COMPOSE_PROJECT_NAME",
+        "ATI_IB_GATEWAY_CONTAINER_NAME",
+    ):
+        persisted_env.pop(key, None)
+    rerun = _run(
+        root,
+        persisted_env,
+        _base_args(files) + _adapter_args("sim", "sim", files),
+    )
+    assert rerun.returncode == 0, rerun.stdout + rerun.stderr
+    persisted_values = _read_env(root / ".env")
+    assert persisted_values["SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER"] == "ati-phase8-ib-gateway"
+    assert _read_env(root / "middle" / ".env")["COMPOSE_PROJECT_NAME"] == "ati_phase8"
 
 
 @pytest.mark.parametrize(
