@@ -200,6 +200,11 @@ services:
       - "127.0.0.1:${SERVICE_WATCHDOG_PORT:-8110}:8110"
     environment:
       REDIS_URL: ${REDIS_URL}
+      # The watchdog runs as a standalone command and does not load /app/.env.
+      # Keep its license state on the same stable Redis key as the application
+      # instead of falling back to the container hostname, which changes on
+      # every recreate.
+      LOCAL_LICENSE_REDIS_KEY: ${LOCAL_LICENSE_REDIS_KEY:-local}
       SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy-spec,docker_host=unix:///var/run/docker.sock;frontend|http://frontend/|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-frontend,docker_host=unix:///var/run/docker.sock"
       SERVICE_WATCHDOG_IB_GATEWAY_ENABLED: ${SERVICE_WATCHDOG_IB_GATEWAY_ENABLED:-0}
       SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER: ${SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER:-ib-gateway}
