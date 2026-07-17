@@ -180,8 +180,8 @@ download_with_zip() {
   tmp="$(mktemp -d)"
   env_backup="${tmp}/env-backup"
   env_manifest="${tmp}/env-files.txt"
-  runtime_backup="${tmp}/runtime-backup"
-  mkdir -p "$env_backup" "$runtime_backup"
+  runtime_backup="$(mktemp -d "${INSTALL_DIR}.runtime-preserve.XXXXXX")"
+  mkdir -p "$env_backup"
   touch "$env_manifest"
   backup_env_files "$env_backup" "$env_manifest"
   curl -fsSL "$ARCHIVE_URL" -o "${tmp}/ati-local-runtime.zip"
@@ -192,6 +192,7 @@ download_with_zip() {
     exit 1
   fi
   replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest" "$runtime_backup"
+  rmdir "$runtime_backup"
   rm -rf "$tmp"
 }
 
