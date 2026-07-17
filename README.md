@@ -145,7 +145,8 @@ docker compose --profile ib up -d
 完整逻辑备份写入安装目录同级的 `ati-local-runtime-backups/update-<UTC时间>/`，
 再将镜像通道设为 `latest`、从 GHCR 拉取最新镜像并重建本地容器。任何备份失败
 都会终止更新，现有容器不会被替换。替换安装器文件时会保留 `data`、`logs`、
-`strategies` 和 `middle/data` 运行目录。
+`strategies` 和 `middle/data` 运行目录。确认更新后本地应用会进入维护停机，
+Redis/MariaDB 保持运行以完成备份；更新完成后服务自动恢复。
 
 ```bash
 bash public/scripts/install.sh --update

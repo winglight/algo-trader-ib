@@ -150,7 +150,9 @@ the installer writes a complete logical MariaDB backup to the sibling directory
 `latest`, pulls current images from GHCR, and recreates the local containers. A
 backup failure aborts the update before any running container is replaced. The
 installer preserves the `data`, `logs`, `strategies`, and `middle/data` runtime
-directories while replacing installer files.
+directories while replacing installer files. After confirmation, the local
+application enters maintenance downtime while Redis and MariaDB remain online
+for the backup; services are restored automatically when the update completes.
 
 ```bash
 bash public/scripts/install.sh --update

@@ -140,6 +140,22 @@ restore_runtime_paths() {
   done
 }
 
+quiesce_runtime_for_update() {
+  local middle_env_args=()
+  [ "$UPDATE_MODE" = "1" ] || return 0
+  if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
+    (cd "$INSTALL_DIR" && docker compose -f docker-compose.yml down)
+  fi
+  if [ -f "${INSTALL_DIR}/middle/docker-compose.yml" ]; then
+    if [ -f "${INSTALL_DIR}/middle/.env" ]; then
+      middle_env_args=(--env-file "${INSTALL_DIR}/middle/.env")
+    fi
+    docker compose "${middle_env_args[@]}" \
+      -f "${INSTALL_DIR}/middle/docker-compose.yml" \
+      --profile ib stop ib-gateway
+  fi
+}
+
 replace_install_dir_contents() {
   local extracted="$1" env_backup="$2" env_manifest="$3" runtime_backup="$4"
   if [ -d "$INSTALL_DIR" ]; then
@@ -191,6 +207,7 @@ download_with_zip() {
     echo "Unable to locate downloaded installer files." >&2
     exit 1
   fi
+  quiesce_runtime_for_update
   replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest" "$runtime_backup"
   rmdir "$runtime_backup"
   rm -rf "$tmp"
