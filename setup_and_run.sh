@@ -91,6 +91,23 @@ ensure_docker() {
   }
 }
 
+ensure_ib_gateway_settings_permissions() {
+  local settings_dir="${MIDDLE_DIR}/data/ib-gateway/tws_settings"
+  mkdir -p "$settings_dir"
+  if [ "$(stat -c '%u:%g' "$settings_dir")" = "1000:1000" ]; then
+    return 0
+  fi
+  echo "Setting IB Gateway settings ownership to 1000:1000 ..."
+  if [ "$(id -u)" = "0" ]; then
+    chown -R 1000:1000 "$settings_dir"
+  elif has_cmd sudo; then
+    sudo chown -R 1000:1000 "$settings_dir"
+  else
+    echo "IB Gateway settings require ownership 1000:1000; rerun as root or install sudo." >&2
+    return 1
+  fi
+}
+
 current_or_example() {
   local real="$1" example="$2" key="$3" value
   value="$(read_env_value "$real" "$key")"
@@ -536,6 +553,7 @@ rollback() {
     if [ "$MIDDLE_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/middle.env" "${MIDDLE_DIR}/.env"; else rm -f "${MIDDLE_DIR}/.env"; fi
     chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" 2>/dev/null || true
     if [ "$PREVIOUS_IB_ENABLED" = "1" ]; then
+      ensure_ib_gateway_settings_permissions || true
       docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" --profile ib up -d >/dev/null 2>&1 || true
     else
       docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" --profile ib stop ib-gateway >/dev/null 2>&1 || true
@@ -553,6 +571,7 @@ mv "$MIDDLE_CANDIDATE" "${MIDDLE_DIR}/.env"
 chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env"
 
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
+  ensure_ib_gateway_settings_permissions
   docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" --profile ib up -d
 else
   docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" up -d
