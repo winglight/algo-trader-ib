@@ -209,7 +209,11 @@ download_with_zip() {
   fi
   quiesce_runtime_for_update
   replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest" "$runtime_backup"
-  rmdir "$runtime_backup"
+  find "$runtime_backup" -depth -type d -empty -delete
+  if [ -e "$runtime_backup" ]; then
+    echo "Runtime preservation directory is unexpectedly non-empty: $runtime_backup" >&2
+    exit 1
+  fi
   rm -rf "$tmp"
 }
 
