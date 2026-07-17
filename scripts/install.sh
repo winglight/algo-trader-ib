@@ -22,7 +22,7 @@ run_as_root() {
   elif has_cmd sudo; then
     sudo "$@"
   else
-    echo "Installing unzip requires root privileges or sudo." >&2
+    echo "This installer operation requires root privileges or sudo." >&2
     return 1
   fi
 }
@@ -124,7 +124,7 @@ preserve_runtime_paths() {
   for rel_path in data logs strategies middle/data; do
     if [ -e "${INSTALL_DIR}/${rel_path}" ]; then
       mkdir -p "${backup_dir}/$(dirname "$rel_path")"
-      mv "${INSTALL_DIR}/${rel_path}" "${backup_dir}/${rel_path}"
+      run_as_root mv "${INSTALL_DIR}/${rel_path}" "${backup_dir}/${rel_path}"
     fi
   done
 }
@@ -133,9 +133,9 @@ restore_runtime_paths() {
   local backup_dir="$1" rel_path
   for rel_path in data logs strategies middle/data; do
     if [ -e "${backup_dir}/${rel_path}" ]; then
-      rm -rf "${INSTALL_DIR:?}/${rel_path}"
+      run_as_root rm -rf "${INSTALL_DIR:?}/${rel_path}"
       mkdir -p "${INSTALL_DIR}/$(dirname "$rel_path")"
-      mv "${backup_dir}/${rel_path}" "${INSTALL_DIR}/${rel_path}"
+      run_as_root mv "${backup_dir}/${rel_path}" "${INSTALL_DIR}/${rel_path}"
     fi
   done
 }
