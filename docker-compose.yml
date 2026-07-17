@@ -200,6 +200,9 @@ services:
       - "127.0.0.1:${SERVICE_WATCHDOG_PORT:-8110}:8110"
     environment:
       REDIS_URL: ${REDIS_URL}
+      MARIADB_URL: ${MARIADB_URL}
+      SERVICE_WATCHDOG_MAINTENANCE_TOKEN: ${SERVICE_WATCHDOG_MAINTENANCE_TOKEN}
+      SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT: ${SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT:-0}
       # The watchdog runs as a standalone command and does not load /app/.env.
       # Keep its license state on the same stable Redis key as the application
       # instead of falling back to the container hostname, which changes on
