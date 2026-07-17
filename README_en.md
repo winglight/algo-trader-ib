@@ -141,3 +141,18 @@ docker compose --profile ib up -d
 ```
 
 When a release changes the database schema, back up `middle/data/mariadb` before following the release migration notes.
+
+### Updating an existing installation
+
+Use the explicit `--update` mode for an existing installation. After confirmation,
+the installer writes a complete logical MariaDB backup to the sibling directory
+`ati-local-runtime-backups/update-<UTC timestamp>/`, pins the update channel to
+`latest`, pulls current images from GHCR, and recreates the local containers. A
+backup failure aborts the update before any running container is replaced.
+
+```bash
+bash public/scripts/install.sh --update
+```
+
+Unattended updates additionally require `--non-interactive` and
+`ATI_ALLOW_UPDATE=1`.

@@ -138,3 +138,16 @@ docker compose --profile ib up -d
 ```
 
 如果数据库结构变更，请先备份 `middle/data/mariadb`，再按发布说明迁移。
+
+### 更新现有安装
+
+显式使用 `--update` 更新已有安装。安装器会再次请求确认，随后先把 MariaDB
+完整逻辑备份写入安装目录同级的 `ati-local-runtime-backups/update-<UTC时间>/`，
+再将镜像通道设为 `latest`、从 GHCR 拉取最新镜像并重建本地容器。任何备份失败
+都会终止更新，现有容器不会被替换。
+
+```bash
+bash public/scripts/install.sh --update
+```
+
+无人值守更新必须同时传入 `--non-interactive` 并设置 `ATI_ALLOW_UPDATE=1`。

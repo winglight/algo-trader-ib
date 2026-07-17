@@ -6,8 +6,10 @@ ARCHIVE_URL="${ATI_PUBLIC_ARCHIVE_URL:-https://github.com/winglight/algo-trader-
 INSTALL_DIR="${ATI_INSTALL_DIR:-$HOME/ati-local-runtime}"
 SETUP_ARGS=("$@")
 NON_INTERACTIVE=0
+UPDATE_MODE=0
 for arg in "${SETUP_ARGS[@]}"; do
   [ "$arg" = "--non-interactive" ] && NON_INTERACTIVE=1
+  [ "$arg" = "--update" ] && UPDATE_MODE=1
 done
 
 has_cmd() {
@@ -29,7 +31,7 @@ confirm_update_install_dir() {
     }
     return 0
   fi
-  read -r -p "Replace application files and keep local .env files? [y/N]: " reply
+  read -r -p "Download the latest public release and keep local configuration? [y/N]: " reply
   case "$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')" in
     y|yes)
       ;;
@@ -99,10 +101,18 @@ replace_install_dir_contents() {
 
 download_with_zip() {
   local tmp env_backup env_manifest extracted
+  if [ "$UPDATE_MODE" = "1" ] && ! dir_has_entries "$INSTALL_DIR"; then
+    echo "Update mode requires an existing installation: $INSTALL_DIR" >&2
+    exit 1
+  fi
   if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
     confirm_update_install_dir "Install path already exists and is not a directory."
   elif dir_has_entries "$INSTALL_DIR"; then
-    confirm_update_install_dir "Existing install directory is not empty."
+    [ "$UPDATE_MODE" = "1" ] || {
+      echo "Existing installation detected. Rerun with --update." >&2
+      exit 1
+    }
+    confirm_update_install_dir "Existing installation detected; update mode will replace application files."
   fi
   tmp="$(mktemp -d)"
   env_backup="${tmp}/env-backup"

@@ -16,6 +16,7 @@ source "${ROOT_DIR}/scripts/installer_lib.sh"
 
 NON_INTERACTIVE=0
 DRY_RUN=0
+UPDATE_MODE=0
 ENABLED_ADAPTERS=""
 INITIAL_ADAPTER=""
 ALPACA_DATA_FEED=""
@@ -33,6 +34,7 @@ usage() {
 Usage: setup_and_run.sh [options]
 
   --non-interactive
+  --update
   --enabled-adapters sim[,ibkr_paper][,alpaca_paper]
   --initial-adapter sim|ibkr_paper|alpaca_paper
   --alpaca-data-feed iex|sip
@@ -53,6 +55,7 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --non-interactive) NON_INTERACTIVE=1; shift ;;
+    --update) UPDATE_MODE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --enabled-adapters) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; ENABLED_ADAPTERS="$2"; shift 2 ;;
     --initial-adapter) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; INITIAL_ADAPTER="$2"; shift 2 ;;
@@ -175,6 +178,7 @@ sha256_file() {
 prepare_alpaca_image() {
   local candidate_env="$1" build_root archive extract_root downloads wheelhouse lock_file runtime_arch
   local line_arch package version filename checksum url cached actual selected_count base_image local_image tag
+  local -a build_pull_args=()
   build_root="${ROOT_DIR}/.ati-adapter-build"
   archive="${build_root}/adapters-${ADAPTERS_COMMIT}.tar.gz"
   extract_root="${build_root}/source"
@@ -231,7 +235,12 @@ prepare_alpaca_image() {
   tag="$(read_env_value "$candidate_env" ATI_IMAGE_TAG)"; tag="${tag:-latest}"
   base_image="ghcr.io/winglight/algo-trader/broker-runner-service:${tag}"
   local_image="ati-local/broker-runner:${tag}-alpaca-${ADAPTERS_COMMIT:0:12}"
+  if [ "$UPDATE_MODE" = "1" ]; then
+    docker pull "$base_image"
+    build_pull_args=(--pull)
+  fi
   docker build \
+    "${build_pull_args[@]}" \
     --build-arg "BASE_IMAGE=${base_image}" \
     --label "org.opencontainers.image.revision=${ADAPTERS_COMMIT}" \
     --label "com.broyustudio.ati.alpaca-py.version=${ALPACA_PY_VERSION}" \
@@ -273,6 +282,47 @@ open_browser() {
   if has_cmd open; then open "$APP_URL" >/dev/null 2>&1 || true
   elif has_cmd xdg-open; then xdg-open "$APP_URL" >/dev/null 2>&1 || true
   fi
+}
+
+backup_database_for_update() {
+  local backup_root backup_dir dump_tmp dump_file compose_file middle_env container_id
+  [ "$UPDATE_MODE" = "1" ] || return 0
+  compose_file="${MIDDLE_DIR}/docker-compose.yml"
+  middle_env="${MIDDLE_DIR}/.env"
+  [ -f "$middle_env" ] || {
+    echo "Update mode requires the existing middle/.env file." >&2
+    return 1
+  }
+  container_id="$(docker compose --env-file "$middle_env" -f "$compose_file" ps -q mariadb)"
+  [ -n "$container_id" ] || {
+    echo "Update mode requires the existing MariaDB container to be running." >&2
+    return 1
+  }
+  backup_root="${ATI_BACKUP_DIR:-${ROOT_DIR%/}-backups}"
+  backup_dir="${backup_root}/update-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$backup_dir"
+  chmod 700 "$backup_root" "$backup_dir"
+  dump_tmp="${backup_dir}/all-databases.sql.partial"
+  dump_file="${backup_dir}/all-databases.sql"
+  echo "Backing up MariaDB before the container update..."
+  if ! { printf '%s\n' "$MARIADB_PASSWORD" | docker compose --env-file "$middle_env" -f "$compose_file" exec -T mariadb sh -c \
+    'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb-dump -uroot -h 127.0.0.1 --all-databases --single-transaction --routines --events --triggers'; } >"$dump_tmp"; then
+    rm -f "$dump_tmp"
+    echo "MariaDB backup failed; no containers were updated." >&2
+    return 1
+  fi
+  [ -s "$dump_tmp" ] || {
+    rm -f "$dump_tmp"
+    echo "MariaDB backup was empty; no containers were updated." >&2
+    return 1
+  }
+  mv "$dump_tmp" "$dump_file"
+  chmod 600 "$dump_file"
+  docker compose --env-file "$middle_env" -f "$compose_file" config >"${backup_dir}/compose-config.yml"
+  chmod 600 "${backup_dir}/compose-config.yml"
+  printf '%s\n' "$dump_file" >"${backup_dir}/BACKUP_COMPLETE"
+  chmod 600 "${backup_dir}/BACKUP_COMPLETE"
+  echo "Database backup completed: ${dump_file}"
 }
 
 ensure_docker
@@ -347,7 +397,16 @@ if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then echo "  IB Gateway: ena
 if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then echo "  Alpaca feed: ${ALPACA_DATA_FEED}"; fi
 echo "  Credentials: configured (values hidden)"
 if [ -f "${ROOT_DIR}/.env" ]; then echo "  Existing Redis active selection will be preserved."; fi
-if [ "$NON_INTERACTIVE" = "0" ] && ! prompt_yes_no "Continue installation?" no; then
+if [ "$UPDATE_MODE" = "1" ]; then
+  echo "  Image channel: latest (GHCR)"
+fi
+if [ "$NON_INTERACTIVE" = "1" ] && [ "$UPDATE_MODE" = "1" ] && [ "${ATI_ALLOW_UPDATE:-0}" != "1" ]; then
+  echo "Non-interactive update requires ATI_ALLOW_UPDATE=1." >&2
+  exit 1
+fi
+CONFIRM_PROMPT="Continue installation?"
+[ "$UPDATE_MODE" = "1" ] && CONFIRM_PROMPT="Back up MariaDB, pull the latest GHCR images, and update the local containers?"
+if [ "$NON_INTERACTIVE" = "0" ] && ! prompt_yes_no "$CONFIRM_PROMPT" no; then
   echo "Installation cancelled; no configuration was changed."
   exit 0
 fi
@@ -357,6 +416,9 @@ MIDDLE_CANDIDATE="$(mktemp "${MIDDLE_DIR}/.env.candidate.XXXXXX")"
 chmod 600 "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE"
 cp "$ROOT_BASE" "$ROOT_CANDIDATE"
 cp "$MIDDLE_BASE" "$MIDDLE_CANDIDATE"
+if [ "$UPDATE_MODE" = "1" ]; then
+  env_set "$ROOT_CANDIDATE" ATI_IMAGE_TAG latest
+fi
 cleanup_candidates() { rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}"; }
 trap cleanup_candidates EXIT
 
@@ -453,6 +515,8 @@ if [ "$DRY_RUN" = "1" ]; then
   echo "Dry run completed; no configuration or containers were changed."
   exit 0
 fi
+
+backup_database_for_update
 
 BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/.installer-backup.XXXXXX")"
 ROOT_EXISTED=0; MIDDLE_EXISTED=0
