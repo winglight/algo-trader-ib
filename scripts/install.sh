@@ -16,6 +16,39 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+run_as_root() {
+  if [ "$(id -u)" = "0" ]; then
+    "$@"
+  elif has_cmd sudo; then
+    sudo "$@"
+  else
+    echo "Installing unzip requires root privileges or sudo." >&2
+    return 1
+  fi
+}
+
+ensure_unzip() {
+  has_cmd unzip && return 0
+  echo "unzip is not installed; installing it now..."
+  if has_cmd apt-get; then
+    run_as_root apt-get update
+    run_as_root apt-get install -y unzip
+  elif has_cmd dnf; then
+    run_as_root dnf install -y unzip
+  elif has_cmd yum; then
+    run_as_root yum install -y unzip
+  elif has_cmd apk; then
+    run_as_root apk add --no-cache unzip
+  else
+    echo "Unable to install unzip automatically: no supported package manager found." >&2
+    return 1
+  fi
+  has_cmd unzip || {
+    echo "unzip installation did not provide the unzip command." >&2
+    return 1
+  }
+}
+
 dir_has_entries() {
   [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ]
 }
@@ -134,10 +167,11 @@ download_with_zip() {
 prompt_install_dir
 mkdir -p "$(dirname "$INSTALL_DIR")"
 
-if ! has_cmd curl || ! has_cmd unzip; then
-  echo "This installer needs curl and unzip." >&2
+if ! has_cmd curl; then
+  echo "This installer needs curl." >&2
   exit 1
 fi
+ensure_unzip
 download_with_zip
 
 chmod +x "${INSTALL_DIR}/setup_and_run.sh" "${INSTALL_DIR}/scripts/install_docker.sh" || true

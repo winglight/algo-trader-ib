@@ -156,3 +156,7 @@ bash public/scripts/install.sh --update
 
 Unattended updates additionally require `--non-interactive` and
 `ATI_ALLOW_UPDATE=1`.
+
+The installer checks for `unzip` and, when it is missing, installs it through
+the available `apt-get`, `dnf`, `yum`, or `apk` package manager. Non-root users
+need `sudo` for this step.

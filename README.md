@@ -151,3 +151,6 @@ bash public/scripts/install.sh --update
 ```
 
 无人值守更新必须同时传入 `--non-interactive` 并设置 `ATI_ALLOW_UPDATE=1`。
+
+安装器会检测 `unzip`；缺失时使用系统可用的 `apt-get`、`dnf`、`yum` 或
+`apk` 自动安装（非 root 用户需要 `sudo`）。
