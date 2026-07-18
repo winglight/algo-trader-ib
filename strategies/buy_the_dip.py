@@ -7,8 +7,8 @@ import math
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional
-from src.common.market_data.aggregation import floor_timestamp as _floor_timestamp
-from src.data_layer import DataSubscriptionRequest
+from ati_shared_sdk.common.market_data.aggregation import floor_timestamp as _floor_timestamp
+from ati_shared_sdk.data_layer import DataSubscriptionRequest
 from .candle import CandleSubscriptionStrategy
 from .templates import StrategyTemplate
 

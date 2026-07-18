@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from statistics import mean
 from typing import Any, Deque, Dict, Mapping
 
-from src.common.market_data.aggregation import floor_timestamp as _floor_timestamp
-from src.data_layer import DataSubscriptionRequest
+from ati_shared_sdk.common.market_data.aggregation import floor_timestamp as _floor_timestamp
+from ati_shared_sdk.data_layer import DataSubscriptionRequest
 from src.strategy.exit import ExitMode
 from src.strategies.candle import CandleSubscriptionStrategy
 from src.strategies.templates import StrategySignal, StrategyTemplate

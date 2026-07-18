@@ -22,12 +22,12 @@ from typing import (
     Sequence,
 )
 
-from src.common.market_data.aggregation import (
+from ati_shared_sdk.common.market_data.aggregation import (
     MinuteBarAggregator,
     floor_timestamp as _floor_timestamp,
     normalize_interval_token as _normalize_interval_token,
 )
-from src.data_layer import (
+from ati_shared_sdk.data_layer import (
     BusSubscriptionToken,
     DataSourceError,
     DataSourceManagerProtocol,
@@ -38,15 +38,15 @@ from src.data_layer import (
     get_data_source_manager,
     is_unified_mode,
 )
-from src.common.market_data.history import HistoryReplayConfig
-from src.common.market_data.history_chunks import load_history_with_backoff
-from src.common.symbols import build_symbol_aliases
+from ati_shared_sdk.common.market_data.history import HistoryReplayConfig
+from ati_shared_sdk.common.market_data.history_chunks import load_history_with_backoff
+from ati_shared_sdk.common.symbols import build_symbol_aliases
 from src.strategy.base import BaseStrategy
 from src.strategy.runtime import DomRuntimeTelemetryService
 from src.strategy.types import StrategyIdentifier
 
 try:  # pragma: no cover - optional typing dependency
-    from src.redis_client.pubsub import PubSubChannel
+    from ati_shared_sdk.redis_client.pubsub import PubSubChannel
 except Exception:  # pragma: no cover - fallback when redis client unavailable
     PubSubChannel = Any  # type: ignore[misc, assignment]
 

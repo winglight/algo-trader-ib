@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Mapping, Sequence
 from collections import deque
 import time
-from src.common.orders import OrderSide
+from ati_shared_sdk.common.orders import OrderSide
 
 from src.strategy.base import BaseStrategy
 

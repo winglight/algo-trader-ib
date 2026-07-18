@@ -17,8 +17,8 @@ from .candle import CandleSubscriptionStrategy
 from .liquidity_tool import LiquidityFilterConfig, LiquidityFilterMetrics, LiquidityStrategyTool
 from .templates import StrategyTemplate
 from src.strategy.exit import ExitMode
-from src.data_layer import DataSubscriptionRequest
-from src.common.market_data.aggregation import MinuteBarAggregator, floor_timestamp as _floor_timestamp
+from ati_shared_sdk.data_layer import DataSubscriptionRequest
+from ati_shared_sdk.common.market_data.aggregation import MinuteBarAggregator, floor_timestamp as _floor_timestamp
 
 
 DEFAULT_INSTRUMENT_DETAILS: Dict[str, Dict[str, str]] = {

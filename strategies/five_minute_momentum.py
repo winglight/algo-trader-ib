@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Deque, Dict, List, Mapping, Optional
 
-from src.common.market_data import normalize_interval_token
-from src.common.pricing_defaults import resolve_index_future_point_value
-from src.data_layer import DataSubscriptionRequest
-from src.common.market_data.aggregation import floor_timestamp as _floor_timestamp
+from ati_shared_sdk.common.market_data import normalize_interval_token
+from ati_shared_sdk.common.pricing_defaults import resolve_index_future_point_value
+from ati_shared_sdk.data_layer import DataSubscriptionRequest
+from ati_shared_sdk.common.market_data.aggregation import floor_timestamp as _floor_timestamp
 from src.strategy.exit import ExitConfig, ExitEvaluationResult, ExitMode
 
 from .buy_the_dip import DEFAULT_INSTRUMENT_DETAILS
