@@ -460,7 +460,15 @@ env_set "$ROOT_CANDIDATE" ADMIN_USERNAME ati-guest
 env_set "$ROOT_CANDIDATE" ADMIN_PASSWORD "$ADMIN_PASSWORD"
 env_set "$ROOT_CANDIDATE" JWT_SECRET "$JWT_SECRET"
 env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_MAINTENANCE_TOKEN "$WATCHDOG_MAINTENANCE_TOKEN"
-env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT 0
+if [ "$UPDATE_MODE" = "1" ]; then
+  # A legacy Orders schema can make the new Orders image exit before the
+  # watchdog performs its maintenance preflight. Enable the deliberately
+  # narrow offline recovery path for updates; it still requires the complete
+  # legacy schema, zero active orders, and all other trading-safety checks.
+  env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT 1
+else
+  env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT 0
+fi
 env_set "$ROOT_CANDIDATE" ALLOW_ANONYMOUS_ACCESS false
 env_set "$ROOT_CANDIDATE" VITE_ALLOW_ANONYMOUS_ACCESS false
 env_set "$ROOT_CANDIDATE" ATI_NETWORK_NAME "${ATI_NETWORK_NAME:-$(read_env_value "$ROOT_CANDIDATE" ATI_NETWORK_NAME)}"
