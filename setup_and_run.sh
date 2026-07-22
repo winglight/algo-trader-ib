@@ -5,12 +5,6 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
 APP_URL="${ATI_APP_URL:-}"
-ADAPTERS_COMMIT="69aaa90750f92e0d7d05c8eba21783fe57d5d681"
-ADAPTERS_ARCHIVE_SHA256="e9481d3a411e5907d51204beeb85426cfb758c4587fc894c8661f8979d6b174e"
-ADAPTERS_ARCHIVE_URL="https://github.com/winglight/algo-trader-broker-adapters/archive/${ADAPTERS_COMMIT}.tar.gz"
-ALPACA_PY_VERSION="0.43.5"
-ALPACA_PY_WHEEL_SHA256="0b4cac9b743851310f19f6a9aa84f57ddf95ae75b601350395746a893f54a2da"
-
 # shellcheck source=scripts/installer_lib.sh
 source "${ROOT_DIR}/scripts/installer_lib.sh"
 
@@ -188,101 +182,32 @@ resolve_secret() {
   fi
 }
 
-sha256_file() {
-  if has_cmd sha256sum; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
-}
-
-prepare_alpaca_image() {
-  local candidate_env="$1" build_root archive extract_root downloads wheelhouse lock_file runtime_arch
-  local line_arch package version filename checksum url cached actual selected_count base_image local_image tag
-  local -a build_pull_args=()
-  build_root="${ROOT_DIR}/.ati-adapter-build"
-  archive="${build_root}/adapters-${ADAPTERS_COMMIT}.tar.gz"
-  extract_root="${build_root}/source"
-  downloads="${build_root}/downloads"
-  wheelhouse="${build_root}/wheelhouse"
-  lock_file="${ROOT_DIR}/docker/alpaca-runtime-wheels.lock"
-  mkdir -p "$build_root"
-  chmod 700 "$build_root"
-  if [ ! -f "$archive" ] || [ "$(sha256_file "$archive" 2>/dev/null || true)" != "$ADAPTERS_ARCHIVE_SHA256" ]; then
-    actual="${archive}.download"
-    curl -fsSL "$ADAPTERS_ARCHIVE_URL" -o "$actual"
-    [ "$(sha256_file "$actual")" = "$ADAPTERS_ARCHIVE_SHA256" ] || {
-      echo "Adapter source checksum verification failed." >&2
-      return 1
-    }
-    mv "$actual" "$archive"
-  fi
-  runtime_arch="$(docker info --format '{{.Architecture}}')"
-  case "$runtime_arch" in
-    amd64|x86_64) runtime_arch=amd64 ;;
-    arm64|aarch64) runtime_arch=arm64 ;;
-    *) echo "Unsupported Docker architecture for Alpaca adapter: ${runtime_arch:-unknown}" >&2; return 1 ;;
-  esac
-  [ -f "$lock_file" ] || { echo "Alpaca runtime wheel lock is missing." >&2; return 1; }
-  mkdir -p "$downloads"
-  rm -rf "$wheelhouse"
-  mkdir -p "$wheelhouse"
-  : >"${wheelhouse}/SHA256SUMS"
-  selected_count=0
-  while IFS='|' read -r line_arch package version filename checksum url; do
-    case "$line_arch" in ''|'#'*) continue ;; esac
-    [ "$line_arch" = "any" ] || [ "$line_arch" = "$runtime_arch" ] || continue
-    cached="${downloads}/${filename}"
-    if [ ! -f "$cached" ] || [ "$(sha256_file "$cached" 2>/dev/null || true)" != "$checksum" ]; then
-      actual="${cached}.download"
-      curl -fsSL "$url" -o "$actual"
-      [ "$(sha256_file "$actual")" = "$checksum" ] || {
-        echo "Wheel checksum verification failed for ${package}==${version}." >&2
-        return 1
-      }
-      mv "$actual" "$cached"
-    fi
-    cp "$cached" "${wheelhouse}/${filename}"
-    printf '%s  %s\n' "$checksum" "$filename" >>"${wheelhouse}/SHA256SUMS"
-    selected_count=$((selected_count + 1))
-  done <"$lock_file"
-  [ "$selected_count" -eq 7 ] || {
-    echo "Alpaca runtime wheel lock did not select exactly seven artifacts for ${runtime_arch}." >&2
-    return 1
-  }
-  rm -rf "$extract_root"
-  mkdir -p "$extract_root"
-  tar -xzf "$archive" --strip-components=1 -C "$extract_root"
-  tag="$(read_env_value "$candidate_env" ATI_IMAGE_TAG)"; tag="${tag:-latest}"
-  base_image="ghcr.io/winglight/algo-trader/broker-runner-service:${tag}"
-  local_image="ati-local/broker-runner:${tag}-alpaca-${ADAPTERS_COMMIT:0:12}"
-  if [ "$UPDATE_MODE" = "1" ]; then
-    docker pull "$base_image"
-    build_pull_args=(--pull)
-  fi
-  docker build \
-    "${build_pull_args[@]}" \
-    --build-arg "BASE_IMAGE=${base_image}" \
-    --label "org.opencontainers.image.revision=${ADAPTERS_COMMIT}" \
-    --label "com.broyustudio.ati.alpaca-py.version=${ALPACA_PY_VERSION}" \
-    --label "com.broyustudio.ati.alpaca-py.sha256=${ALPACA_PY_WHEEL_SHA256}" \
-    --label "com.broyustudio.ati.adapters.archive.sha256=${ADAPTERS_ARCHIVE_SHA256}" \
-    --label "com.broyustudio.ati.sbom.path=/app/sbom/alpaca-paper.spdx.json" \
-    -f "${ROOT_DIR}/docker/Dockerfile.broker_runner_adapters" \
-    -t "$local_image" \
-    "$ROOT_DIR"
-  env_set "$candidate_env" BROKER_RUNNER_IMAGE "$local_image"
-  docker run --rm --env-file "$candidate_env" --entrypoint python "$local_image" -c \
-    'from alpaca.data.historical import StockHistoricalDataClient; from alpaca.trading.client import TradingClient; from importlib.metadata import version; from pathlib import Path; from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry; import os; s=BrokerRunnerSettings.from_env(); r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); assert r.state("alpaca_paper").installed; assert version("alpaca-py") == "0.43.5"; assert version("pandas") == "2.2.3"; assert Path("/app/sbom/alpaca-paper.spdx.json").is_file()'
-}
-
 validate_candidates() {
-  local root_env="$1" middle_env="$2" base_image tag
+  local root_env="$1" middle_env="$2" broker_runner_image tag
   validate_enabled_adapters "$ENABLED_ADAPTERS"
   validate_initial_adapter "$ENABLED_ADAPTERS" "$INITIAL_ADAPTER"
   case "$ALPACA_DATA_FEED" in iex|sip) ;; *) echo "Alpaca data feed must be iex or sip." >&2; return 1 ;; esac
   docker compose --env-file "$middle_env" -f "${MIDDLE_DIR}/docker-compose.yml" config -q
   docker compose --env-file "$root_env" -f "${ROOT_DIR}/docker-compose.yml" config -q
   tag="$(read_env_value "$root_env" ATI_IMAGE_TAG)"; tag="${tag:-latest}"
-  base_image="ghcr.io/winglight/algo-trader/broker-runner-service:${tag}"
-  docker run --rm --env-file "$root_env" --entrypoint python "$base_image" -c \
-    'from src.broker_runner.settings import BrokerRunnerSettings; import os; s=BrokerRunnerSettings.from_env(); [s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids]'
+  broker_runner_image="$(read_env_value "$root_env" BROKER_RUNNER_IMAGE)"
+  broker_runner_image="${broker_runner_image:-ghcr.io/winglight/algo-trader/broker-runner-service:${tag}}"
+  echo "Pulling the published Broker Runner image for Adapter validation: ${broker_runner_image}"
+  docker pull "$broker_runner_image"
+  docker run --rm --pull=never --env-file "$root_env" --entrypoint python "$broker_runner_image" -c \
+    'from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry; import os; s=BrokerRunnerSettings.from_env(); [s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids]; r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); missing=[p for p in s.enabled_adapter_ids if not r.state(p).installed]; assert not missing, f"Published Broker Runner image is missing enabled adapters: {missing}"'
+}
+
+validate_public_image_reference() {
+  local image="$1" repository="$2"
+  case "$image" in
+    "ghcr.io/winglight/algo-trader/${repository}:"*|"ghcr.io/winglight/algo-trader/${repository}@sha256:"*)
+      ;;
+    *)
+      echo "Public ${repository} image must come from ghcr.io/winglight/algo-trader: ${image}" >&2
+      return 1
+      ;;
+  esac
 }
 
 wait_for_http() {
@@ -299,6 +224,23 @@ open_browser() {
   if has_cmd open; then open "$APP_URL" >/dev/null 2>&1 || true
   elif has_cmd xdg-open; then xdg-open "$APP_URL" >/dev/null 2>&1 || true
   fi
+}
+
+pull_application_images() {
+  local services=(
+    backend
+    account-service
+    orders-service
+    market-data-service
+    risk-service
+    simulation-service
+    strategy-spec-service
+    strategy-service
+    service-watchdog
+    frontend
+  )
+  services+=(broker-runner-service)
+  (cd "$ROOT_DIR" && docker compose -f docker-compose.yml pull "${services[@]}")
 }
 
 backup_database_for_update() {
@@ -530,20 +472,17 @@ env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_ENABLED 1
 env_set "$ROOT_CANDIDATE" APP_DOCS_URL ""
 env_set "$ROOT_CANDIDATE" APP_REDOC_URL ""
 env_set "$ROOT_CANDIDATE" APP_OPENAPI_URL ""
-if [ -n "${ATI_FRONTEND_IMAGE_OVERRIDE:-}" ]; then
-  env_set "$ROOT_CANDIDATE" FRONTEND_IMAGE "$ATI_FRONTEND_IMAGE_OVERRIDE"
-fi
-
+tag="$(read_env_value "$ROOT_CANDIDATE" ATI_IMAGE_TAG)"; tag="${tag:-latest}"
+broker_runner_image="ghcr.io/winglight/algo-trader/broker-runner-service:${tag}"
+frontend_image="${ATI_FRONTEND_IMAGE_OVERRIDE:-ghcr.io/winglight/algo-trader/frontend:${tag}}"
+validate_public_image_reference "$broker_runner_image" broker-runner-service
+validate_public_image_reference "$frontend_image" frontend
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IMAGE "$broker_runner_image"
+env_set "$ROOT_CANDIDATE" FRONTEND_IMAGE "$frontend_image"
 validate_candidates "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE"
-if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
-  prepare_alpaca_image "$ROOT_CANDIDATE"
-else
-  tag="$(read_env_value "$ROOT_CANDIDATE" ATI_IMAGE_TAG)"; tag="${tag:-latest}"
-  env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IMAGE "ghcr.io/winglight/algo-trader/broker-runner-service:${tag}"
-fi
 
 echo "Validated configuration changes:"
-for key in BROKER_RUNNER_ENABLED_ADAPTERS BROKER_RUNNER_DEFAULT_ADAPTER_ID BROKER_RUNNER_PROFILE_REGISTRY_ENABLED BROKER_ADAPTER_SWITCH_ENABLED BROKER_ASSET_CAPABILITY_GATE_ENABLED VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED BROKER_RUNNER_IMAGE; do
+for key in BROKER_RUNNER_ENABLED_ADAPTERS BROKER_RUNNER_DEFAULT_ADAPTER_ID BROKER_RUNNER_PROFILE_REGISTRY_ENABLED BROKER_ADAPTER_SWITCH_ENABLED BROKER_ASSET_CAPABILITY_GATE_ENABLED VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED BROKER_RUNNER_IMAGE FRONTEND_IMAGE; do
   echo "  ${key}=$(read_env_value "$ROOT_CANDIDATE" "$key")"
 done
 echo "  credential fields=<redacted>"
@@ -616,7 +555,8 @@ if [ -f "${ROOT_DIR}/algo_trader.sql" ]; then
   { printf '%s\n' "$MARIADB_PASSWORD"; cat "${ROOT_DIR}/algo_trader.sql"; } | docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c 'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1 algo_trader' >/dev/null
 fi
 
-(cd "$ROOT_DIR" && docker compose -f docker-compose.yml pull --ignore-pull-failures && docker compose -f docker-compose.yml up -d)
+pull_application_images
+(cd "$ROOT_DIR" && docker compose -f docker-compose.yml up -d)
 
 COMMITTED=0
 trap cleanup_candidates EXIT

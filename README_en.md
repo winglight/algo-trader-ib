@@ -60,7 +60,7 @@ Use the web login password you entered during installation.
 
 ## Broker Profiles
 
-`sim` is always enabled and does not require a broker account. `ibkr_paper` additionally starts the `ib-gateway` profile from `middle/docker-compose.yml`. `alpaca_paper` adds no container; only when selected, the installer builds a local derived Broker Runner image from a pinned commit and checksum.
+`sim` is always enabled and does not require a broker account. `ibkr_paper` additionally starts the `ib-gateway` profile from `middle/docker-compose.yml`. `alpaca_paper` adds no container. The published Public Broker Runner image on GHCR already includes the locked and verified Alpaca Adapter; the installer only pulls that published image and never builds a business-service image on the user's machine.
 
 Installed profiles are shown in the top bar. Adapter changes use the backend gate and confirmation flow. Only the watchdog container mounts the host Docker socket; application containers do not mount it.
 
