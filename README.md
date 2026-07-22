@@ -60,7 +60,7 @@ ati-guest
 
 ## Broker profiles
 
-`sim` 始终启用且不需要券商账号。`ibkr_paper` 会额外启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile；`alpaca_paper` 不增加容器。Public Broker Runner 的 GHCR 发布镜像已经包含经过锁定和校验的 Alpaca Adapter，安装器只拉取发布镜像，不会在用户机器上临时构建业务镜像。
+`sim` 始终启用且不需要券商账号，官方 Broker Runner 镜像默认只提供 Sim Adapter。选择 `ibkr_paper` 或 `alpaca_paper` 后，安装器会从固定来源下载、校验并安装对应插件到持久化的 `data/broker-plugins/`；不会修改官方镜像，也不会在用户机器上构建业务镜像。`ibkr_paper` 还会启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile。
 
 安装完成后可在顶部栏查看已安装 profile。切换动作受后端 gate 和确认流程控制。只有 watchdog 容器挂载宿主机 Docker socket，其他业务容器默认不挂载。
 

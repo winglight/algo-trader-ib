@@ -5,6 +5,9 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
 APP_URL="${ATI_APP_URL:-}"
+ADAPTERS_COMMIT="69aaa90750f92e0d7d05c8eba21783fe57d5d681"
+ADAPTERS_ARCHIVE_SHA256="e9481d3a411e5907d51204beeb85426cfb758c4587fc894c8661f8979d6b174e"
+ADAPTERS_ARCHIVE_URL="https://github.com/winglight/algo-trader-broker-adapters/archive/${ADAPTERS_COMMIT}.tar.gz"
 # shellcheck source=scripts/installer_lib.sh
 source "${ROOT_DIR}/scripts/installer_lib.sh"
 
@@ -22,6 +25,10 @@ IBKR_PASSWORD_FILE="${ATI_IBKR_PASSWORD_FILE:-}"
 IBKR_VNC_PASSWORD_FILE="${ATI_IBKR_VNC_PASSWORD_FILE:-}"
 ALPACA_API_KEY_ID_FILE="${ATI_ALPACA_API_KEY_ID_FILE:-}"
 ALPACA_SECRET_KEY_FILE="${ATI_ALPACA_SECRET_KEY_FILE:-}"
+PREPARED_PLUGIN_DIR=""
+PREPARED_PLUGIN_BUILD_DIR=""
+PLUGIN_BACKUP_DIR=""
+PLUGIN_ACTIVATED=0
 
 usage() {
   cat <<'EOF'
@@ -182,20 +189,109 @@ resolve_secret() {
   fi
 }
 
+sha256_file() {
+  if has_cmd sha256sum; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+prepare_selected_adapter_plugins() {
+  local broker_runner_image="$1" archive extract_root wheelhouse lock_file runtime_arch
+  local line_arch package version filename checksum url target actual selected_count
+  mkdir -p "${ROOT_DIR}/data"
+  PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/data/.broker-plugins.candidate.XXXXXX")"
+  if [ "$ENABLED_ADAPTERS" = "sim" ]; then
+    return 0
+  fi
+
+  PREPARED_PLUGIN_BUILD_DIR="$(mktemp -d "${ROOT_DIR}/.adapter-plugin-build.XXXXXX")"
+  archive="${PREPARED_PLUGIN_BUILD_DIR}/adapters.tar.gz"
+  extract_root="${PREPARED_PLUGIN_BUILD_DIR}/source"
+  wheelhouse="${PREPARED_PLUGIN_BUILD_DIR}/wheelhouse"
+  lock_file="${ROOT_DIR}/docker/alpaca-runtime-wheels.lock"
+
+  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 "$ADAPTERS_ARCHIVE_URL" -o "$archive"
+  actual="$(sha256_file "$archive")"
+  [ "$actual" = "$ADAPTERS_ARCHIVE_SHA256" ] || {
+    echo "Adapter source checksum verification failed: expected ${ADAPTERS_ARCHIVE_SHA256}, got ${actual}" >&2
+    return 1
+  }
+  mkdir -p "$extract_root"
+  tar -xzf "$archive" --strip-components=1 -C "$extract_root"
+
+  if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
+    runtime_arch="$(docker info --format '{{.Architecture}}')"
+    case "$runtime_arch" in
+      amd64|x86_64) runtime_arch=amd64 ;;
+      arm64|aarch64) runtime_arch=arm64 ;;
+      *) echo "Unsupported Docker architecture for Alpaca Adapter: ${runtime_arch:-unknown}" >&2; return 1 ;;
+    esac
+    [ -f "$lock_file" ] || { echo "Alpaca runtime wheel lock is missing." >&2; return 1; }
+    mkdir -p "$wheelhouse"
+    : >"${wheelhouse}/SHA256SUMS"
+    selected_count=0
+    while IFS='|' read -r line_arch package version filename checksum url; do
+      case "$line_arch" in ''|'#'*) continue ;; esac
+      [ "$line_arch" = "any" ] || [ "$line_arch" = "$runtime_arch" ] || continue
+      target="${wheelhouse}/${filename}"
+      echo "Downloading locked Adapter dependency: ${package}==${version} (${line_arch})"
+      curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 "$url" -o "$target"
+      actual="$(sha256_file "$target")"
+      [ "$actual" = "$checksum" ] || {
+        echo "Wheel checksum verification failed for ${package}==${version}." >&2
+        return 1
+      }
+      printf '%s  %s\n' "$checksum" "$filename" >>"${wheelhouse}/SHA256SUMS"
+      selected_count=$((selected_count + 1))
+    done <"$lock_file"
+    [ "$selected_count" -eq 7 ] || {
+      echo "Alpaca Adapter dependency lock must select exactly seven artifacts for ${runtime_arch}." >&2
+      return 1
+    }
+  fi
+
+  if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
+    echo "Installing selected Adapter plugin: ibkr_paper"
+    docker run --rm --pull=never --user "$(id -u):$(id -g)" -e HOME=/tmp \
+      -v "${PREPARED_PLUGIN_BUILD_DIR}:/plugin-build" \
+      -v "${PREPARED_PLUGIN_DIR}:/plugins" \
+      --entrypoint python "$broker_runner_image" -m pip install \
+      --target /plugins --no-cache-dir --no-index --no-deps --no-build-isolation \
+      /plugin-build/source/packages/ibkr-paper
+  fi
+  if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
+    echo "Installing selected Adapter plugin: alpaca_paper"
+    docker run --rm --pull=never --user "$(id -u):$(id -g)" -e HOME=/tmp \
+      -v "${PREPARED_PLUGIN_BUILD_DIR}:/plugin-build" \
+      -v "${PREPARED_PLUGIN_DIR}:/plugins" \
+      --entrypoint sh "$broker_runner_image" -lc \
+      'cd /plugin-build/wheelhouse && sha256sum -c SHA256SUMS && python -m pip install --target /plugins --no-cache-dir --no-index --no-deps ./*.whl && python -m pip install --target /plugins --no-cache-dir --no-index --no-deps --no-build-isolation /plugin-build/source/packages/alpaca-paper'
+    mkdir -p "${PREPARED_PLUGIN_DIR}/.metadata"
+    cp "${ROOT_DIR}/docker/alpaca-paper.spdx.json" "${PREPARED_PLUGIN_DIR}/.metadata/alpaca-paper.spdx.json"
+  fi
+}
+
 validate_candidates() {
-  local root_env="$1" middle_env="$2" broker_runner_image tag
+  local root_env="$1" middle_env="$2" broker_runner_image="$3" plugin_dir="$4"
   validate_enabled_adapters "$ENABLED_ADAPTERS"
   validate_initial_adapter "$ENABLED_ADAPTERS" "$INITIAL_ADAPTER"
   case "$ALPACA_DATA_FEED" in iex|sip) ;; *) echo "Alpaca data feed must be iex or sip." >&2; return 1 ;; esac
   docker compose --env-file "$middle_env" -f "${MIDDLE_DIR}/docker-compose.yml" config -q
   docker compose --env-file "$root_env" -f "${ROOT_DIR}/docker-compose.yml" config -q
-  tag="$(read_env_value "$root_env" ATI_IMAGE_TAG)"; tag="${tag:-latest}"
-  broker_runner_image="$(read_env_value "$root_env" BROKER_RUNNER_IMAGE)"
-  broker_runner_image="${broker_runner_image:-ghcr.io/winglight/algo-trader/broker-runner-service:${tag}}"
-  echo "Pulling the published Broker Runner image for Adapter validation: ${broker_runner_image}"
-  docker pull "$broker_runner_image"
-  docker run --rm --pull=never --env-file "$root_env" --entrypoint python "$broker_runner_image" -c \
-    'from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry; import os; s=BrokerRunnerSettings.from_env(); [s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids]; r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); missing=[p for p in s.enabled_adapter_ids if not r.state(p).installed]; assert not missing, f"Published Broker Runner image is missing enabled adapters: {missing}"'
+  docker run --rm --pull=never --env-file "$root_env" \
+    -e PYTHONPATH=/plugins:/app/packages/ati-shared-sdk/src:/app/src \
+    -v "${plugin_dir}:/plugins:ro" \
+    --entrypoint python "$broker_runner_image" -c \
+    'from importlib import metadata; from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry, ENTRY_POINT_GROUP; import os; s=BrokerRunnerSettings.from_env(); [s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids]; entries={e.name:e for e in metadata.entry_points().select(group=ENTRY_POINT_GROUP)}; selected=[p for p in s.enabled_adapter_ids if p != "sim"]; missing_entries=[p for p in selected if p not in entries]; assert not missing_entries, f"Selected Adapter plugin entry points were not installed: {missing_entries}"; [entries[p].load() for p in selected]; r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); missing=[p for p in s.enabled_adapter_ids if not r.state(p).installed]; assert not missing, f"Selected Adapter plugins were not installed: {missing}"'
+}
+
+activate_prepared_plugins() {
+  local plugin_dir="${ROOT_DIR}/data/broker-plugins"
+  PLUGIN_BACKUP_DIR="${ROOT_DIR}/data/.broker-plugins.previous.$$"
+  if [ -e "$plugin_dir" ]; then
+    mv "$plugin_dir" "$PLUGIN_BACKUP_DIR"
+  fi
+  PLUGIN_ACTIVATED=1
+  mv "$PREPARED_PLUGIN_DIR" "$plugin_dir"
+  PREPARED_PLUGIN_DIR=""
 }
 
 validate_public_image_reference() {
@@ -369,8 +465,9 @@ if [ "$UPDATE_MODE" = "1" ]; then
   echo "Update actions:"
   echo "  1. Back up MariaDB before changing the running installation."
   echo "  2. Pull the latest GHCR container images."
-  echo "  3. Recreate the local containers with the updated images."
-  CONFIRM_PROMPT="Proceed with the MariaDB backup and container update?"
+  echo "  3. Install only the selected Adapter plugins into persistent local storage."
+  echo "  4. Recreate the local containers with the updated images and plugins."
+  CONFIRM_PROMPT="Proceed with the MariaDB backup, plugin installation, and container update?"
   CONFIRM_DEFAULT=yes
 fi
 if [ "$NON_INTERACTIVE" = "0" ] && ! prompt_yes_no "$CONFIRM_PROMPT" "$CONFIRM_DEFAULT"; then
@@ -386,7 +483,15 @@ cp "$MIDDLE_BASE" "$MIDDLE_CANDIDATE"
 if [ "$UPDATE_MODE" = "1" ]; then
   env_set "$ROOT_CANDIDATE" ATI_IMAGE_TAG latest
 fi
-cleanup_candidates() { rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}"; }
+cleanup_candidates() {
+  rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}"
+  if [ -n "${PREPARED_PLUGIN_DIR:-}" ] && [ -e "$PREPARED_PLUGIN_DIR" ]; then
+    run_as_root rm -rf "$PREPARED_PLUGIN_DIR"
+  fi
+  if [ -n "${PREPARED_PLUGIN_BUILD_DIR:-}" ] && [ -e "$PREPARED_PLUGIN_BUILD_DIR" ]; then
+    run_as_root rm -rf "$PREPARED_PLUGIN_BUILD_DIR"
+  fi
+}
 trap cleanup_candidates EXIT
 
 JWT_SECRET="$(read_env_value "$ROOT_CANDIDATE" JWT_SECRET)"
@@ -442,7 +547,8 @@ env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROFILE_REGISTRY_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ENABLED_ADAPTERS "$ENABLED_ADAPTERS"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_DEFAULT_ADAPTER_ID "$INITIAL_ADAPTER"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY broker_runner:active_adapter_id
-env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IBKR_PAPER_PROVIDER core
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IBKR_PAPER_PROVIDER "$(contains_profile "$ENABLED_ADAPTERS" ibkr_paper && echo package || echo core)"
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PLUGIN_PATH /app/data/broker-plugins
 env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_GATE_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED false
@@ -479,10 +585,13 @@ validate_public_image_reference "$broker_runner_image" broker-runner-service
 validate_public_image_reference "$frontend_image" frontend
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IMAGE "$broker_runner_image"
 env_set "$ROOT_CANDIDATE" FRONTEND_IMAGE "$frontend_image"
-validate_candidates "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE"
+echo "Pulling the official Broker Runner base image: ${broker_runner_image}"
+docker pull "$broker_runner_image"
+prepare_selected_adapter_plugins "$broker_runner_image"
+validate_candidates "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE" "$broker_runner_image" "$PREPARED_PLUGIN_DIR"
 
 echo "Validated configuration changes:"
-for key in BROKER_RUNNER_ENABLED_ADAPTERS BROKER_RUNNER_DEFAULT_ADAPTER_ID BROKER_RUNNER_PROFILE_REGISTRY_ENABLED BROKER_ADAPTER_SWITCH_ENABLED BROKER_ASSET_CAPABILITY_GATE_ENABLED VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED BROKER_RUNNER_IMAGE FRONTEND_IMAGE; do
+for key in BROKER_RUNNER_ENABLED_ADAPTERS BROKER_RUNNER_DEFAULT_ADAPTER_ID BROKER_RUNNER_PROFILE_REGISTRY_ENABLED BROKER_RUNNER_IBKR_PAPER_PROVIDER BROKER_RUNNER_PLUGIN_PATH BROKER_ADAPTER_SWITCH_ENABLED BROKER_ASSET_CAPABILITY_GATE_ENABLED VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED BROKER_RUNNER_IMAGE FRONTEND_IMAGE; do
   echo "  ${key}=$(read_env_value "$ROOT_CANDIDATE" "$key")"
 done
 echo "  credential fields=<redacted>"
@@ -510,6 +619,11 @@ rollback() {
     set +e
     if [ "$ROOT_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/root.env" "${ROOT_DIR}/.env"; else rm -f "${ROOT_DIR}/.env"; fi
     if [ "$MIDDLE_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/middle.env" "${MIDDLE_DIR}/.env"; else rm -f "${MIDDLE_DIR}/.env"; fi
+    if [ "$PLUGIN_ACTIVATED" = "1" ]; then
+      run_as_root rm -rf "${ROOT_DIR}/data/broker-plugins"
+      if [ -e "$PLUGIN_BACKUP_DIR" ]; then mv "$PLUGIN_BACKUP_DIR" "${ROOT_DIR}/data/broker-plugins"; fi
+      PLUGIN_ACTIVATED=0
+    fi
     chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" 2>/dev/null || true
     if [ "$PREVIOUS_IB_ENABLED" = "1" ]; then
       ensure_ib_gateway_settings_permissions || true
@@ -528,6 +642,7 @@ trap rollback EXIT
 mv "$ROOT_CANDIDATE" "${ROOT_DIR}/.env"
 mv "$MIDDLE_CANDIDATE" "${MIDDLE_DIR}/.env"
 chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env"
+activate_prepared_plugins
 
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
   ensure_ib_gateway_settings_permissions
@@ -560,6 +675,9 @@ pull_application_images
 
 COMMITTED=0
 trap cleanup_candidates EXIT
+if [ -n "$PLUGIN_BACKUP_DIR" ] && [ -e "$PLUGIN_BACKUP_DIR" ]; then
+  run_as_root rm -rf "$PLUGIN_BACKUP_DIR"
+fi
 rm -rf "$BACKUP_DIR"
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"
