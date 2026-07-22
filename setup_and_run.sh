@@ -80,6 +80,17 @@ done
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+run_as_root() {
+  if [ "$(id -u)" = "0" ]; then
+    "$@"
+  elif has_cmd sudo; then
+    sudo "$@"
+  else
+    echo "This installer operation requires root privileges or sudo." >&2
+    return 1
+  fi
+}
+
 ensure_docker() {
   if has_cmd docker && docker compose version >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     return 0
@@ -196,8 +207,7 @@ sha256_file() {
 prepare_selected_adapter_plugins() {
   local broker_runner_image="$1" archive extract_root wheelhouse lock_file runtime_arch
   local line_arch package version filename checksum url target actual selected_count
-  mkdir -p "${ROOT_DIR}/data"
-  PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/data/.broker-plugins.candidate.XXXXXX")"
+  PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/.broker-plugins.candidate.XXXXXX")"
   if [ "$ENABLED_ADAPTERS" = "sim" ]; then
     return 0
   fi
@@ -286,11 +296,12 @@ validate_candidates() {
 activate_prepared_plugins() {
   local plugin_dir="${ROOT_DIR}/data/broker-plugins"
   PLUGIN_BACKUP_DIR="${ROOT_DIR}/data/.broker-plugins.previous.$$"
+  run_as_root mkdir -p "${ROOT_DIR}/data"
   if [ -e "$plugin_dir" ]; then
-    mv "$plugin_dir" "$PLUGIN_BACKUP_DIR"
+    run_as_root mv "$plugin_dir" "$PLUGIN_BACKUP_DIR"
   fi
   PLUGIN_ACTIVATED=1
-  mv "$PREPARED_PLUGIN_DIR" "$plugin_dir"
+  run_as_root mv "$PREPARED_PLUGIN_DIR" "$plugin_dir"
   PREPARED_PLUGIN_DIR=""
 }
 
@@ -621,7 +632,9 @@ rollback() {
     if [ "$MIDDLE_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/middle.env" "${MIDDLE_DIR}/.env"; else rm -f "${MIDDLE_DIR}/.env"; fi
     if [ "$PLUGIN_ACTIVATED" = "1" ]; then
       run_as_root rm -rf "${ROOT_DIR}/data/broker-plugins"
-      if [ -e "$PLUGIN_BACKUP_DIR" ]; then mv "$PLUGIN_BACKUP_DIR" "${ROOT_DIR}/data/broker-plugins"; fi
+      if run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
+        run_as_root mv "$PLUGIN_BACKUP_DIR" "${ROOT_DIR}/data/broker-plugins"
+      fi
       PLUGIN_ACTIVATED=0
     fi
     chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" 2>/dev/null || true
@@ -675,7 +688,7 @@ pull_application_images
 
 COMMITTED=0
 trap cleanup_candidates EXIT
-if [ -n "$PLUGIN_BACKUP_DIR" ] && [ -e "$PLUGIN_BACKUP_DIR" ]; then
+if [ -n "$PLUGIN_BACKUP_DIR" ] && run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
   run_as_root rm -rf "$PLUGIN_BACKUP_DIR"
 fi
 rm -rf "$BACKUP_DIR"
