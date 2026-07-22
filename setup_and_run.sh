@@ -422,8 +422,16 @@ if [ "$NON_INTERACTIVE" = "1" ] && [ "$UPDATE_MODE" = "1" ] && [ "${ATI_ALLOW_UP
   exit 1
 fi
 CONFIRM_PROMPT="Continue installation?"
-[ "$UPDATE_MODE" = "1" ] && CONFIRM_PROMPT="Back up MariaDB, pull the latest GHCR images, and update the local containers?"
-if [ "$NON_INTERACTIVE" = "0" ] && ! prompt_yes_no "$CONFIRM_PROMPT" no; then
+CONFIRM_DEFAULT=no
+if [ "$UPDATE_MODE" = "1" ]; then
+  echo "Update actions:"
+  echo "  1. Back up MariaDB before changing the running installation."
+  echo "  2. Pull the latest GHCR container images."
+  echo "  3. Recreate the local containers with the updated images."
+  CONFIRM_PROMPT="Proceed with the MariaDB backup and container update?"
+  CONFIRM_DEFAULT=yes
+fi
+if [ "$NON_INTERACTIVE" = "0" ] && ! prompt_yes_no "$CONFIRM_PROMPT" "$CONFIRM_DEFAULT"; then
   echo "Installation cancelled; no configuration was changed."
   exit 0
 fi

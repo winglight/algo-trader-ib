@@ -144,7 +144,9 @@ When a release changes the database schema, back up `middle/data/mariadb` before
 
 ### Updating an existing installation
 
-Use the explicit `--update` mode for an existing installation. After confirmation,
+Append `installer --update` to the one-line installer command to update an existing
+installation. Both update confirmations default to yes, so pressing Enter continues.
+After confirmation,
 the installer writes a complete logical MariaDB backup to the sibling directory
 `ati-local-runtime-backups/update-<UTC timestamp>/`, pins the update channel to
 `latest`, pulls current images from GHCR, and recreates the local containers. A
@@ -155,7 +157,7 @@ application enters maintenance downtime while Redis and MariaDB remain online
 for the backup; services are restored automatically when the update completes.
 
 ```bash
-bash public/scripts/install.sh --update
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update
 ```
 
 Unattended updates additionally require `--non-interactive` and

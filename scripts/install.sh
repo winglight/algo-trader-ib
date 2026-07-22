@@ -64,12 +64,12 @@ confirm_update_install_dir() {
     }
     return 0
   fi
-  read -r -p "Download the latest public release and keep local configuration? [y/N]: " reply
+  read -r -p "Download the latest public release and keep local configuration? [Y/n]: " reply
   case "$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')" in
-    y|yes)
+    ""|y|yes)
       ;;
     *)
-      echo "Installation aborted. Please move or back up the existing files, then rerun this installer." >&2
+      echo "Update cancelled; the existing installation was not replaced." >&2
       exit 1
       ;;
   esac
@@ -188,7 +188,9 @@ download_with_zip() {
     confirm_update_install_dir "Install path already exists and is not a directory."
   elif dir_has_entries "$INSTALL_DIR"; then
     [ "$UPDATE_MODE" = "1" ] || {
-      echo "Existing installation detected. Rerun with --update." >&2
+      echo "Existing installation detected." >&2
+      echo "Rerun the one-line installer with this suffix appended: installer --update" >&2
+      echo 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update' >&2
       exit 1
     }
     confirm_update_install_dir "Existing installation detected; update mode will replace application files."
