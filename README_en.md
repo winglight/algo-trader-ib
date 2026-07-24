@@ -34,14 +34,15 @@ Copy this line into your terminal:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)"
 ```
 
-The installer asks for:
+The installer automatically generates the Redis, MariaDB, web login, and IB
+Gateway VNC passwords and writes them to `.env` or `middle/.env` with mode
+`0600`. Existing non-empty passwords are preserved when the installer is rerun
+or an installation is updated.
 
-- Redis password
-- MariaDB password
-- Web login password
-- Whether to enable IBKR Paper and Alpaca Paper
-- Initial adapter profile
-- If IBKR is enabled: IBKR Paper username, password, and IB Gateway VNC password
+Interactive installation asks only for the enabled and initial adapters and the
+credentials required by the selected broker adapters:
+
+- If IBKR is enabled: IBKR Paper username and password
 - If Alpaca is enabled: Alpaca Paper API key, secret, and `iex`/`sip` data feed
 
 After installation, open:
@@ -53,10 +54,10 @@ http://127.0.0.1:5173
 Default username:
 
 ```text
-ati-guest
+ati-local-user
 ```
 
-Use the web login password you entered during installation.
+Read `ADMIN_PASSWORD` from `.env` for the web login password.
 
 ## Broker Profiles
 
@@ -64,7 +65,9 @@ Use the web login password you entered during installation.
 
 Installed profiles are shown in the top bar. Adapter changes use the backend gate and confirmation flow. Only the watchdog container mounts the host Docker socket; application containers do not mount it.
 
-Non-interactive installation accepts secrets only through files with mode `0600` or `0400`:
+Non-interactive installation generates service passwords automatically. Broker
+adapter secrets must be supplied through files with mode `0600` or `0400`.
+Service password file options remain available as explicit overrides:
 
 ```bash
 ./setup_and_run.sh --non-interactive \

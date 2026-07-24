@@ -142,26 +142,41 @@ legacy_initial_adapter() {
 }
 
 choose_interactive_adapters() {
-  local existing ib_default alpaca_default
+  local existing choice default_index=1
   existing="$(read_env_value "${ROOT_DIR}/.env" BROKER_RUNNER_ENABLED_ADAPTERS)"
   [ -n "$existing" ] || existing="$(legacy_enabled_adapters)"
-  ib_default=no; alpaca_default=no
-  contains_profile "$existing" ibkr_paper && ib_default=yes
-  contains_profile "$existing" alpaca_paper && alpaca_default=yes
-  ENABLED_ADAPTERS=sim
-  echo "Sim Adapter is always enabled."
-  if prompt_yes_no "Configure IBKR Paper Adapter?" "$ib_default"; then
-    ENABLED_ADAPTERS="${ENABLED_ADAPTERS},ibkr_paper"
-  fi
-  if prompt_yes_no "Configure Alpaca Paper Adapter?" "$alpaca_default"; then
-    ENABLED_ADAPTERS="${ENABLED_ADAPTERS},alpaca_paper"
-  fi
+  case "$existing" in
+    sim) default_index=1 ;;
+    sim,ibkr_paper) default_index=2 ;;
+    sim,alpaca_paper) default_index=3 ;;
+    sim,ibkr_paper,alpaca_paper) default_index=4 ;;
+  esac
+  echo "Select an adapter configuration (Sim is always enabled):"
+  echo "  1) Sim"
+  echo "  2) Sim + IBKR Paper"
+  echo "  3) Sim + Alpaca Paper"
+  echo "  4) Sim + IBKR Paper + Alpaca Paper"
+  while true; do
+    choice="$(prompt_value "Selection" "$default_index" 0)"
+    case "$choice" in
+      1) ENABLED_ADAPTERS=sim; return ;;
+      2) ENABLED_ADAPTERS=sim,ibkr_paper; return ;;
+      3) ENABLED_ADAPTERS=sim,alpaca_paper; return ;;
+      4) ENABLED_ADAPTERS=sim,ibkr_paper,alpaca_paper; return ;;
+      *) echo "Choose a listed number." >&2 ;;
+    esac
+  done
 }
 
 choose_interactive_initial() {
   local choices=(sim) choice default_index=1 index=1 existing
   contains_profile "$ENABLED_ADAPTERS" ibkr_paper && choices+=(ibkr_paper)
   contains_profile "$ENABLED_ADAPTERS" alpaca_paper && choices+=(alpaca_paper)
+  if [ "${#choices[@]}" -eq 1 ]; then
+    INITIAL_ADAPTER=sim
+    echo "Initial adapter: Sim (the only enabled adapter)."
+    return
+  fi
   existing="$(read_env_value "${ROOT_DIR}/.env" BROKER_RUNNER_DEFAULT_ADAPTER_ID)"
   [ -n "$existing" ] || existing="$(legacy_initial_adapter)"
   echo "Choose initial adapter:"
@@ -197,6 +212,24 @@ resolve_secret() {
     read_secret_file "$file" "$label"
   else
     prompt_value "$prompt" "$current" 1
+  fi
+}
+
+generate_secret() {
+  od -An -N24 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+resolve_managed_secret() {
+  local env_file="$1" key="$2" file="$3" label="$4" existing
+  if [ -n "$file" ]; then
+    read_secret_file "$file" "$label"
+  else
+    existing="$(read_env_value "$env_file" "$key")"
+    if [ -n "$existing" ]; then
+      printf '%s' "$existing"
+    else
+      generate_secret
+    fi
   fi
 }
 
@@ -400,18 +433,15 @@ MIDDLE_BASE="${MIDDLE_DIR}/.env"
 [ -f "$ROOT_BASE" ] || ROOT_BASE="${ROOT_DIR}/.env.example"
 [ -f "$MIDDLE_BASE" ] || MIDDLE_BASE="${MIDDLE_DIR}/.env.example"
 
-CURRENT_REDIS="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" REDIS_PASSWORD)"
-CURRENT_MARIADB="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" MARIADB_PASSWORD)"
-CURRENT_ADMIN="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" ADMIN_PASSWORD)"
 CURRENT_IB_USER="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" TWS_USERID)"
 CURRENT_IB_PASSWORD="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" TWS_PASSWORD)"
 CURRENT_IB_VNC="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" VNC_SERVER_PASSWORD)"
 CURRENT_ALPACA_KEY="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_ALPACA_API_KEY_ID)"
 CURRENT_ALPACA_SECRET="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_ALPACA_SECRET_KEY)"
 
-REDIS_PASSWORD="$(resolve_secret "$CURRENT_REDIS" "$REDIS_PASSWORD_FILE" "Redis password" "Redis password")"
-MARIADB_PASSWORD="$(resolve_secret "$CURRENT_MARIADB" "$MARIADB_PASSWORD_FILE" "MariaDB password" "MariaDB password")"
-ADMIN_PASSWORD="$(resolve_secret "$CURRENT_ADMIN" "$ADMIN_PASSWORD_FILE" "ATI web password" "ATI web password")"
+REDIS_PASSWORD="$(resolve_managed_secret "${MIDDLE_DIR}/.env" REDIS_PASSWORD "$REDIS_PASSWORD_FILE" "Redis password")"
+MARIADB_PASSWORD="$(resolve_managed_secret "${MIDDLE_DIR}/.env" MARIADB_PASSWORD "$MARIADB_PASSWORD_FILE" "MariaDB password")"
+ADMIN_PASSWORD="$(resolve_managed_secret "${ROOT_DIR}/.env" ADMIN_PASSWORD "$ADMIN_PASSWORD_FILE" "ATI web password")"
 
 if [ "$NON_INTERACTIVE" = "1" ]; then
   if [ -z "$ENABLED_ADAPTERS" ]; then ENABLED_ADAPTERS="$(read_env_value "${ROOT_DIR}/.env" BROKER_RUNNER_ENABLED_ADAPTERS)"; fi
@@ -435,7 +465,7 @@ if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
     IB_USER="$(prompt_value "IBKR Paper username" "$CURRENT_IB_USER" 1)"
   fi
   IB_PASSWORD="$(resolve_secret "$CURRENT_IB_PASSWORD" "$IBKR_PASSWORD_FILE" "IBKR password" "IBKR Paper password")"
-  IB_VNC="$(resolve_secret "$CURRENT_IB_VNC" "$IBKR_VNC_PASSWORD_FILE" "IB Gateway VNC password" "IB Gateway VNC password")"
+  IB_VNC="$(resolve_managed_secret "${MIDDLE_DIR}/.env" VNC_SERVER_PASSWORD "$IBKR_VNC_PASSWORD_FILE" "IB Gateway VNC password")"
 fi
 
 ALPACA_KEY="$CURRENT_ALPACA_KEY"; ALPACA_SECRET="$CURRENT_ALPACA_SECRET"
@@ -461,7 +491,13 @@ echo "  Enabled adapters: ${ENABLED_ADAPTERS}"
 echo "  Initial adapter: ${INITIAL_ADAPTER}"
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then echo "  IB Gateway: enabled"; else echo "  IB Gateway: disabled"; fi
 if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then echo "  Alpaca feed: ${ALPACA_DATA_FEED}"; fi
-echo "  Credentials: configured (values hidden)"
+if [ "$ENABLED_ADAPTERS" = "sim" ]; then
+  echo "  Adapter credentials: not required"
+else
+  echo "  Adapter credentials: configured (values hidden)"
+fi
+echo "  Service passwords: generated automatically or preserved from the existing configuration"
+echo "  Environment file permissions: 0600"
 if [ -f "${ROOT_DIR}/.env" ]; then echo "  Existing Redis active selection will be preserved."; fi
 if [ "$UPDATE_MODE" = "1" ]; then
   echo "  Image channel: latest (GHCR)"
@@ -506,9 +542,9 @@ cleanup_candidates() {
 trap cleanup_candidates EXIT
 
 JWT_SECRET="$(read_env_value "$ROOT_CANDIDATE" JWT_SECRET)"
-if placeholder_or_empty "$JWT_SECRET"; then JWT_SECRET="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"; fi
+if placeholder_or_empty "$JWT_SECRET"; then JWT_SECRET="$(generate_secret)"; fi
 WATCHDOG_MAINTENANCE_TOKEN="$(read_env_value "$ROOT_CANDIDATE" SERVICE_WATCHDOG_MAINTENANCE_TOKEN)"
-if placeholder_or_empty "$WATCHDOG_MAINTENANCE_TOKEN"; then WATCHDOG_MAINTENANCE_TOKEN="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"; fi
+if placeholder_or_empty "$WATCHDOG_MAINTENANCE_TOKEN"; then WATCHDOG_MAINTENANCE_TOKEN="$(generate_secret)"; fi
 
 env_set "$MIDDLE_CANDIDATE" REDIS_PASSWORD "$REDIS_PASSWORD"
 env_set "$MIDDLE_CANDIDATE" MARIADB_DATABASE algo_trader
@@ -522,7 +558,7 @@ env_set "$ROOT_CANDIDATE" REDIS_URL "redis://:${REDIS_PASSWORD}@redis:6379/0"
 env_set "$ROOT_CANDIDATE" BACKTEST_REDIS_URL "redis://:${REDIS_PASSWORD}@redis:6379/8"
 env_set "$ROOT_CANDIDATE" MARIADB_URL "mariadb://algo_trader:${MARIADB_PASSWORD}@mariadb:3306/algo_trader"
 env_set "$ROOT_CANDIDATE" BACKTEST_MARIADB_URL "mariadb://algo_trader_backtest:${MARIADB_PASSWORD}@mariadb:3306/algo_trader_backtest"
-env_set "$ROOT_CANDIDATE" ADMIN_USERNAME ati-guest
+env_set "$ROOT_CANDIDATE" ADMIN_USERNAME ati-local-user
 env_set "$ROOT_CANDIDATE" ADMIN_PASSWORD "$ADMIN_PASSWORD"
 env_set "$ROOT_CANDIDATE" JWT_SECRET "$JWT_SECRET"
 env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_MAINTENANCE_TOKEN "$WATCHDOG_MAINTENANCE_TOKEN"
@@ -694,5 +730,9 @@ fi
 rm -rf "$BACKUP_DIR"
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"
-echo "  username: ati-guest"
-echo "  password: the ATI web password you entered"
+echo "  username: ati-local-user"
+echo "  password: see ADMIN_PASSWORD in ${ROOT_DIR}/.env"
+echo "Generated service passwords are stored in:"
+echo "  ${ROOT_DIR}/.env"
+echo "  ${MIDDLE_DIR}/.env"
+echo "Keep these permission-controlled files private and do not commit them to Git."

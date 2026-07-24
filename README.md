@@ -34,14 +34,12 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)"
 ```
 
-安装脚本会引导填写：
+安装脚本会自动生成 Redis、MariaDB、Web 登录和 IB Gateway VNC 密码，并写入权限为
+`0600` 的 `.env` 或 `middle/.env`。已有配置中的非空密码会在重跑或升级时保留。
 
-- Redis 密码
-- MariaDB 密码
-- Web 登录密码
-- 是否启用 IBKR Paper 和 Alpaca Paper
-- 初始使用的 adapter
-- 如果启用 IBKR：IBKR Paper 用户名、密码和 IB Gateway VNC 密码
+交互安装只需要选择启用的 adapter 和初始 adapter，并填写所选券商 adapter 的凭证：
+
+- 如果启用 IBKR：IBKR Paper 用户名和密码
 - 如果启用 Alpaca：Alpaca Paper API key、secret 和 `iex`/`sip` data feed
 
 安装完成后打开：
@@ -53,10 +51,10 @@ http://127.0.0.1:5173
 默认登录账号：
 
 ```text
-ati-guest
+ati-local-user
 ```
 
-密码为安装时填写的 Web 登录密码。
+密码可在 `.env` 的 `ADMIN_PASSWORD` 中查看。
 
 ## Broker profiles
 
@@ -64,7 +62,8 @@ ati-guest
 
 安装完成后可在顶部栏查看已安装 profile。切换动作受后端 gate 和确认流程控制。只有 watchdog 容器挂载宿主机 Docker socket，其他业务容器默认不挂载。
 
-自动化安装必须通过权限为 `0600` 或 `0400` 的文件传入 secret，例如：
+自动化安装会自动生成基础服务密码。券商 adapter 的 secret 必须通过权限为 `0600`
+或 `0400` 的文件传入；基础服务密码文件参数仍可用于显式覆盖，例如：
 
 ```bash
 ./setup_and_run.sh --non-interactive \
