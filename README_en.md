@@ -9,6 +9,8 @@ Membership and product page: [ati.broyustudio.com](https://ati.broyustudio.com)
 Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)  
 Local trading system demo: [ati-trading.broyustudio.com](https://ati-trading.broyustudio.com)
 
+Open-source Broker adapters: [winglight/algo-trader-broker-adapters](https://github.com/winglight/algo-trader-broker-adapters)
+
 Use the local runtime for your own trading environment and local validation. Use Cloud Strategy Studio for hosted workflow design, trial access, and future subscription features. 
 
 After the first installation, the local environment can run for 24 hours before it is bound to a cloud account. After binding, local services are enabled or disabled according to the capabilities attached to the cloud subscription tier.
@@ -62,6 +64,10 @@ Read `ADMIN_PASSWORD` from `.env` for the web login password.
 ## Broker Profiles
 
 `sim` is always enabled and requires no broker account; the official Broker Runner image provides only the Sim Adapter by default. After `ibkr_paper` or `alpaca_paper` is selected, the installer downloads, verifies, and installs that plugin into the persistent `data/broker-plugins/` directory. It neither modifies the official image nor builds a business-service image on the user's machine. `ibkr_paper` also starts the `ib-gateway` profile from `middle/docker-compose.yml`.
+
+The public source code, capability boundaries, and development documentation for
+`ibkr_paper` and `alpaca_paper` are available in the
+[Broker adapters repository](https://github.com/winglight/algo-trader-broker-adapters).
 
 Installed profiles are shown in the top bar. Adapter changes use the backend gate and confirmation flow. Only the watchdog container mounts the host Docker socket; application containers do not mount it.
 
@@ -169,3 +175,48 @@ Unattended updates additionally require `--non-interactive` and
 The installer checks for `unzip` and, when it is missing, installs it through
 the available `apt-get`, `dnf`, `yum`, or `apk` package manager. Non-root users
 need `sudo` for this step.
+
+## Disclaimer
+
+- This project is provided solely for software development, research, education,
+  and simulated trading. It is not investment or trading advice, an offer or
+  solicitation, a brokerage service, or a promise of returns.
+- Trading and automated systems involve substantial risk, including software or
+  configuration errors, network or data outages, latency, duplicate or missed
+  orders, broker or third-party failures, and loss of all capital. Paper-trading
+  results do not represent live-trading performance.
+- You must independently verify strategies, orders, accounts, market-data
+  permissions, and risk controls before submitting any order, and determine
+  whether your use complies with applicable law, broker agreements, and market
+  rules. Third-party names and links do not imply endorsement or warranty.
+- The project and its materials are provided "as is" and "as available", without
+  warranties of accuracy, completeness, availability, or fitness for a
+  particular purpose. To the fullest extent permitted by law, maintainers and
+  contributors are not liable for trading losses, lost profits, lost data, or
+  any direct, indirect, incidental, or consequential damages arising from use
+  of, or inability to use, the project.
+
+## User Agreement
+
+By downloading, installing, configuring, accessing, or using this project, you
+agree that:
+
+1. You have legal capacity to accept these terms and, if acting for an
+   organization, authority to bind that organization.
+2. You will use the project only for lawful purposes and with accounts and data
+   you are authorized to access. The currently published broker adapters are
+   Paper/simulation only; you must not use them for live trading or bypass
+   subscriptions, licensing, risk confirmations, security controls, or other
+   usage restrictions.
+3. You are responsible for securing accounts, API keys, passwords, and the local
+   environment, and for all results caused by your configurations, strategies,
+   orders, and operations.
+4. You will comply with applicable laws and with the separate agreements, fees,
+   market-data licenses, and policies of Interactive Brokers, Alpaca, and other
+   third parties. This project does not control their availability or behavior.
+5. Copying, modification, and distribution of source code remain subject to the
+   repository's open-source license. Cloud services, membership features,
+   images, or other product capabilities may be subject to separate product and
+   subscription terms published with those services.
+6. If you do not agree to these terms, do not download, install, access, or use
+   the project, and stop any deployed services.

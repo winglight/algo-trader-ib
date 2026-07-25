@@ -9,6 +9,8 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 云端 Strategy Studio：[ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)  
 本地交易系统 Demo：[ati-trading.broyustudio.com](https://ati-trading.broyustudio.com)
 
+开源 Broker adapters：[winglight/algo-trader-broker-adapters](https://github.com/winglight/algo-trader-broker-adapters)
+
 本地版用于运行和验证自己的交易环境；云端 Studio 用于托管式 workflow 设计、云端试用和后续订阅能力。
 
 首次安装后，本地环境在未绑定云平台用户前可试用 24 小时。绑定云平台用户后，本地服务会按云平台订阅等级下发的能力启用或禁用。
@@ -59,6 +61,9 @@ ati-local-user
 ## Broker profiles
 
 `sim` 始终启用且不需要券商账号，官方 Broker Runner 镜像默认只提供 Sim Adapter。选择 `ibkr_paper` 或 `alpaca_paper` 后，安装器会从固定来源下载、校验并安装对应插件到持久化的 `data/broker-plugins/`；不会修改官方镜像，也不会在用户机器上构建业务镜像。`ibkr_paper` 还会启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile。
+
+`ibkr_paper` 与 `alpaca_paper` 的公开源代码、能力边界和开发说明见
+[Broker adapters 仓库](https://github.com/winglight/algo-trader-broker-adapters)。
 
 安装完成后可在顶部栏查看已安装 profile。切换动作受后端 gate 和确认流程控制。只有 watchdog 容器挂载宿主机 Docker socket，其他业务容器默认不挂载。
 
@@ -156,3 +161,21 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib
 
 安装器会检测 `unzip`；缺失时使用系统可用的 `apt-get`、`dnf`、`yum` 或
 `apk` 自动安装（非 root 用户需要 `sudo`）。
+
+## 免责声明
+
+- 本项目仅用于软件开发、研究、教育和模拟交易，不构成投资建议、交易建议、要约、招揽、经纪服务或任何收益承诺。
+- 交易和自动化系统存在重大风险，包括程序错误、配置错误、网络或数据中断、延迟、重复或遗漏订单、券商或第三方服务故障以及全部本金损失。Paper 交易结果不代表实盘表现。
+- 您应在下单前独立核验策略、订单、账户、行情权限和风险控制，并自行判断本项目是否符合所在地法律法规、券商协议和市场规则。任何第三方名称或链接不表示其对本项目的认可或担保。
+- 本项目及相关资料按“现状”和“可用状态”提供，不保证准确性、完整性、持续可用性或适用于特定目的。在适用法律允许的最大范围内，维护者和贡献者不对因使用或无法使用本项目产生的交易损失、利润损失、数据损失或其他直接、间接、附带或后果性损害负责。
+
+## 用户协议
+
+下载、安装、配置、访问或使用本项目，即表示您同意以下条款：
+
+1. 您具有接受本协议的法定资格；如代表组织使用，您已获得该组织的有效授权。
+2. 您仅可将本项目用于合法用途以及您有权访问的账户和数据。当前公开券商 adapters 仅限 Paper/模拟环境；不得将其用于实盘交易，也不得绕过订阅、授权、风险确认、安全控制或其他使用限制。
+3. 您负责保护账户、API key、密码及本地环境安全，并对由您的配置、策略、订单和操作产生的结果承担全部责任。
+4. 您须遵守适用法律法规以及 Interactive Brokers、Alpaca 和其他第三方服务各自的协议、费用、行情许可和使用政策；第三方服务的可用性和行为不受本项目控制。
+5. 项目代码的复制、修改和分发同时受仓库所载开源许可证约束；云端服务、会员功能、镜像或其他产品能力可能适用其页面另行公布的产品和订阅条款。
+6. 如果您不同意上述条款，请勿下载、安装、访问或使用本项目，并停止运行已部署的服务。
