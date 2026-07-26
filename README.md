@@ -36,6 +36,50 @@ Copy this line into your terminal:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)"
 ```
 
+### Install by operating system
+
+#### Windows (with WSL)
+
+Run the installer in a WSL Linux terminal, not directly in PowerShell or Command
+Prompt. If WSL is not installed, open PowerShell as Administrator and run:
+
+```powershell
+wsl --install
+```
+
+Restart Windows when prompted, open the installed Linux distribution (normally
+Ubuntu by default), and complete its first-run setup. Then run the one-line
+installer above in that WSL terminal. The installer checks its dependencies
+inside WSL. If Docker is not ready, it installs and starts Docker using the Linux
+installation path and may ask for the WSL user's `sudo` password. The default
+installation directory is `~/ati-local-runtime` in the WSL user's home directory.
+
+#### macOS
+
+Manually installing Docker Desktop from the
+[Docker website](https://www.docker.com/products/docker-desktop/) is recommended.
+Start Docker Desktop, wait for the Docker Engine to become ready, and then run
+the one-line installer above in Terminal. The script checks `docker compose` and
+the Docker Engine. If Docker is missing, it can attempt a Docker Desktop
+installation through Homebrew, but manual installation makes the first launch,
+permission prompts, and system settings easier to complete. The default
+installation directory is `~/ati-local-runtime`.
+
+#### Linux
+
+Run the one-line installer above directly in a Linux terminal. When Docker is not
+available, the script automatically installs Docker Engine and the Compose plugin
+and starts Docker on supported `apt-get`, `dnf`, or `yum` systems. Installing
+system packages requires root access or `sudo`. If Docker group access has not
+taken effect after installation, run `newgrp docker` or log in again, then rerun
+the one-line installer. The default installation directory is
+`~/ati-local-runtime`.
+
+On every platform, the script downloads the latest installer files, checks
+runtime dependencies, interactively creates or preserves configuration, pulls
+the images and adapter plugins required by the selection, and creates the local
+services with Docker Compose.
+
 The installer automatically generates the Redis, MariaDB, web login, and IB
 Gateway VNC passwords and writes them to `.env` or `middle/.env` with mode
 `0600`. Existing non-empty passwords are preserved when the installer is rerun
@@ -60,6 +104,34 @@ ati-local-user
 ```
 
 Read `ADMIN_PASSWORD` from `.env` for the web login password.
+
+### Updating
+
+Rerun the one-line installer in the same environment used for the initial
+installation and append `installer --update`. Windows users must continue to run
+it in the WSL terminal; macOS and Linux users run it in their respective
+terminals.
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update
+```
+
+Both update confirmations default to yes, so pressing Enter continues. After
+confirmation, the updater writes a complete logical MariaDB backup to the sibling
+directory `ati-local-runtime-backups/update-<UTC timestamp>/`, downloads the
+latest installer files, pins the image channel to `latest`, pulls current images
+from GHCR, updates adapter plugins, and recreates the local containers.
+
+The updater preserves `.env`, `middle/.env`, `data`, `logs`, `strategies`, and
+`middle/data` while replacing installer files. The local application enters
+maintenance downtime while Redis and MariaDB remain online for the backup;
+services are restored automatically when the update completes. A backup failure
+aborts the update before any running container is replaced.
+
+Unattended updates additionally require `--non-interactive` and
+`ATI_ALLOW_UPDATE=1`. The installer also checks for `unzip` and, when it is
+missing, installs it through the available `apt-get`, `dnf`, `yum`, or `apk`
+package manager. Non-root users need `sudo` for this step.
 
 ## Broker Profiles
 
@@ -134,47 +206,6 @@ docker compose --profile ib logs -f ib-gateway
 - `config/*.env.example`: per-service configuration templates.
 - `strategies/`: local example and custom strategy mount directory.
 - `algo_trader.sql`: local database initialization SQL.
-
-## Update
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-For IB mode:
-
-```bash
-docker compose --profile ib pull
-docker compose --profile ib up -d
-```
-
-When a release changes the database schema, back up `middle/data/mariadb` before following the release migration notes.
-
-### Updating an existing installation
-
-Append `installer --update` to the one-line installer command to update an existing
-installation. Both update confirmations default to yes, so pressing Enter continues.
-After confirmation,
-the installer writes a complete logical MariaDB backup to the sibling directory
-`ati-local-runtime-backups/update-<UTC timestamp>/`, pins the update channel to
-`latest`, pulls current images from GHCR, and recreates the local containers. A
-backup failure aborts the update before any running container is replaced. The
-installer preserves the `data`, `logs`, `strategies`, and `middle/data` runtime
-directories while replacing installer files. After confirmation, the local
-application enters maintenance downtime while Redis and MariaDB remain online
-for the backup; services are restored automatically when the update completes.
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update
-```
-
-Unattended updates additionally require `--non-interactive` and
-`ATI_ALLOW_UPDATE=1`.
-
-The installer checks for `unzip` and, when it is missing, installs it through
-the available `apt-get`, `dnf`, `yum`, or `apk` package manager. Non-root users
-need `sudo` for this step.
 
 ## Disclaimer
 

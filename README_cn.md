@@ -36,6 +36,41 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)"
 ```
 
+### 按系统安装
+
+#### Windows（使用 WSL）
+
+安装脚本必须在 WSL 的 Linux 终端中运行，不能直接在 PowerShell 或 CMD 中运行。
+如果尚未安装 WSL，请以管理员身份打开 PowerShell，执行：
+
+```powershell
+wsl --install
+```
+
+按提示重启 Windows，打开已安装的 Linux 发行版（默认通常为 Ubuntu）并完成首次初始化，
+然后在该 WSL 终端中执行上面的一键安装命令。脚本会在 WSL 内检查依赖；如果 Docker
+尚不可用，会按 Linux 方式自动安装并启动 Docker，期间可能要求输入 WSL 用户的
+`sudo` 密码。安装目录默认为 WSL 用户主目录下的 `~/ati-local-runtime`。
+
+#### macOS
+
+建议先从 [Docker 官网](https://www.docker.com/products/docker-desktop/) 手动安装
+Docker Desktop，启动应用并等待 Docker Engine 就绪，
+再打开“终端”执行上面的一键安装命令。脚本会检查 `docker compose` 和 Docker Engine；
+如果尚未安装 Docker，会尝试通过 Homebrew 安装 Docker Desktop，但手动安装更便于
+完成首次启动、权限确认和系统设置。安装目录默认为 `~/ati-local-runtime`。
+
+#### Linux
+
+在 Linux 终端中直接执行上面的一键安装命令。脚本检测到 Docker 不可用时，会在受支持的
+`apt-get`、`dnf` 或 `yum` 系统上自动安装 Docker Engine、Compose 插件并启动 Docker
+服务；安装系统软件时需要 root 权限或 `sudo`。如果安装后提示 Docker 组权限尚未生效，
+请执行 `newgrp docker` 或重新登录，再重新运行一键安装命令。安装目录默认为
+`~/ati-local-runtime`。
+
+在以上环境中，脚本都会下载最新安装文件、检查运行依赖、交互式生成或保留配置、
+拉取所选服务与 adapter 所需镜像/插件，并通过 Docker Compose 创建本地服务。
+
 安装脚本会自动生成 Redis、MariaDB、Web 登录和 IB Gateway VNC 密码，并写入权限为
 `0600` 的 `.env` 或 `middle/.env`。已有配置中的非空密码会在重跑或升级时保留。
 
@@ -57,6 +92,28 @@ ati-local-user
 ```
 
 密码可在 `.env` 的 `ADMIN_PASSWORD` 中查看。
+
+### 更新版本
+
+在首次安装时使用的同一环境中再次运行一键安装命令，并追加
+`installer --update`：Windows 用户仍需在 WSL 终端中运行，macOS 和 Linux 用户在各自
+终端中运行。
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update
+```
+
+两个更新确认都默认继续，直接按回车即可。确认后，更新器会先把 MariaDB 完整逻辑备份
+写入安装目录同级的 `ati-local-runtime-backups/update-<UTC时间>/`，再下载最新安装文件，
+将镜像通道设为 `latest`，从 GHCR 拉取最新镜像、更新 adapter 插件并重建本地容器。
+
+更新安装器文件时会保留 `.env`、`middle/.env`、`data`、`logs`、`strategies` 和
+`middle/data`。更新期间本地应用会进入维护停机，Redis/MariaDB 保持运行以完成备份；
+更新完成后服务自动恢复。任何备份失败都会终止更新，现有容器不会被替换。
+
+无人值守更新必须同时传入 `--non-interactive` 并设置 `ATI_ALLOW_UPDATE=1`。安装器也会
+检测 `unzip`；缺失时使用系统可用的 `apt-get`、`dnf`、`yum` 或 `apk` 自动安装
+（非 root 用户需要 `sudo`）。
 
 ## Broker profiles
 
@@ -126,41 +183,6 @@ docker compose --profile ib logs -f ib-gateway
 - `config/*.env.example`：各服务配置模板。
 - `strategies/`：本地策略示例与自定义策略挂载目录。
 - `algo_trader.sql`：本地数据库初始化 SQL。
-
-## 更新
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-如果使用 IB 模式：
-
-```bash
-docker compose --profile ib pull
-docker compose --profile ib up -d
-```
-
-如果数据库结构变更，请先备份 `middle/data/mariadb`，再按发布说明迁移。
-
-### 更新现有安装
-
-在一键安装命令后追加 `installer --update` 更新已有安装。两个更新确认都默认继续，
-直接按回车即可。安装器会再次请求确认，随后先把 MariaDB
-完整逻辑备份写入安装目录同级的 `ati-local-runtime-backups/update-<UTC时间>/`，
-再将镜像通道设为 `latest`、从 GHCR 拉取最新镜像并重建本地容器。任何备份失败
-都会终止更新，现有容器不会被替换。替换安装器文件时会保留 `data`、`logs`、
-`strategies` 和 `middle/data` 运行目录。确认更新后本地应用会进入维护停机，
-Redis/MariaDB 保持运行以完成备份；更新完成后服务自动恢复。
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update
-```
-
-无人值守更新必须同时传入 `--non-interactive` 并设置 `ATI_ALLOW_UPDATE=1`。
-
-安装器会检测 `unzip`；缺失时使用系统可用的 `apt-get`、`dnf`、`yum` 或
-`apk` 自动安装（非 root 用户需要 `sudo`）。
 
 ## 免责声明
 
