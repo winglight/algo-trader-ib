@@ -24,6 +24,8 @@ algo-trader-intelligence/
 ## 修改与发布
 
 - 默认分支：`main`
+- 普通修改直接在当前默认分支完成，不要求新建功能分支，也不要求执行“功能分支 → 合并 `main` → 生产发布”的 Cloud 工作流。
+- 只有用户明确要求时才提交、推送、合并或发布。
 - Docker 与安装入口：`docker/`、`scripts/`
 - 运行配置：`config/`
 - 公共策略：`strategies/`
