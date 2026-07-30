@@ -438,6 +438,8 @@ CURRENT_IB_PASSWORD="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.e
 CURRENT_IB_VNC="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" VNC_SERVER_PASSWORD)"
 CURRENT_ALPACA_KEY="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_ALPACA_API_KEY_ID)"
 CURRENT_ALPACA_SECRET="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_ALPACA_SECRET_KEY)"
+CURRENT_ADMIN_USERNAME="$(read_env_value "${ROOT_DIR}/.env" ADMIN_USERNAME)"
+CURRENT_ADMIN_USERNAME="${CURRENT_ADMIN_USERNAME:-ati-local-user}"
 
 REDIS_PASSWORD="$(resolve_managed_secret "${MIDDLE_DIR}/.env" REDIS_PASSWORD "$REDIS_PASSWORD_FILE" "Redis password")"
 MARIADB_PASSWORD="$(resolve_managed_secret "${MIDDLE_DIR}/.env" MARIADB_PASSWORD "$MARIADB_PASSWORD_FILE" "MariaDB password")"
@@ -558,7 +560,7 @@ env_set "$ROOT_CANDIDATE" REDIS_URL "redis://:${REDIS_PASSWORD}@redis:6379/0"
 env_set "$ROOT_CANDIDATE" BACKTEST_REDIS_URL "redis://:${REDIS_PASSWORD}@redis:6379/8"
 env_set "$ROOT_CANDIDATE" MARIADB_URL "mariadb://algo_trader:${MARIADB_PASSWORD}@mariadb:3306/algo_trader"
 env_set "$ROOT_CANDIDATE" BACKTEST_MARIADB_URL "mariadb://algo_trader_backtest:${MARIADB_PASSWORD}@mariadb:3306/algo_trader_backtest"
-env_set "$ROOT_CANDIDATE" ADMIN_USERNAME ati-local-user
+env_set "$ROOT_CANDIDATE" ADMIN_USERNAME "$CURRENT_ADMIN_USERNAME"
 env_set "$ROOT_CANDIDATE" ADMIN_PASSWORD "$ADMIN_PASSWORD"
 env_set "$ROOT_CANDIDATE" JWT_SECRET "$JWT_SECRET"
 env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_MAINTENANCE_TOKEN "$WATCHDOG_MAINTENANCE_TOKEN"
@@ -730,7 +732,7 @@ fi
 rm -rf "$BACKUP_DIR"
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"
-echo "  username: ati-local-user"
+echo "  username: ${CURRENT_ADMIN_USERNAME}"
 echo "  password: see ADMIN_PASSWORD in ${ROOT_DIR}/.env"
 echo "Generated service passwords are stored in:"
 echo "  ${ROOT_DIR}/.env"
