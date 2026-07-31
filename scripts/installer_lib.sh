@@ -1,10 +1,66 @@
 #!/usr/bin/env bash
 
 read_env_value() {
-  local file="$1" key="$2"
+  local file="$1" key="$2" value
   if [ -f "$file" ]; then
-    awk -v key="$key" 'index($0, key "=") == 1 { value=substr($0, length(key) + 2) } END { if (value != "") print value }' "$file"
+    value="$(
+      awk -v key="$key" '
+        index($0, key "=") == 1 {
+          value=substr($0, length(key) + 2)
+          found=1
+        }
+        END { if (found) printf "%s", value }
+      ' "$file"
+    )"
+    decode_env_value "$value"
   fi
+}
+
+decode_env_value() {
+  local value="${1-}" output="" char next
+  if [ "${#value}" -ge 2 ] && [ "${value:0:1}" = '"' ] && [ "${value: -1}" = '"' ]; then
+    value="${value:1:${#value}-2}"
+    while [ -n "$value" ]; do
+      char="${value:0:1}"
+      value="${value:1}"
+      if [ "$char" = '\' ] && [ -n "$value" ]; then
+        next="${value:0:1}"
+        case "$next" in
+          '\'|'"')
+            output+="$next"
+            value="${value:1}"
+            continue
+            ;;
+        esac
+      elif [ "$char" = '$' ] && [ "${value:0:1}" = '$' ]; then
+        output+='$'
+        value="${value:1}"
+        continue
+      fi
+      output+="$char"
+    done
+    printf '%s' "$output"
+    return
+  fi
+  if [ "${#value}" -ge 2 ] && [ "${value:0:1}" = "'" ] && [ "${value: -1}" = "'" ]; then
+    value="${value:1:${#value}-2}"
+    value="${value//\\\'/\'}"
+  fi
+  printf '%s' "$value"
+}
+
+encode_env_value() {
+  local value="${1-}"
+  case "$value" in
+    *$'\n'*|*$'\r'*)
+      echo "Environment values must contain exactly one line." >&2
+      return 1
+      ;;
+  esac
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\$\$}"
+  printf '"%s"' "$value"
 }
 
 placeholder_or_empty() {
@@ -15,18 +71,11 @@ placeholder_or_empty() {
 }
 
 env_set() {
-  local file="$1" key="$2" value="$3" tmp
+  local file="$1" key="$2" value="$3" tmp encoded
+  encoded="$(encode_env_value "$value")"
   tmp="$(mktemp "${file}.write.XXXXXX")"
-  awk -v key="$key" -v value="$value" '
-    BEGIN { replaced=0 }
-    index($0, key "=") == 1 {
-      if (!replaced) print key "=" value
-      replaced=1
-      next
-    }
-    { print }
-    END { if (!replaced) print key "=" value }
-  ' "$file" >"$tmp"
+  awk -v key="$key" 'index($0, key "=") != 1 { print }' "$file" >"$tmp"
+  printf '%s=%s\n' "$key" "$encoded" >>"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$file"
 }
