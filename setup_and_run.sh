@@ -464,7 +464,7 @@ if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
   elif [ -n "$IBKR_USERNAME_FILE" ]; then
     IB_USER="$(read_secret_file "$IBKR_USERNAME_FILE" "IBKR username")"
   else
-    IB_USER="$(prompt_value "IBKR Paper username" "$CURRENT_IB_USER" 1)"
+    IB_USER="$(prompt_value "IBKR Paper username" "$CURRENT_IB_USER" 0)"
   fi
   IB_PASSWORD="$(resolve_secret "$CURRENT_IB_PASSWORD" "$IBKR_PASSWORD_FILE" "IBKR password" "IBKR Paper password")"
   IB_VNC="$(resolve_managed_secret "${MIDDLE_DIR}/.env" VNC_SERVER_PASSWORD "$IBKR_VNC_PASSWORD_FILE" "IB Gateway VNC password")"
@@ -479,7 +479,7 @@ if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
   elif [ -n "$ALPACA_API_KEY_ID_FILE" ]; then
     ALPACA_KEY="$(read_secret_file "$ALPACA_API_KEY_ID_FILE" "Alpaca API key ID")"
   else
-    ALPACA_KEY="$(prompt_value "Alpaca Paper API key ID" "$CURRENT_ALPACA_KEY" 1)"
+    ALPACA_KEY="$(prompt_value "Alpaca Paper API key ID" "$CURRENT_ALPACA_KEY" 0)"
   fi
   ALPACA_SECRET="$(resolve_secret "$CURRENT_ALPACA_SECRET" "$ALPACA_SECRET_KEY_FILE" "Alpaca secret key" "Alpaca Paper secret key")"
   if [ "$NON_INTERACTIVE" = "0" ]; then
@@ -500,7 +500,7 @@ else
 fi
 echo "  Service passwords: generated automatically or preserved from the existing configuration"
 echo "  Environment file permissions: 0600"
-if [ -f "${ROOT_DIR}/.env" ]; then echo "  Existing Redis active selection will be preserved."; fi
+if [ -f "${ROOT_DIR}/.env" ]; then echo "  Redis active selection will be updated to the selected initial adapter."; fi
 if [ "$UPDATE_MODE" = "1" ]; then
   echo "  Image channel: latest (GHCR)"
 fi
@@ -659,6 +659,8 @@ ROOT_EXISTED=0; MIDDLE_EXISTED=0
 chmod 700 "$BACKUP_DIR"
 chmod 600 "${BACKUP_DIR}"/*.env 2>/dev/null || true
 PREVIOUS_IB_ENABLED="$(read_env_value "${ROOT_DIR}/.env" SERVICE_WATCHDOG_IB_GATEWAY_ENABLED)"
+ACTIVE_ADAPTER_SELECTION_CAPTURED=0
+PREVIOUS_ACTIVE_ADAPTER_SELECTION=""
 COMMITTED=1
 rollback() {
   local rc=$?
@@ -674,6 +676,17 @@ rollback() {
         run_as_root mv "$PLUGIN_BACKUP_DIR" "${ROOT_DIR}/data/broker-plugins"
       fi
       PLUGIN_ACTIVATED=0
+    fi
+    if [ "$ACTIVE_ADAPTER_SELECTION_CAPTURED" = "1" ]; then
+      if [ -n "$PREVIOUS_ACTIVE_ADAPTER_SELECTION" ]; then
+        docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
+          -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli SET broker_runner:active_adapter_id \
+          "$PREVIOUS_ACTIVE_ADAPTER_SELECTION" >/dev/null 2>&1 || true
+      else
+        docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
+          -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli DEL broker_runner:active_adapter_id \
+          >/dev/null 2>&1 || true
+      fi
     fi
     chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" 2>/dev/null || true
     if [ "$PREVIOUS_IB_ENABLED" = "1" ]; then
@@ -716,6 +729,16 @@ wait_for_mariadb || { echo "MariaDB is not ready." >&2; exit 1; }
 SQL_PASSWORD="$(printf '%s' "$MARIADB_PASSWORD" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g")"
 INIT_SQL="CREATE DATABASE IF NOT EXISTS algo_trader; CREATE DATABASE IF NOT EXISTS algo_trader_backtest; CREATE USER IF NOT EXISTS 'algo_trader'@'%' IDENTIFIED BY '${SQL_PASSWORD}'; CREATE USER IF NOT EXISTS 'algo_trader_backtest'@'%' IDENTIFIED BY '${SQL_PASSWORD}'; GRANT ALL PRIVILEGES ON algo_trader.* TO 'algo_trader'@'%'; GRANT ALL PRIVILEGES ON algo_trader_backtest.* TO 'algo_trader_backtest'@'%'; FLUSH PRIVILEGES;"
 { printf '%s\n' "$MARIADB_PASSWORD"; printf '%s\n' "$INIT_SQL"; } | docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c 'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1' >/dev/null
+
+PREVIOUS_ACTIVE_ADAPTER_SELECTION="$(
+  docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
+    -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli --raw GET broker_runner:active_adapter_id
+)"
+ACTIVE_ADAPTER_SELECTION_CAPTURED=1
+docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
+  -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli SET broker_runner:active_adapter_id \
+  "$INITIAL_ADAPTER" >/dev/null
+echo "Active adapter selection updated to: ${INITIAL_ADAPTER}"
 
 if [ -f "${ROOT_DIR}/algo_trader.sql" ]; then
   { printf '%s\n' "$MARIADB_PASSWORD"; cat "${ROOT_DIR}/algo_trader.sql"; } | docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c 'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1 algo_trader' >/dev/null
