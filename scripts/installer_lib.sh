@@ -71,6 +71,21 @@ placeholder_or_empty() {
 }
 
 env_set() {
+  local file="$1" key="$2" value="$3" tmp
+  case "$value" in
+    *$'\n'*|*$'\r'*)
+      echo "Environment values must contain exactly one line." >&2
+      return 1
+      ;;
+  esac
+  tmp="$(mktemp "${file}.write.XXXXXX")"
+  awk -v key="$key" 'index($0, key "=") != 1 { print }' "$file" >"$tmp"
+  printf '%s=%s\n' "$key" "$value" >>"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$file"
+}
+
+env_set_quoted() {
   local file="$1" key="$2" value="$3" tmp encoded
   encoded="$(encode_env_value "$value")"
   tmp="$(mktemp "${file}.write.XXXXXX")"
