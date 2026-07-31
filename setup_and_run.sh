@@ -464,7 +464,7 @@ if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
   elif [ -n "$IBKR_USERNAME_FILE" ]; then
     IB_USER="$(read_secret_file "$IBKR_USERNAME_FILE" "IBKR username")"
   else
-    IB_USER="$(prompt_value "IBKR Paper username" "$CURRENT_IB_USER" 0)"
+    IB_USER="$(prompt_masked_value "IBKR Paper username" "$CURRENT_IB_USER")"
   fi
   IB_PASSWORD="$(resolve_secret "$CURRENT_IB_PASSWORD" "$IBKR_PASSWORD_FILE" "IBKR password" "IBKR Paper password")"
   IB_VNC="$(resolve_managed_secret "${MIDDLE_DIR}/.env" VNC_SERVER_PASSWORD "$IBKR_VNC_PASSWORD_FILE" "IB Gateway VNC password")"
@@ -479,7 +479,7 @@ if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
   elif [ -n "$ALPACA_API_KEY_ID_FILE" ]; then
     ALPACA_KEY="$(read_secret_file "$ALPACA_API_KEY_ID_FILE" "Alpaca API key ID")"
   else
-    ALPACA_KEY="$(prompt_value "Alpaca Paper API key ID" "$CURRENT_ALPACA_KEY" 0)"
+    ALPACA_KEY="$(prompt_masked_value "Alpaca Paper API key ID" "$CURRENT_ALPACA_KEY")"
   fi
   ALPACA_SECRET="$(resolve_secret "$CURRENT_ALPACA_SECRET" "$ALPACA_SECRET_KEY_FILE" "Alpaca secret key" "Alpaca Paper secret key")"
   if [ "$NON_INTERACTIVE" = "0" ]; then

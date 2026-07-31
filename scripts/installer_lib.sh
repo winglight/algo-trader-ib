@@ -152,6 +152,29 @@ prompt_value() {
   printf '%s' "${value:-$default_value}"
 }
 
+mask_prompt_value() {
+  local value="${1-}" visible hidden_count index
+  visible="${value:0:2}"
+  hidden_count=$((${#value} - ${#visible}))
+  printf '%s' "$visible"
+  index=0
+  while [ "$index" -lt "$hidden_count" ]; do
+    printf '*'
+    index=$((index + 1))
+  done
+}
+
+prompt_masked_value() {
+  local prompt="$1" default_value="${2:-}" value masked
+  if [ -n "$default_value" ]; then
+    masked="$(mask_prompt_value "$default_value")"
+    read -r -p "$prompt [$masked]: " value
+  else
+    read -r -p "$prompt: " value
+  fi
+  printf '%s' "${value:-$default_value}"
+}
+
 prompt_yes_no() {
   local prompt="$1" default="$2" value suffix
   if [ "$default" = "yes" ]; then suffix="Y/n"; else suffix="y/N"; fi
