@@ -5,8 +5,14 @@ read_env_value() {
   if [ -f "$file" ]; then
     value="$(
       awk -v key="$key" '
-        index($0, key "=") == 1 {
-          value=substr($0, length(key) + 2)
+        {
+          line=$0
+          sub(/^[[:space:]]*/, "", line)
+          if (substr(line, 1, length(key)) != key) next
+          rest=substr(line, length(key) + 1)
+          if (rest !~ /^[[:space:]]*=/) next
+          sub(/^[[:space:]]*=[[:space:]]*/, "", rest)
+          value=rest
           found=1
         }
         END { if (found) printf "%s", value }
@@ -79,7 +85,17 @@ env_set() {
       ;;
   esac
   tmp="$(mktemp "${file}.write.XXXXXX")"
-  awk -v key="$key" 'index($0, key "=") != 1 { print }' "$file" >"$tmp"
+  awk -v key="$key" '
+    {
+      line=$0
+      sub(/^[[:space:]]*/, "", line)
+      if (substr(line, 1, length(key)) == key) {
+        rest=substr(line, length(key) + 1)
+        if (rest ~ /^[[:space:]]*=/) next
+      }
+      print
+    }
+  ' "$file" >"$tmp"
   printf '%s=%s\n' "$key" "$value" >>"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$file"
@@ -89,7 +105,17 @@ env_set_quoted() {
   local file="$1" key="$2" value="$3" tmp encoded
   encoded="$(encode_env_value "$value")"
   tmp="$(mktemp "${file}.write.XXXXXX")"
-  awk -v key="$key" 'index($0, key "=") != 1 { print }' "$file" >"$tmp"
+  awk -v key="$key" '
+    {
+      line=$0
+      sub(/^[[:space:]]*/, "", line)
+      if (substr(line, 1, length(key)) == key) {
+        rest=substr(line, length(key) + 1)
+        if (rest ~ /^[[:space:]]*=/) next
+      }
+      print
+    }
+  ' "$file" >"$tmp"
   printf '%s=%s\n' "$key" "$encoded" >>"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$file"
