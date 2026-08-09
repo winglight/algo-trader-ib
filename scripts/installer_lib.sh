@@ -130,9 +130,9 @@ contains_profile() {
 
 validate_enabled_adapters() {
   case "$1" in
-    sim|sim,ibkr_paper|sim,alpaca_paper|sim,ibkr_paper,alpaca_paper) ;;
+    sim|sim,ccxt_crypto|sim,ibkr_paper|sim,alpaca_paper|sim,ibkr_paper,ccxt_crypto|sim,alpaca_paper,ccxt_crypto|sim,ibkr_paper,alpaca_paper|sim,ibkr_paper,alpaca_paper,ccxt_crypto) ;;
     *)
-      echo "Enabled adapters must be an ordered subset of sim,ibkr_paper,alpaca_paper and must include sim." >&2
+      echo "Enabled adapters must be an ordered subset of sim,ibkr_paper,alpaca_paper,ccxt_crypto and must include sim." >&2
       return 1
       ;;
   esac
@@ -141,7 +141,7 @@ validate_enabled_adapters() {
 validate_initial_adapter() {
   local enabled="$1" initial="$2"
   case "$initial" in
-    sim|ibkr_paper|alpaca_paper) ;;
+    sim|ibkr_paper|alpaca_paper|ccxt_crypto) ;;
     *) echo "Unknown initial adapter: $initial" >&2; return 1 ;;
   esac
   if ! contains_profile "$enabled" "$initial"; then

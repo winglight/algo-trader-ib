@@ -36,8 +36,8 @@ Usage: setup_and_run.sh [options]
 
   --non-interactive
   --update
-  --enabled-adapters sim[,ibkr_paper][,alpaca_paper]
-  --initial-adapter sim|ibkr_paper|alpaca_paper
+  --enabled-adapters sim[,ibkr_paper][,alpaca_paper][,ccxt_crypto]
+  --initial-adapter sim|ibkr_paper|alpaca_paper|ccxt_crypto
   --alpaca-data-feed iex|sip
   --redis-password-file PATH
   --mariadb-password-file PATH
@@ -147,22 +147,34 @@ choose_interactive_adapters() {
   [ -n "$existing" ] || existing="$(legacy_enabled_adapters)"
   case "$existing" in
     sim) default_index=1 ;;
-    sim,ibkr_paper) default_index=2 ;;
-    sim,alpaca_paper) default_index=3 ;;
-    sim,ibkr_paper,alpaca_paper) default_index=4 ;;
+    sim,ccxt_crypto) default_index=2 ;;
+    sim,ibkr_paper) default_index=3 ;;
+    sim,alpaca_paper) default_index=4 ;;
+    sim,ibkr_paper,ccxt_crypto) default_index=5 ;;
+    sim,alpaca_paper,ccxt_crypto) default_index=6 ;;
+    sim,ibkr_paper,alpaca_paper) default_index=7 ;;
+    sim,ibkr_paper,alpaca_paper,ccxt_crypto) default_index=8 ;;
   esac
   echo "Select an adapter configuration (Sim is always enabled):"
   echo "  1) Sim"
-  echo "  2) Sim + IBKR Paper"
-  echo "  3) Sim + Alpaca Paper"
-  echo "  4) Sim + IBKR Paper + Alpaca Paper"
+  echo "  2) Sim + OKX Demo Spot"
+  echo "  3) Sim + IBKR Paper"
+  echo "  4) Sim + Alpaca Paper"
+  echo "  5) Sim + IBKR Paper + OKX Demo Spot"
+  echo "  6) Sim + Alpaca Paper + OKX Demo Spot"
+  echo "  7) Sim + IBKR Paper + Alpaca Paper"
+  echo "  8) Sim + IBKR Paper + Alpaca Paper + OKX Demo Spot"
   while true; do
     choice="$(prompt_value "Selection" "$default_index" 0)"
     case "$choice" in
       1) ENABLED_ADAPTERS=sim; return ;;
-      2) ENABLED_ADAPTERS=sim,ibkr_paper; return ;;
-      3) ENABLED_ADAPTERS=sim,alpaca_paper; return ;;
-      4) ENABLED_ADAPTERS=sim,ibkr_paper,alpaca_paper; return ;;
+      2) ENABLED_ADAPTERS=sim,ccxt_crypto; return ;;
+      3) ENABLED_ADAPTERS=sim,ibkr_paper; return ;;
+      4) ENABLED_ADAPTERS=sim,alpaca_paper; return ;;
+      5) ENABLED_ADAPTERS=sim,ibkr_paper,ccxt_crypto; return ;;
+      6) ENABLED_ADAPTERS=sim,alpaca_paper,ccxt_crypto; return ;;
+      7) ENABLED_ADAPTERS=sim,ibkr_paper,alpaca_paper; return ;;
+      8) ENABLED_ADAPTERS=sim,ibkr_paper,alpaca_paper,ccxt_crypto; return ;;
       *) echo "Choose a listed number." >&2 ;;
     esac
   done
@@ -172,6 +184,7 @@ choose_interactive_initial() {
   local choices=(sim) choice default_index=1 index=1 existing
   contains_profile "$ENABLED_ADAPTERS" ibkr_paper && choices+=(ibkr_paper)
   contains_profile "$ENABLED_ADAPTERS" alpaca_paper && choices+=(alpaca_paper)
+  contains_profile "$ENABLED_ADAPTERS" ccxt_crypto && choices+=(ccxt_crypto)
   if [ "${#choices[@]}" -eq 1 ]; then
     INITIAL_ADAPTER=sim
     echo "Initial adapter: Sim (the only enabled adapter)."
@@ -186,6 +199,7 @@ choose_interactive_initial() {
       sim) echo "  ${index}) Sim Adapter" ;;
       ibkr_paper) echo "  ${index}) IBKR Paper Adapter" ;;
       alpaca_paper) echo "  ${index}) Alpaca Paper Adapter" ;;
+      ccxt_crypto) echo "  ${index}) OKX Demo Spot (CCXT)" ;;
     esac
     index=$((index + 1))
   done
@@ -241,7 +255,7 @@ prepare_selected_adapter_plugins() {
   local broker_runner_image="$1" archive extract_root wheelhouse lock_file runtime_arch
   local line_arch package version filename checksum url target actual selected_count
   PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/.broker-plugins.candidate.XXXXXX")"
-  if [ "$ENABLED_ADAPTERS" = "sim" ]; then
+  if ! contains_profile "$ENABLED_ADAPTERS" ibkr_paper && ! contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
     return 0
   fi
 
@@ -493,8 +507,9 @@ echo "  Enabled adapters: ${ENABLED_ADAPTERS}"
 echo "  Initial adapter: ${INITIAL_ADAPTER}"
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then echo "  IB Gateway: enabled"; else echo "  IB Gateway: disabled"; fi
 if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then echo "  Alpaca feed: ${ALPACA_DATA_FEED}"; fi
-if [ "$ENABLED_ADAPTERS" = "sim" ]; then
-  echo "  Adapter credentials: not required"
+if contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then echo "  OKX Demo Spot: installed with all network/trading gates disabled"; fi
+if [ "$ENABLED_ADAPTERS" = "sim" ] || [ "$ENABLED_ADAPTERS" = "sim,ccxt_crypto" ]; then
+  echo "  Adapter credentials: not required while external broker I/O is disabled"
 else
   echo "  Adapter credentials: configured (values hidden)"
 fi
@@ -602,7 +617,11 @@ env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_GATE_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED false
 env_set "$ROOT_CANDIDATE" VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED true
-env_set "$ROOT_CANDIDATE" BROKER_ASSET_CAPABILITY_GATE_ENABLED "$(contains_profile "$ENABLED_ADAPTERS" alpaca_paper && echo true || echo false)"
+if contains_profile "$ENABLED_ADAPTERS" alpaca_paper || contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then
+  env_set "$ROOT_CANDIDATE" BROKER_ASSET_CAPABILITY_GATE_ENABLED true
+else
+  env_set "$ROOT_CANDIDATE" BROKER_ASSET_CAPABILITY_GATE_ENABLED false
+fi
 env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_API_KEY_ID "$ALPACA_KEY"
 env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_SECRET_KEY "$ALPACA_SECRET"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_DATA_FEED "$ALPACA_DATA_FEED"
@@ -610,6 +629,16 @@ env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_REQUEST_TIMEOUT_SECONDS 15.0
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_RECONCILE_LOOKBACK_HOURS 72
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_MAX_CONCURRENCY 8
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_STREAM_QUEUE_SIZE 512
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_EXCHANGE_ID okx
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_SANDBOX true
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_LIVE false
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_ALLOWED_SYMBOLS BTC/USDT,ETH/USDT
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_EXECUTION_TARGET_ID okx-spot-demo-paper-1
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_MARKET_DATA_TARGET_ID okx-spot-demo-market-1
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PUBLIC_DATA_ENABLED false
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PRIVATE_READ_ENABLED false
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_TRADING_ENABLED false
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_MARKET_ORDER_ENABLED false
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_GATEWAY_HOST ib-gateway
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_GATEWAY_PORT 4004
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_CLIENT_ID 40
