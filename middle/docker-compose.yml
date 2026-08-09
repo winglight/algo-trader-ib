@@ -25,11 +25,13 @@ services:
       - redis-data:/data
     networks:
       stack:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.30
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.60
 
   mariadb:
     image: mariadb:11.4
     restart: unless-stopped
+    ports:
+      - 3306:3306
     environment:
       - TZ=UTC
       - MYSQL_ROOT_PASSWORD=${MARIADB_PASSWORD}
@@ -40,7 +42,7 @@ services:
       - mariadb-data:/var/lib/mysql
     networks:
       stack:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.31
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.61
 
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
@@ -64,7 +66,7 @@ services:
       - ./data/ib-gateway/tws_settings:/home/ibgateway/tws_settings
     networks:
       stack:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.32
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.62
 
 volumes:
   redis-data:
