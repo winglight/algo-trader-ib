@@ -142,40 +142,80 @@ legacy_initial_adapter() {
 }
 
 choose_interactive_adapters() {
-  local existing choice default_index=1
+  local existing key sequence cursor=1 index selected_count first_render=1
+  local labels=("Sim (required)" "IBKR Paper" "Alpaca Paper" "OKX Demo Spot")
+  local selected=(1 0 0 0)
   existing="$(read_env_value "${ROOT_DIR}/.env" BROKER_RUNNER_ENABLED_ADAPTERS)"
   [ -n "$existing" ] || existing="$(legacy_enabled_adapters)"
-  case "$existing" in
-    sim) default_index=1 ;;
-    sim,ccxt_crypto) default_index=2 ;;
-    sim,ibkr_paper) default_index=3 ;;
-    sim,alpaca_paper) default_index=4 ;;
-    sim,ibkr_paper,ccxt_crypto) default_index=5 ;;
-    sim,alpaca_paper,ccxt_crypto) default_index=6 ;;
-    sim,ibkr_paper,alpaca_paper) default_index=7 ;;
-    sim,ibkr_paper,alpaca_paper,ccxt_crypto) default_index=8 ;;
-  esac
-  echo "Select an adapter configuration (Sim is always enabled):"
-  echo "  1) Sim"
-  echo "  2) Sim + OKX Demo Spot"
-  echo "  3) Sim + IBKR Paper"
-  echo "  4) Sim + Alpaca Paper"
-  echo "  5) Sim + IBKR Paper + OKX Demo Spot"
-  echo "  6) Sim + Alpaca Paper + OKX Demo Spot"
-  echo "  7) Sim + IBKR Paper + Alpaca Paper"
-  echo "  8) Sim + IBKR Paper + Alpaca Paper + OKX Demo Spot"
+  contains_profile "$existing" ibkr_paper && selected[1]=1
+  contains_profile "$existing" alpaca_paper && selected[2]=1
+  contains_profile "$existing" ccxt_crypto && selected[3]=1
+
+  if [ ! -t 0 ] || [ ! -t 1 ] || [ "${TERM:-dumb}" = "dumb" ]; then
+    echo "Interactive adapter selection requires a terminal." >&2
+    echo "Rerun in a terminal, or use --non-interactive with --enabled-adapters." >&2
+    return 1
+  fi
+
   while true; do
-    choice="$(prompt_value "Selection" "$default_index" 0)"
-    case "$choice" in
-      1) ENABLED_ADAPTERS=sim; return ;;
-      2) ENABLED_ADAPTERS=sim,ccxt_crypto; return ;;
-      3) ENABLED_ADAPTERS=sim,ibkr_paper; return ;;
-      4) ENABLED_ADAPTERS=sim,alpaca_paper; return ;;
-      5) ENABLED_ADAPTERS=sim,ibkr_paper,ccxt_crypto; return ;;
-      6) ENABLED_ADAPTERS=sim,alpaca_paper,ccxt_crypto; return ;;
-      7) ENABLED_ADAPTERS=sim,ibkr_paper,alpaca_paper; return ;;
-      8) ENABLED_ADAPTERS=sim,ibkr_paper,alpaca_paper,ccxt_crypto; return ;;
-      *) echo "Choose a listed number." >&2 ;;
+    [ "$first_render" = "1" ] || printf '\033[6A'
+    first_render=0
+    selected_count=$((selected[0] + selected[1] + selected[2] + selected[3]))
+    printf '\r\033[2KSelect adapters (%s/4 selected):\n' "$selected_count"
+    index=0
+    while [ "$index" -lt 4 ]; do
+      printf '\r\033[2K'
+      if [ "$index" -eq "$cursor" ]; then
+        printf '\033[36m› '
+      else
+        printf '  '
+      fi
+      if [ "${selected[$index]}" = "1" ]; then
+        printf '● %s' "${labels[$index]}"
+      else
+        printf '○ %s' "${labels[$index]}"
+      fi
+      [ "$index" -eq "$cursor" ] && printf '\033[0m'
+      printf '\n'
+      index=$((index + 1))
+    done
+    printf '\r\033[2K↑/↓ Move  |  Space Select  |  Enter Confirm\n'
+
+    key=""
+    if ! IFS= read -r -s -n 1 key; then
+      printf '\n'
+      return 1
+    fi
+    case "$key" in
+      $'\x1b')
+        sequence=""
+        IFS= read -r -s -n 2 -t 1 sequence || true
+        case "$sequence" in
+          '[A'|'OA')
+            cursor=$((cursor - 1))
+            [ "$cursor" -ge 1 ] || cursor=3
+            ;;
+          '[B'|'OB')
+            cursor=$((cursor + 1))
+            [ "$cursor" -le 3 ] || cursor=1
+            ;;
+        esac
+        ;;
+      ' ')
+        if [ "${selected[$cursor]}" = "1" ]; then
+          selected[$cursor]=0
+        else
+          selected[$cursor]=1
+        fi
+        ;;
+      '')
+        ENABLED_ADAPTERS=sim
+        [ "${selected[1]}" = "1" ] && ENABLED_ADAPTERS="${ENABLED_ADAPTERS},ibkr_paper"
+        [ "${selected[2]}" = "1" ] && ENABLED_ADAPTERS="${ENABLED_ADAPTERS},alpaca_paper"
+        [ "${selected[3]}" = "1" ] && ENABLED_ADAPTERS="${ENABLED_ADAPTERS},ccxt_crypto"
+        printf '\n'
+        return
+        ;;
     esac
   done
 }
