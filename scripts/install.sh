@@ -4,10 +4,9 @@ IFS=$'\n\t'
 
 ARCHIVE_URL="${ATI_PUBLIC_ARCHIVE_URL:-https://github.com/winglight/algo-trader-ib/archive/refs/heads/main.zip}"
 INSTALL_DIR="${ATI_INSTALL_DIR:-$HOME/ati-local-runtime}"
-SETUP_ARGS=("$@")
 NON_INTERACTIVE=0
 UPDATE_MODE=0
-for arg in "${SETUP_ARGS[@]}"; do
+for arg in "$@"; do
   [ "$arg" = "--non-interactive" ] && NON_INTERACTIVE=1
   [ "$arg" = "--update" ] && UPDATE_MODE=1
 done
@@ -189,18 +188,20 @@ merge_preserved_strategies() {
 }
 
 quiesce_runtime_for_update() {
-  local middle_env_args=()
   [ "$UPDATE_MODE" = "1" ] || return 0
   if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
     (cd "$INSTALL_DIR" && docker compose -f docker-compose.yml down)
   fi
   if [ -f "${INSTALL_DIR}/middle/docker-compose.yml" ]; then
     if [ -f "${INSTALL_DIR}/middle/.env" ]; then
-      middle_env_args=(--env-file "${INSTALL_DIR}/middle/.env")
+      docker compose --env-file "${INSTALL_DIR}/middle/.env" \
+        -f "${INSTALL_DIR}/middle/docker-compose.yml" \
+        --profile ib stop ib-gateway
+    else
+      docker compose \
+        -f "${INSTALL_DIR}/middle/docker-compose.yml" \
+        --profile ib stop ib-gateway
     fi
-    docker compose "${middle_env_args[@]}" \
-      -f "${INSTALL_DIR}/middle/docker-compose.yml" \
-      --profile ib stop ib-gateway
   fi
 }
 
@@ -282,4 +283,4 @@ download_with_zip
 
 chmod +x "${INSTALL_DIR}/setup_and_run.sh" "${INSTALL_DIR}/scripts/install_docker.sh" || true
 cd "$INSTALL_DIR"
-exec bash ./setup_and_run.sh "${SETUP_ARGS[@]}"
+exec bash ./setup_and_run.sh "$@"
