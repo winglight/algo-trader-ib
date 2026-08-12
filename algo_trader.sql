@@ -801,14 +801,10 @@ CREATE TABLE IF NOT EXISTS strategies (
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     parameters JSON NULL,
     schedule JSON NULL,
-    screener_profile JSON NULL,
-    screener_schedule JSON NULL,
-    scanner_filter_definitions TEXT NULL,
     child_strategy_type VARCHAR(191) NULL,
     child_parameters JSON NULL,
     max_children INT NULL,
     selection_limit INT NULL,
-    scanner_tag_filters TEXT NULL,
     primary_symbol VARCHAR(191) NULL,
     data_source VARCHAR(191) NULL,
     trigger_count INT NOT NULL DEFAULT 0,
@@ -838,57 +834,6 @@ SET @idx_exists = (
       AND INDEX_NAME = 'idx_strategies_updated_at'
 );
 SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_strategies_updated_at ON strategies (updated_at)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-CREATE TABLE IF NOT EXISTS screener_results (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    strategy_ref_id BIGINT UNSIGNED NOT NULL,
-    run_id VARCHAR(64) NOT NULL,
-    run_at DATETIME NOT NULL,
-    trading_date DATE NOT NULL,
-    screener_profile JSON NULL,
-    screener_schedule JSON NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_screener_results_strategy FOREIGN KEY (strategy_ref_id) REFERENCES strategies (id)
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'screener_results'
-      AND INDEX_NAME = 'idx_screener_results_strategy'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_screener_results_strategy ON screener_results (strategy_ref_id, run_at)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-CREATE TABLE IF NOT EXISTS screener_result_symbols (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    result_ref_id BIGINT UNSIGNED NOT NULL,
-    symbol VARCHAR(191) NOT NULL,
-    rank INT NULL,
-    metadata JSON NULL,
-    open_price DOUBLE NULL,
-    close_price DOUBLE NULL,
-    return_rate DOUBLE NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_screener_symbols_result FOREIGN KEY (result_ref_id) REFERENCES screener_results (id) ON DELETE CASCADE
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'screener_result_symbols'
-      AND INDEX_NAME = 'idx_screener_result_symbols_result'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_screener_result_symbols_result ON screener_result_symbols (result_ref_id, rank)', 'DO 0');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
