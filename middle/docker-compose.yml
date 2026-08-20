@@ -13,6 +13,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    ports:
+      - 6379:6379
     command: >
       sh -c 'redis-server
       --save 20 1
@@ -25,7 +27,7 @@ services:
       - redis-data:/data
     networks:
       stack:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.60
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.70
 
   mariadb:
     image: mariadb:11.4
@@ -42,7 +44,7 @@ services:
       - mariadb-data:/var/lib/mysql
     networks:
       stack:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.61
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.71
 
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
@@ -66,7 +68,7 @@ services:
       - ./data/ib-gateway/tws_settings:/home/ibgateway/tws_settings
     networks:
       stack:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.62
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.72
 
 volumes:
   redis-data:
