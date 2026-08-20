@@ -200,6 +200,12 @@ creates a new installation fingerprint and requires binding again.
 - The frontend `127.0.0.1:5173` and local watchdog management port `127.0.0.1:8110` are published by default; watchdog must never bind to a public interface.
 - Redis, MariaDB, and backend API service ports are not published by default.
 - Cloud platform, Cloud Studio, Agents, AI Model Ops, and News services are not started by default.
+- The Screeners container is installed, but its admin preview is disabled by
+  default. To enable it manually, copy
+  `config/screeners_service.env.example` to `config/screeners_service.env`, set
+  `SCREENERS_ADMIN_PREVIEW_ENABLED=true`, and assign a non-empty
+  `SCREENERS_GATEWAY_SHARED_SECRET`. Backend and Screeners read these two values
+  from that single service env file.
 - Application containers do not mount the Docker socket by default. The Docker socket is mounted only into the watchdog container, which restarts configured application containers and controls `ib-gateway` when `ib` mode is selected.
 - Before cloud account binding, the local environment has a 24-hour trial window. After binding, local runtime capabilities follow the cloud subscription tier.
 - Do not commit `.env`, `middle/.env`, `data/`, or `logs/`.

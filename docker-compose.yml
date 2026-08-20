@@ -8,10 +8,14 @@ services:
       - ./strategies:/app/src/strategies
       - ./.env:/app/.env:ro
       - ./config:/app/config
+    env_file:
+      - path: ./config/screeners_service.env.example
+      - path: ./config/screeners_service.env
+        required: false
     environment:
-      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=watchdog;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=watchdog;account|http://account-service:8100/healthz|||restart_mode=watchdog;orders|http://orders-service:8101/healthz|||restart_mode=watchdog;market-data|http://market-data-service:8102/healthz|||restart_mode=watchdog;risk|http://risk-service:8103/healthz|||restart_mode=watchdog;strategy|http://strategy-service:8104/healthz|||restart_mode=watchdog;simulation|http://simulation-service:8111/healthz|||restart_mode=watchdog;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=watchdog"
+      APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=watchdog;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=watchdog;account|http://account-service:8100/healthz|||restart_mode=watchdog;orders|http://orders-service:8101/healthz|||restart_mode=watchdog;market-data|http://market-data-service:8102/healthz|||restart_mode=watchdog;risk|http://risk-service:8103/healthz|||restart_mode=watchdog;strategy|http://strategy-service:8104/healthz|||restart_mode=watchdog;simulation|http://simulation-service:8111/healthz|||restart_mode=watchdog;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=watchdog;screeners|http://screeners-service:8116/healthz|||restart_mode=watchdog"
       SERVICE_WATCHDOG_URL: http://service-watchdog:8110
-      OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec
+      OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec,screeners
       BROKER_ADAPTER_SWITCH_ENABLED: ${BROKER_ADAPTER_SWITCH_ENABLED}
       BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
       BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED: ${BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED}
@@ -200,6 +204,39 @@ services:
       default:
         ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.15
 
+  screeners-service:
+    image: ghcr.io/winglight/algo-trader/screeners-service:${ATI_IMAGE_TAG:-latest}
+    container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-screeners
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+      - ./config:/app/config
+    env_file:
+      - path: ./config/screeners_service.env.example
+      - path: ./config/screeners_service.env
+        required: false
+    environment:
+      SCREENERS_SERVICE_REGISTRY_HOST: screeners-service
+      SCREENERS_SERVICE_REGISTRY_DOCKER_CONTAINER: ${ATI_CONTAINER_PREFIX:-algo-trader}-screeners
+      SCREENERS_BROKER_RUNNER_SERVICE_URL: http://broker-runner-service:8115
+      SCREENERS_STRATEGY_SPEC_SERVICE_URL: http://strategy-spec-service:8114
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8116/healthz', timeout=3).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    depends_on:
+      broker-runner-service:
+        condition: service_started
+      strategy-spec-service:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      default:
+        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.18
+
   service-watchdog:
     image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
     container_name: ${ATI_CONTAINER_PREFIX:-algo-trader}-service-watchdog
@@ -215,7 +252,7 @@ services:
       MARIADB_URL: ${MARIADB_URL}
       SERVICE_WATCHDOG_MAINTENANCE_TOKEN: ${SERVICE_WATCHDOG_MAINTENANCE_TOKEN}
       SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT: ${SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT:-0}
-      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy-spec,docker_host=unix:///var/run/docker.sock;frontend|http://frontend/|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-frontend,docker_host=unix:///var/run/docker.sock"
+      SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy-spec,docker_host=unix:///var/run/docker.sock;screeners|http://screeners-service:8116/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-screeners,docker_host=unix:///var/run/docker.sock;frontend|http://frontend/|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-frontend,docker_host=unix:///var/run/docker.sock"
       SERVICE_WATCHDOG_IB_GATEWAY_ENABLED: ${SERVICE_WATCHDOG_IB_GATEWAY_ENABLED:-0}
       SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER: ${SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER:-ib-gateway}
       SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST: ${SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST:-unix:///var/run/docker.sock}
@@ -242,6 +279,8 @@ services:
       strategy-spec-service:
         condition: service_started
       strategy-service:
+        condition: service_started
+      screeners-service:
         condition: service_started
     networks:
       default:

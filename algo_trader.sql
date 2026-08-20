@@ -1331,3 +1331,293 @@ CREATE TABLE IF NOT EXISTS strategy_runtime_simulation_runs (
     KEY idx_strategy_runtime_sim_strategy (strategy_id),
     KEY idx_strategy_runtime_sim_status (status)
 );
+
+
+-- Local Screeners service. Schema is provisioned here; production startup must
+-- never create or mutate these tables dynamically.
+CREATE TABLE IF NOT EXISTS screeners_definitions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    screener_id VARCHAR(191) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    adapter_binding_json JSON NOT NULL,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    active_revision_id BIGINT UNSIGNED NULL,
+    status VARCHAR(64) NOT NULL DEFAULT 'DRAFT',
+    created_by VARCHAR(191) NOT NULL,
+    deleted_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_definitions_screener_id UNIQUE KEY (screener_id),
+    KEY idx_screeners_definitions_status_updated (status, updated_at)
+);
+
+CREATE TABLE IF NOT EXISTS screeners_definition_revisions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    definition_id BIGINT UNSIGNED NOT NULL,
+    revision INT UNSIGNED NOT NULL,
+    schema_version VARCHAR(64) NOT NULL,
+    definition_json JSON NOT NULL,
+    compiled_plan_json JSON NULL,
+    definition_hash VARCHAR(128) NOT NULL,
+    compiled_plan_hash VARCHAR(128) NULL,
+    created_by VARCHAR(191) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_definition_revision UNIQUE KEY (definition_id, revision),
+    KEY idx_screeners_definition_revisions_hash (definition_hash),
+    CONSTRAINT fk_screeners_definition_revisions_definition FOREIGN KEY (definition_id)
+        REFERENCES screeners_definitions(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_adapter_capability_snapshots (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    capability_snapshot_id VARCHAR(191) NOT NULL,
+    adapter_id VARCHAR(191) NOT NULL,
+    provider VARCHAR(64) NOT NULL,
+    profile_id VARCHAR(191) NULL,
+    profile_json JSON NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    probed_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_capability_snapshot_id UNIQUE KEY (capability_snapshot_id),
+    KEY idx_screeners_capability_adapter_probed (adapter_id, probed_at)
+);
+
+CREATE TABLE IF NOT EXISTS screeners_catalog_versions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    provider VARCHAR(64) NOT NULL,
+    version VARCHAR(191) NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    source_hash VARCHAR(128) NOT NULL,
+    fetched_at DATETIME NOT NULL,
+    last_checked_at DATETIME NOT NULL,
+    activated_at DATETIME NULL,
+    error_json JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_catalog_provider_version UNIQUE KEY (provider, version),
+    KEY idx_screeners_catalog_provider_status (provider, status, activated_at)
+);
+
+CREATE TABLE IF NOT EXISTS screeners_catalog_items (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    version_id BIGINT UNSIGNED NOT NULL,
+    kind VARCHAR(64) NOT NULL,
+    item_key VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    value_type VARCHAR(64) NULL,
+    operators_json JSON NULL,
+    enum_values_json JSON NULL,
+    compatibility_json JSON NULL,
+    search_text TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_catalog_item UNIQUE KEY (version_id, kind, item_key),
+    KEY idx_screeners_catalog_items_lookup (version_id, kind, item_key),
+    KEY idx_screeners_catalog_items_kind (version_id, kind),
+    FULLTEXT KEY idx_screeners_catalog_items_search (search_text),
+    CONSTRAINT fk_screeners_catalog_items_version FOREIGN KEY (version_id)
+        REFERENCES screeners_catalog_versions(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_catalog_sync_runs (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    sync_run_id VARCHAR(191) NOT NULL,
+    provider VARCHAR(64) NOT NULL,
+    trigger_type VARCHAR(64) NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    adapter_id VARCHAR(191) NULL,
+    catalog_version VARCHAR(191) NULL,
+    source_hash VARCHAR(128) NULL,
+    counts_json JSON NULL,
+    started_at DATETIME NOT NULL,
+    finished_at DATETIME NULL,
+    error_code VARCHAR(128) NULL,
+    error_detail_json JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_catalog_sync_run_id UNIQUE KEY (sync_run_id),
+    KEY idx_screeners_catalog_sync_provider_started (provider, started_at),
+    KEY idx_screeners_catalog_sync_status (status, started_at)
+);
+
+CREATE TABLE IF NOT EXISTS screeners_catalog_overrides (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    provider VARCHAR(64) NOT NULL,
+    kind VARCHAR(64) NOT NULL,
+    item_key VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    compatibility_json JSON NULL,
+    reason TEXT NOT NULL,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    unverified TINYINT(1) NOT NULL DEFAULT 1,
+    created_by VARCHAR(191) NOT NULL,
+    updated_by VARCHAR(191) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_catalog_override UNIQUE KEY (provider, kind, item_key),
+    KEY idx_screeners_catalog_overrides_enabled (provider, kind, enabled)
+);
+
+CREATE TABLE IF NOT EXISTS screeners_runs (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    run_id VARCHAR(191) NOT NULL,
+    definition_id BIGINT UNSIGNED NOT NULL,
+    revision_id BIGINT UNSIGNED NOT NULL,
+    mode VARCHAR(64) NOT NULL,
+    session_date DATE NULL,
+    status VARCHAR(64) NOT NULL,
+    counts_json JSON NULL,
+    started_at DATETIME NULL,
+    finished_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_runs_run_id UNIQUE KEY (run_id),
+    KEY idx_screeners_runs_definition_started (definition_id, started_at),
+    KEY idx_screeners_runs_status (status, started_at),
+    CONSTRAINT fk_screeners_runs_definition FOREIGN KEY (definition_id)
+        REFERENCES screeners_definitions(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_screeners_runs_revision FOREIGN KEY (revision_id)
+        REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_run_stages (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    run_id VARCHAR(191) NOT NULL,
+    stage_key VARCHAR(191) NOT NULL,
+    logical_order INT UNSIGNED NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    input_count INT UNSIGNED NOT NULL DEFAULT 0,
+    output_count INT UNSIGNED NOT NULL DEFAULT 0,
+    input_json JSON NULL,
+    output_json JSON NULL,
+    error_json JSON NULL,
+    duration_ms BIGINT UNSIGNED NULL,
+    started_at DATETIME NULL,
+    finished_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_run_stage UNIQUE KEY (run_id, stage_key),
+    KEY idx_screeners_run_stages_order (run_id, logical_order),
+    CONSTRAINT fk_screeners_run_stages_run FOREIGN KEY (run_id)
+        REFERENCES screeners_runs(run_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_stage_symbol_results (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    stage_id BIGINT UNSIGNED NOT NULL,
+    symbol_key VARCHAR(255) NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    input_json JSON NULL,
+    output_json JSON NULL,
+    reason_code VARCHAR(128) NULL,
+    error_json JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_screeners_stage_symbols_status (stage_id, status, symbol_key),
+    CONSTRAINT fk_screeners_stage_symbols_stage FOREIGN KEY (stage_id)
+        REFERENCES screeners_run_stages(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_candidates (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    definition_id BIGINT UNSIGNED NOT NULL,
+    run_id VARCHAR(191) NOT NULL,
+    symbol_key VARCHAR(255) NOT NULL,
+    symbol_label VARCHAR(64) NOT NULL,
+    lifecycle VARCHAR(64) NOT NULL,
+    fields_json JSON NOT NULL,
+    discovery_json JSON NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    expires_at DATETIME NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_candidate UNIQUE KEY (definition_id, symbol_key),
+    KEY idx_screeners_candidates_lifecycle (definition_id, lifecycle, last_seen_at),
+    CONSTRAINT fk_screeners_candidates_definition FOREIGN KEY (definition_id)
+        REFERENCES screeners_definitions(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_screeners_candidates_run FOREIGN KEY (run_id)
+        REFERENCES screeners_runs(run_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_symbol_field_cache (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    adapter_id VARCHAR(191) NOT NULL,
+    symbol_key VARCHAR(255) NOT NULL,
+    symbol_label VARCHAR(64) NOT NULL,
+    contract_json JSON NOT NULL,
+    fields_json JSON NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'READY',
+    error_json JSON NULL,
+    fetched_at DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_screeners_symbol_field_cache (adapter_id, symbol_key),
+    KEY idx_screeners_symbol_field_cache_expiry (expires_at)
+);
+
+-- UI-only candidate metadata. This table is deliberately separate from both
+-- Preview values and fields used for live Screener qualification.
+CREATE TABLE IF NOT EXISTS screeners_symbol_display_cache (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    adapter_id VARCHAR(191) NOT NULL,
+    symbol_key VARCHAR(255) NOT NULL,
+    symbol_label VARCHAR(64) NOT NULL,
+    fields_json JSON NOT NULL,
+    fetched_at DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_screeners_symbol_display_cache (adapter_id, symbol_key),
+    KEY idx_screeners_symbol_display_cache_expiry (expires_at)
+);
+
+CREATE TABLE IF NOT EXISTS screeners_events (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    event_id VARCHAR(191) NOT NULL,
+    definition_id BIGINT UNSIGNED NOT NULL,
+    run_id VARCHAR(191) NOT NULL,
+    symbol_key VARCHAR(255) NOT NULL,
+    event_type VARCHAR(128) NOT NULL,
+    payload_json JSON NOT NULL,
+    occurred_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_events_event_id UNIQUE KEY (event_id),
+    KEY idx_screeners_events_definition_occurred (definition_id, occurred_at),
+    CONSTRAINT fk_screeners_events_definition FOREIGN KEY (definition_id)
+        REFERENCES screeners_definitions(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_screeners_events_run FOREIGN KEY (run_id)
+        REFERENCES screeners_runs(run_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_actions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    action_id VARCHAR(191) NOT NULL,
+    event_id VARCHAR(191) NOT NULL,
+    action_type VARCHAR(128) NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    idempotency_key VARCHAR(191) NOT NULL,
+    target_json JSON NOT NULL,
+    result_json JSON NULL,
+    error_json JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_actions_action_id UNIQUE KEY (action_id),
+    CONSTRAINT uq_screeners_actions_idempotency UNIQUE KEY (idempotency_key),
+    KEY idx_screeners_actions_event (event_id, status),
+    CONSTRAINT fk_screeners_actions_event FOREIGN KEY (event_id)
+        REFERENCES screeners_events(event_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS screeners_runtime_state (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    definition_id BIGINT UNSIGNED NOT NULL,
+    revision_id BIGINT UNSIGNED NOT NULL,
+    session_date DATE NULL,
+    state VARCHAR(64) NOT NULL,
+    stream_handles_json JSON NOT NULL,
+    summary_json JSON NOT NULL,
+    heartbeat_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT uq_screeners_runtime_definition UNIQUE KEY (definition_id),
+    KEY idx_screeners_runtime_state_heartbeat (state, heartbeat_at),
+    CONSTRAINT fk_screeners_runtime_definition FOREIGN KEY (definition_id)
+        REFERENCES screeners_definitions(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_screeners_runtime_revision FOREIGN KEY (revision_id)
+        REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
+);

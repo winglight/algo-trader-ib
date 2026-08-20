@@ -461,6 +461,7 @@ pull_application_images() {
     simulation-service
     strategy-spec-service
     strategy-service
+    screeners-service
     service-watchdog
     frontend
   )
