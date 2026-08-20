@@ -18,6 +18,9 @@ services:
     command: >
       sh -c 'redis-server
       --save 20 1
+      --appendonly yes
+      --appendfsync everysec
+      --aof-use-rdb-preamble yes
       --loglevel warning
       --requirepass "$$REDIS_PASSWORD"'
     environment:
@@ -72,4 +75,5 @@ services:
 
 volumes:
   redis-data:
+    name: ${ATI_REDIS_VOLUME_NAME:-ati-local-runtime-redis-data}
   mariadb-data:

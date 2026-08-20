@@ -126,6 +126,37 @@ current_or_example() {
   if [ -n "$value" ]; then printf '%s' "$value"; else read_env_value "$example" "$key"; fi
 }
 
+resolve_redis_volume_name() {
+  local configured compose_file middle_env container_id mounted_name project_name
+  configured="$(read_env_value "${MIDDLE_DIR}/.env" ATI_REDIS_VOLUME_NAME)"
+  [ -n "$configured" ] || configured="$(read_env_value "${ROOT_DIR}/.env" ATI_REDIS_VOLUME_NAME)"
+  if [ -n "$configured" ]; then
+    printf '%s' "$configured"
+    return
+  fi
+
+  compose_file="${MIDDLE_DIR}/docker-compose.yml"
+  middle_env="${MIDDLE_DIR}/.env"
+  if [ -f "$compose_file" ]; then
+    if [ -f "$middle_env" ]; then
+      container_id="$(docker compose --env-file "$middle_env" -f "$compose_file" ps -q redis 2>/dev/null || true)"
+    else
+      container_id="$(docker compose -f "$compose_file" ps -q redis 2>/dev/null || true)"
+    fi
+    if [ -n "$container_id" ]; then
+      mounted_name="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)"
+      if [ -n "$mounted_name" ]; then
+        printf '%s' "$mounted_name"
+        return
+      fi
+    fi
+  fi
+
+  project_name="$(read_env_value "${ROOT_DIR}/.env" COMPOSE_PROJECT_NAME)"
+  [ -n "$project_name" ] || project_name="ati-local-runtime"
+  printf '%s-redis-data' "$project_name"
+}
+
 legacy_enabled_adapters() {
   local mode
   mode="$(read_env_value "${ROOT_DIR}/.env" BROKER_ADAPTER_MODE)"
@@ -496,6 +527,13 @@ CURRENT_ADMIN_USERNAME="$(read_env_value "${ROOT_DIR}/.env" ADMIN_USERNAME)"
 CURRENT_ADMIN_USERNAME="${CURRENT_ADMIN_USERNAME:-ati-local-user}"
 
 REDIS_PASSWORD="$(resolve_managed_secret "${MIDDLE_DIR}/.env" REDIS_PASSWORD "$REDIS_PASSWORD_FILE" "Redis password")"
+REDIS_VOLUME_NAME="$(resolve_redis_volume_name)"
+case "$REDIS_VOLUME_NAME" in
+  ''|*[!a-zA-Z0-9_.-]*)
+    echo "Redis volume name contains unsupported characters: ${REDIS_VOLUME_NAME:-<empty>}" >&2
+    exit 2
+    ;;
+esac
 MARIADB_PASSWORD="$(resolve_managed_secret "${MIDDLE_DIR}/.env" MARIADB_PASSWORD "$MARIADB_PASSWORD_FILE" "MariaDB password")"
 ADMIN_PASSWORD="$(resolve_managed_secret "${ROOT_DIR}/.env" ADMIN_PASSWORD "$ADMIN_PASSWORD_FILE" "ATI web password")"
 
@@ -604,6 +642,7 @@ WATCHDOG_MAINTENANCE_TOKEN="$(read_env_value "$ROOT_CANDIDATE" SERVICE_WATCHDOG_
 if placeholder_or_empty "$WATCHDOG_MAINTENANCE_TOKEN"; then WATCHDOG_MAINTENANCE_TOKEN="$(generate_secret)"; fi
 
 env_set_quoted "$MIDDLE_CANDIDATE" REDIS_PASSWORD "$REDIS_PASSWORD"
+env_set "$MIDDLE_CANDIDATE" ATI_REDIS_VOLUME_NAME "$REDIS_VOLUME_NAME"
 env_set "$MIDDLE_CANDIDATE" MARIADB_DATABASE algo_trader
 env_set "$MIDDLE_CANDIDATE" MARIADB_USER algo_trader
 env_set_quoted "$MIDDLE_CANDIDATE" MARIADB_PASSWORD "$MARIADB_PASSWORD"
@@ -612,6 +651,7 @@ env_set_quoted "$MIDDLE_CANDIDATE" TWS_PASSWORD "$IB_PASSWORD"
 env_set_quoted "$MIDDLE_CANDIDATE" VNC_SERVER_PASSWORD "$IB_VNC"
 
 env_set_quoted "$ROOT_CANDIDATE" REDIS_URL "redis://:${REDIS_PASSWORD}@redis:6379/0"
+env_set "$ROOT_CANDIDATE" ATI_REDIS_VOLUME_NAME "$REDIS_VOLUME_NAME"
 env_set_quoted "$ROOT_CANDIDATE" BACKTEST_REDIS_URL "redis://:${REDIS_PASSWORD}@redis:6379/8"
 env_set_quoted "$ROOT_CANDIDATE" MARIADB_URL "mariadb://algo_trader:${MARIADB_PASSWORD}@mariadb:3306/algo_trader"
 env_set_quoted "$ROOT_CANDIDATE" BACKTEST_MARIADB_URL "mariadb://algo_trader_backtest:${MARIADB_PASSWORD}@mariadb:3306/algo_trader_backtest"

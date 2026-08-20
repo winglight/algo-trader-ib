@@ -188,6 +188,12 @@ docker compose logs -f mariadb
 docker compose --profile ib logs -f ib-gateway
 ```
 
+Redis stores the local installation identity, cloud authorization, and runtime
+lease in a stable named volume with AOF synchronized every second. Updates reuse
+the volume mounted by the existing Redis container. Do not run
+`docker compose down -v` or manually delete that volume; doing so intentionally
+creates a new installation fingerprint and requires binding again.
+
 ## Security Boundary
 
 - Public images default to the `latest` tag; set `ATI_IMAGE_TAG` in `.env` when you intentionally pin a specific release.

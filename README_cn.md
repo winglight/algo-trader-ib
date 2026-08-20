@@ -165,6 +165,10 @@ docker compose logs -f mariadb
 docker compose --profile ib logs -f ib-gateway
 ```
 
+Redis 使用固定命名的持久卷保存本地安装身份、云端授权和运行租约，并启用每秒同步的 AOF。
+installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行 `docker compose down -v`
+或手工删除该卷，否则系统会按新安装生成新的指纹并要求重新绑定。
+
 ## 安全边界
 
 - 默认使用 `latest` 公开镜像；如需固定到特定版本，可在 `.env` 中设置 `ATI_IMAGE_TAG`。
