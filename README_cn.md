@@ -175,10 +175,9 @@ installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行
 - 默认发布前端 `127.0.0.1:5173` 和本机 watchdog 管理端口 `127.0.0.1:8110`；watchdog 不得绑定公网地址。
 - 默认不发布 Redis、MariaDB、后端 API 服务端口。
 - 默认不启用云平台、云端 Studio、Agents、AI Model Ops 或 News 服务。
-- public 版本会安装 Screeners 容器，但管理员预览默认关闭。需要手动启用时，将
-  `config/screeners_service.env.example` 复制为 `config/screeners_service.env`，设置
-  `SCREENERS_ADMIN_PREVIEW_ENABLED=true`，并填写非空的
-  `SCREENERS_GATEWAY_SHARED_SECRET`。backend 和 Screeners 都从这一份服务配置读取这两个值。
+- public 安装器会安装 Screeners 容器，为有对应云端授权的平台管理员启用该功能，
+  并在 `config/screeners_service.env` 中自动生成或保留非空的
+  `SCREENERS_GATEWAY_SHARED_SECRET`。backend 和 Screeners 都从这一份服务配置读取开关和密钥。
 - 默认不把 Docker socket 挂载给业务容器；Docker socket 只挂载给 watchdog 容器，用于按配置重启业务容器，并在 `ib` 模式下控制 `ib-gateway`。
 - 未绑定云平台用户时，本地环境只提供 24 小时试用；绑定后按云平台订阅等级控制本地服务能力。
 - `.env`、`middle/.env`、`data/`、`logs/` 不应提交到公开仓库。

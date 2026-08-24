@@ -21,6 +21,23 @@ class ScreenersPublicServiceTests(unittest.TestCase):
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         self.assertIn("    screeners-service\n", content)
 
+    def test_installer_enables_screeners_with_a_managed_gateway_secret(self) -> None:
+        content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'env_set "$SCREENERS_CANDIDATE" SCREENERS_ADMIN_PREVIEW_ENABLED true',
+            content,
+        )
+        self.assertIn(
+            'SCREENERS_GATEWAY_SHARED_SECRET="$(read_env_value "$SCREENERS_CANDIDATE" '
+            'SCREENERS_GATEWAY_SHARED_SECRET)"',
+            content,
+        )
+        self.assertIn(
+            'env_set_quoted "$SCREENERS_CANDIDATE" SCREENERS_GATEWAY_SHARED_SECRET '
+            '"$SCREENERS_GATEWAY_SHARED_SECRET"',
+            content,
+        )
+
     def test_watchdog_and_database_include_screeners(self) -> None:
         watchdog = (ROOT / "config/service_watchdog_public.env.example").read_text(
             encoding="utf-8"

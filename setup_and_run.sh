@@ -620,14 +620,19 @@ fi
 
 ROOT_CANDIDATE="$(mktemp "${ROOT_DIR}/.env.candidate.XXXXXX")"
 MIDDLE_CANDIDATE="$(mktemp "${MIDDLE_DIR}/.env.candidate.XXXXXX")"
-chmod 600 "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE"
+SCREENERS_ENV="${ROOT_DIR}/config/screeners_service.env"
+SCREENERS_BASE="$SCREENERS_ENV"
+[ -f "$SCREENERS_BASE" ] || SCREENERS_BASE="${ROOT_DIR}/config/screeners_service.env.example"
+SCREENERS_CANDIDATE="$(mktemp "${ROOT_DIR}/config/screeners_service.env.candidate.XXXXXX")"
+chmod 600 "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE" "$SCREENERS_CANDIDATE"
 cp "$ROOT_BASE" "$ROOT_CANDIDATE"
 cp "$MIDDLE_BASE" "$MIDDLE_CANDIDATE"
+cp "$SCREENERS_BASE" "$SCREENERS_CANDIDATE"
 if [ "$UPDATE_MODE" = "1" ]; then
   env_set "$ROOT_CANDIDATE" ATI_IMAGE_TAG latest
 fi
 cleanup_candidates() {
-  rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}"
+  rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}" "${SCREENERS_CANDIDATE:-}"
   if [ -n "${PREPARED_PLUGIN_DIR:-}" ] && [ -e "$PREPARED_PLUGIN_DIR" ]; then
     run_as_root rm -rf "$PREPARED_PLUGIN_DIR"
   fi
@@ -641,6 +646,11 @@ JWT_SECRET="$(read_env_value "$ROOT_CANDIDATE" JWT_SECRET)"
 if placeholder_or_empty "$JWT_SECRET"; then JWT_SECRET="$(generate_secret)"; fi
 WATCHDOG_MAINTENANCE_TOKEN="$(read_env_value "$ROOT_CANDIDATE" SERVICE_WATCHDOG_MAINTENANCE_TOKEN)"
 if placeholder_or_empty "$WATCHDOG_MAINTENANCE_TOKEN"; then WATCHDOG_MAINTENANCE_TOKEN="$(generate_secret)"; fi
+SCREENERS_GATEWAY_SHARED_SECRET="$(read_env_value "$SCREENERS_CANDIDATE" SCREENERS_GATEWAY_SHARED_SECRET)"
+if placeholder_or_empty "$SCREENERS_GATEWAY_SHARED_SECRET"; then SCREENERS_GATEWAY_SHARED_SECRET="$(generate_secret)"; fi
+
+env_set "$SCREENERS_CANDIDATE" SCREENERS_ADMIN_PREVIEW_ENABLED true
+env_set_quoted "$SCREENERS_CANDIDATE" SCREENERS_GATEWAY_SHARED_SECRET "$SCREENERS_GATEWAY_SHARED_SECRET"
 
 env_set_quoted "$MIDDLE_CANDIDATE" REDIS_PASSWORD "$REDIS_PASSWORD"
 env_set "$MIDDLE_CANDIDATE" ATI_REDIS_VOLUME_NAME "$REDIS_VOLUME_NAME"
@@ -759,9 +769,10 @@ fi
 backup_database_for_update
 
 BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/.installer-backup.XXXXXX")"
-ROOT_EXISTED=0; MIDDLE_EXISTED=0
+ROOT_EXISTED=0; MIDDLE_EXISTED=0; SCREENERS_EXISTED=0
 [ -f "${ROOT_DIR}/.env" ] && { cp "${ROOT_DIR}/.env" "${BACKUP_DIR}/root.env"; ROOT_EXISTED=1; }
 [ -f "${MIDDLE_DIR}/.env" ] && { cp "${MIDDLE_DIR}/.env" "${BACKUP_DIR}/middle.env"; MIDDLE_EXISTED=1; }
+[ -f "$SCREENERS_ENV" ] && { cp "$SCREENERS_ENV" "${BACKUP_DIR}/screeners_service.env"; SCREENERS_EXISTED=1; }
 chmod 700 "$BACKUP_DIR"
 chmod 600 "${BACKUP_DIR}"/*.env 2>/dev/null || true
 PREVIOUS_IB_ENABLED="$(read_env_value "${ROOT_DIR}/.env" SERVICE_WATCHDOG_IB_GATEWAY_ENABLED)"
@@ -776,6 +787,7 @@ rollback() {
     set +e
     if [ "$ROOT_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/root.env" "${ROOT_DIR}/.env"; else rm -f "${ROOT_DIR}/.env"; fi
     if [ "$MIDDLE_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/middle.env" "${MIDDLE_DIR}/.env"; else rm -f "${MIDDLE_DIR}/.env"; fi
+    if [ "$SCREENERS_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/screeners_service.env" "$SCREENERS_ENV"; else rm -f "$SCREENERS_ENV"; fi
     if [ "$PLUGIN_ACTIVATED" = "1" ]; then
       run_as_root rm -rf "${ROOT_DIR}/data/broker-plugins"
       if run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
@@ -794,7 +806,7 @@ rollback() {
           >/dev/null 2>&1 || true
       fi
     fi
-    chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" 2>/dev/null || true
+    chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" "$SCREENERS_ENV" 2>/dev/null || true
     if [ "$PREVIOUS_IB_ENABLED" = "1" ]; then
       ensure_ib_gateway_settings_permissions || true
       docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" --profile ib up -d >/dev/null 2>&1 || true
@@ -811,7 +823,8 @@ rollback() {
 trap rollback EXIT
 mv "$ROOT_CANDIDATE" "${ROOT_DIR}/.env"
 mv "$MIDDLE_CANDIDATE" "${MIDDLE_DIR}/.env"
-chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env"
+mv "$SCREENERS_CANDIDATE" "$SCREENERS_ENV"
+chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" "$SCREENERS_ENV"
 activate_prepared_plugins
 
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
