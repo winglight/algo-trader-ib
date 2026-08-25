@@ -20,9 +20,6 @@ services:
       BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
       BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED: ${BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED}
     restart: unless-stopped
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.10
 
   broker-runner-service:
     image: ${BROKER_RUNNER_IMAGE:-ghcr.io/winglight/algo-trader/broker-runner-service:${ATI_IMAGE_TAG:-latest}}
@@ -70,9 +67,6 @@ services:
       BROKER_RUNNER_CCXT_CRYPTO_REQUEST_TIMEOUT_MS: ${BROKER_RUNNER_CCXT_CRYPTO_REQUEST_TIMEOUT_MS:-30000}
       BROKER_RUNNER_SERVICE_REGISTRY_URL: http://broker-runner-service:8115
     restart: unless-stopped
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.25
 
   account-service:
     image: ghcr.io/winglight/algo-trader/account-service:${ATI_IMAGE_TAG:-latest}
@@ -89,9 +83,6 @@ services:
     depends_on:
       broker-runner-service:
         condition: service_started
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.11
 
   orders-service:
     image: ghcr.io/winglight/algo-trader/orders-service:${ATI_IMAGE_TAG:-latest}
@@ -109,9 +100,6 @@ services:
     depends_on:
       broker-runner-service:
         condition: service_started
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.12
 
   market-data-service:
     image: ghcr.io/winglight/algo-trader/market-data-service:${ATI_IMAGE_TAG:-latest}
@@ -128,9 +116,6 @@ services:
     depends_on:
       broker-runner-service:
         condition: service_started
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.13
 
   risk-service:
     image: ghcr.io/winglight/algo-trader/risk-service:${ATI_IMAGE_TAG:-latest}
@@ -144,9 +129,6 @@ services:
     environment:
       RISK_SERVICE_NAME: risk
     restart: unless-stopped
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.14
 
   simulation-service:
     image: ghcr.io/winglight/algo-trader/sim-service:${ATI_IMAGE_TAG:-latest}
@@ -160,9 +142,6 @@ services:
     environment:
       SIM_SERVICE_REGISTRY_NAME: simulation
     restart: unless-stopped
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.16
 
   strategy-spec-service:
     image: ghcr.io/winglight/algo-trader/strategy-spec-service:${ATI_IMAGE_TAG:-latest}
@@ -178,9 +157,6 @@ services:
       BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
     command: ["/bin/sh", "./docker/start_strategy_spec_service.sh"]
     restart: unless-stopped
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.17
 
   strategy-service:
     image: ghcr.io/winglight/algo-trader/strategy-service:${ATI_IMAGE_TAG:-latest}
@@ -200,9 +176,6 @@ services:
     depends_on:
       orders-service:
         condition: service_started
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.15
 
   screeners-service:
     image: ghcr.io/winglight/algo-trader/screeners-service:${ATI_IMAGE_TAG:-latest}
@@ -233,9 +206,6 @@ services:
       strategy-spec-service:
         condition: service_started
     restart: unless-stopped
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.18
 
   service-watchdog:
     image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}
@@ -282,9 +252,6 @@ services:
         condition: service_started
       screeners-service:
         condition: service_started
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.26
 
   frontend:
     image: ${FRONTEND_IMAGE:-ghcr.io/winglight/algo-trader/frontend:${ATI_IMAGE_TAG:-latest}}
@@ -295,15 +262,8 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
-    networks:
-      default:
-        ipv4_address: ${ATI_NETWORK_PREFIX:-172.21.0}.27
 
 networks:
   default:
     name: ${ATI_NETWORK_NAME:-stack}
     external: true
-    ipam:
-      driver: default
-      config:
-        - subnet: ${ATI_NETWORK_SUBNET:-172.21.0.0/16}
