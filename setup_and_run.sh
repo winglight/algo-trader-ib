@@ -5,8 +5,8 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
 APP_URL="${ATI_APP_URL:-}"
-ADAPTERS_COMMIT="69aaa90750f92e0d7d05c8eba21783fe57d5d681"
-ADAPTERS_ARCHIVE_SHA256="e9481d3a411e5907d51204beeb85426cfb758c4587fc894c8661f8979d6b174e"
+ADAPTERS_COMMIT="0f34a78d066bbb92ed1b21ce20d8ce21667d686f"
+ADAPTERS_ARCHIVE_SHA256="a41cf2caff9ecdc8a9d51a1c1d0389698fa028fbd06d057ab85aec94cebd556b"
 ADAPTERS_ARCHIVE_URL="https://github.com/winglight/algo-trader-broker-adapters/archive/${ADAPTERS_COMMIT}.tar.gz"
 # shellcheck source=scripts/installer_lib.sh
 source "${ROOT_DIR}/scripts/installer_lib.sh"

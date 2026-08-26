@@ -37,6 +37,17 @@ class ScreenersPublicServiceTests(unittest.TestCase):
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         self.assertIn("    screeners-service\n", content)
 
+    def test_installer_pins_adapter_release_with_ib_screeners_support(self) -> None:
+        content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'ADAPTERS_COMMIT="0f34a78d066bbb92ed1b21ce20d8ce21667d686f"',
+            content,
+        )
+        self.assertIn(
+            'ADAPTERS_ARCHIVE_SHA256="a41cf2caff9ecdc8a9d51a1c1d0389698fa028fbd06d057ab85aec94cebd556b"',
+            content,
+        )
+
     def test_installer_enables_screeners_with_a_managed_gateway_secret(self) -> None:
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         self.assertIn(
