@@ -27,6 +27,25 @@ class DynamicNetworkAllocationTests(unittest.TestCase):
         self.assertNotIn("ipam:", middleware_compose)
         self.assertNotIn("ATI_NETWORK_SUBNET", middleware_compose)
 
+    def test_shared_network_is_external_and_created_idempotently(self) -> None:
+        application_compose = (ROOT / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        middleware_compose = (ROOT / "middle/docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        installer = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
+
+        for compose in (application_compose, middleware_compose):
+            self.assertIn("external: true", compose)
+        self.assertIn("ensure_shared_network()", installer)
+        self.assertIn('docker network inspect "$network_name"', installer)
+        self.assertIn('docker network create "$network_name"', installer)
+        self.assertLess(
+            installer.index('ensure_shared_network "$(read_env_value'),
+            installer.index("backup_database_for_update\n"),
+        )
+
     def test_installer_only_persists_the_shared_network_name(self) -> None:
         installer = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         example = (ROOT / ".env.example").read_text(encoding="utf-8")

@@ -103,6 +103,20 @@ ensure_docker() {
   }
 }
 
+ensure_shared_network() {
+  local network_name="$1"
+  [ -n "$network_name" ] || {
+    echo "Shared Docker network name must not be empty." >&2
+    return 1
+  }
+  if docker network inspect "$network_name" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Creating shared Docker network: ${network_name}"
+  docker network create "$network_name" >/dev/null 2>&1 ||
+    docker network inspect "$network_name" >/dev/null 2>&1
+}
+
 ensure_ib_gateway_settings_permissions() {
   local settings_dir="${MIDDLE_DIR}/data/ib-gateway/tws_settings"
   mkdir -p "$settings_dir"
@@ -764,6 +778,7 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+ensure_shared_network "$(read_env_value "$ROOT_CANDIDATE" ATI_NETWORK_NAME)"
 backup_database_for_update
 
 BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/.installer-backup.XXXXXX")"

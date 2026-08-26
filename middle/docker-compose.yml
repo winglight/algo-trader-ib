@@ -1,7 +1,7 @@
 networks:
   stack:
     name: ${ATI_NETWORK_NAME:-stack}
-    driver: bridge
+    external: true
 
 
 
