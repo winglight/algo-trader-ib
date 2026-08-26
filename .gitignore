@@ -1,5 +1,7 @@
 .env
 middle/.env
+config/screeners_service.env
+config/screeners_service.env.candidate.*
 .env.candidate.*
 middle/.env.candidate.*
 .installer-backup.*

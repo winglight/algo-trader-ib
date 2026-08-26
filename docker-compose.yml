@@ -1,3 +1,5 @@
+name: ${COMPOSE_PROJECT_NAME:-ati-local-runtime}
+
 services:
   backend:
     image: ghcr.io/winglight/algo-trader/backend:${ATI_IMAGE_TAG:-latest}

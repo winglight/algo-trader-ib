@@ -10,6 +10,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ScreenersPublicServiceTests(unittest.TestCase):
+    def test_runtime_env_is_ignored_and_compose_project_is_stable(self) -> None:
+        gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn("config/screeners_service.env\n", gitignore)
+        self.assertIn("config/screeners_service.env.candidate.*\n", gitignore)
+        self.assertTrue(
+            compose.startswith("name: ${COMPOSE_PROJECT_NAME:-ati-local-runtime}\n")
+        )
+
     def test_compose_runs_and_monitors_screeners(self) -> None:
         content = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("screeners-service:", content)
