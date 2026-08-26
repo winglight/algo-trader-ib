@@ -48,6 +48,15 @@ class ScreenersPublicServiceTests(unittest.TestCase):
             content,
         )
 
+    def test_ib_gateway_defaults_to_scanner_filter_qualified_version(self) -> None:
+        compose = (ROOT / "middle/docker-compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "${ATI_IB_GATEWAY_IMAGE:-ghcr.io/gnzsnz/ib-gateway:10.42.1a}",
+            compose,
+        )
+        self.assertNotIn("image: ghcr.io/gnzsnz/ib-gateway:stable", compose)
+
     def test_installer_enables_screeners_with_a_managed_gateway_secret(self) -> None:
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         self.assertIn(

@@ -46,7 +46,11 @@ services:
       - stack
 
   ib-gateway:
-    image: ghcr.io/gnzsnz/ib-gateway:stable
+    # 10.45.1h rejects the otherwise valid floatSharesBelow scanner filter
+    # with IB error 10360. Keep the public runtime on the version verified by
+    # the same account and request contract until the upstream regression is
+    # resolved. The override remains explicit for controlled qualification.
+    image: ${ATI_IB_GATEWAY_IMAGE:-ghcr.io/gnzsnz/ib-gateway:10.42.1a}
     profiles:
       - ib
     container_name: ${ATI_IB_GATEWAY_CONTAINER_NAME:-ib-gateway}
