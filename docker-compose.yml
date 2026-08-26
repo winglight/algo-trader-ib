@@ -16,9 +16,9 @@ services:
       APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=watchdog;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=watchdog;account|http://account-service:8100/healthz|||restart_mode=watchdog;orders|http://orders-service:8101/healthz|||restart_mode=watchdog;market-data|http://market-data-service:8102/healthz|||restart_mode=watchdog;risk|http://risk-service:8103/healthz|||restart_mode=watchdog;strategy|http://strategy-service:8104/healthz|||restart_mode=watchdog;simulation|http://simulation-service:8111/healthz|||restart_mode=watchdog;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=watchdog;screeners|http://screeners-service:8116/healthz|||restart_mode=watchdog"
       SERVICE_WATCHDOG_URL: http://service-watchdog:8110
       OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec,screeners
-      BROKER_ADAPTER_SWITCH_ENABLED: ${BROKER_ADAPTER_SWITCH_ENABLED}
-      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
-      BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED: ${BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED}
+      BROKER_ADAPTER_SWITCH_ENABLED: ${BROKER_ADAPTER_SWITCH_ENABLED:-true}
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED:-true}
+      BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED: ${BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED:-false}
     restart: unless-stopped
 
   broker-runner-service:
@@ -30,14 +30,14 @@ services:
       - ./.env:/app/.env:ro
       - ./config:/app/config
     environment:
-      BROKER_RUNNER_PROFILE_REGISTRY_ENABLED: ${BROKER_RUNNER_PROFILE_REGISTRY_ENABLED}
+      BROKER_RUNNER_PROFILE_REGISTRY_ENABLED: ${BROKER_RUNNER_PROFILE_REGISTRY_ENABLED:-true}
       BROKER_RUNNER_PLUGIN_PATH: ${BROKER_RUNNER_PLUGIN_PATH:-/app/data/broker-plugins}
       PYTHONPATH: ${BROKER_RUNNER_PLUGIN_PATH:-/app/data/broker-plugins}:/app/packages/ati-shared-sdk/src:/app/src
-      BROKER_RUNNER_ENABLED_ADAPTERS: ${BROKER_RUNNER_ENABLED_ADAPTERS}
-      BROKER_RUNNER_DEFAULT_ADAPTER_ID: ${BROKER_RUNNER_DEFAULT_ADAPTER_ID}
-      BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY: ${BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY}
-      BROKER_RUNNER_IBKR_PAPER_PROVIDER: ${BROKER_RUNNER_IBKR_PAPER_PROVIDER}
-      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED}
+      BROKER_RUNNER_ENABLED_ADAPTERS: ${BROKER_RUNNER_ENABLED_ADAPTERS:-sim}
+      BROKER_RUNNER_DEFAULT_ADAPTER_ID: ${BROKER_RUNNER_DEFAULT_ADAPTER_ID:-sim}
+      BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY: ${BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY:-broker_runner:active_adapter_id}
+      BROKER_RUNNER_IBKR_PAPER_PROVIDER: ${BROKER_RUNNER_IBKR_PAPER_PROVIDER:-core}
+      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED:-true}
       BROKER_RUNNER_IB_GATEWAY_HOST: ${BROKER_RUNNER_IB_GATEWAY_HOST:-ib-gateway}
       BROKER_RUNNER_IB_GATEWAY_PORT: ${BROKER_RUNNER_IB_GATEWAY_PORT:-4004}
       BROKER_RUNNER_IB_CLIENT_ID: ${BROKER_RUNNER_IB_CLIENT_ID:-40}
@@ -95,7 +95,7 @@ services:
       - ./config:/app/config
     environment:
       ORDERS_BROKER_RUNNER_URL: http://broker-runner-service:8115
-      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED:-true}
     restart: unless-stopped
     depends_on:
       broker-runner-service:
@@ -153,8 +153,8 @@ services:
       - ./config:/app/config
     environment:
       STRATEGY_SPEC_SERVICE_REGISTRY_NAME: strategy-spec
-      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED}
-      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
+      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED:-true}
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED:-true}
     command: ["/bin/sh", "./docker/start_strategy_spec_service.sh"]
     restart: unless-stopped
 
@@ -170,8 +170,8 @@ services:
     environment:
       API_SERVICE_URL: http://backend:8000
       STRATEGY_SERVICE_REGISTRY_NAME: strategy
-      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED}
-      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED}
+      BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED:-true}
+      BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED:-true}
     restart: unless-stopped
     depends_on:
       orders-service:
@@ -220,7 +220,7 @@ services:
     environment:
       REDIS_URL: ${REDIS_URL}
       MARIADB_URL: ${MARIADB_URL}
-      SERVICE_WATCHDOG_MAINTENANCE_TOKEN: ${SERVICE_WATCHDOG_MAINTENANCE_TOKEN}
+      SERVICE_WATCHDOG_MAINTENANCE_TOKEN: ${SERVICE_WATCHDOG_MAINTENANCE_TOKEN:-}
       SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT: ${SERVICE_WATCHDOG_PHASE1_OFFLINE_ORDERS_PREFLIGHT:-0}
       SERVICE_WATCHDOG_SERVICES: "api|http://backend:8000/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-backend,docker_host=unix:///var/run/docker.sock;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-broker-runner,docker_host=unix:///var/run/docker.sock;account|http://account-service:8100/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-account,docker_host=unix:///var/run/docker.sock;orders|http://orders-service:8101/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-orders,docker_host=unix:///var/run/docker.sock;market-data|http://market-data-service:8102/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-market-data,docker_host=unix:///var/run/docker.sock;risk|http://risk-service:8103/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-risk,docker_host=unix:///var/run/docker.sock;strategy|http://strategy-service:8104/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy,docker_host=unix:///var/run/docker.sock;simulation|http://simulation-service:8111/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-sim,docker_host=unix:///var/run/docker.sock;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-strategy-spec,docker_host=unix:///var/run/docker.sock;screeners|http://screeners-service:8116/healthz|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-screeners,docker_host=unix:///var/run/docker.sock;frontend|http://frontend/|||restart_mode=docker,docker_container=${ATI_CONTAINER_PREFIX:-algo-trader}-frontend,docker_host=unix:///var/run/docker.sock"
       SERVICE_WATCHDOG_IB_GATEWAY_ENABLED: ${SERVICE_WATCHDOG_IB_GATEWAY_ENABLED:-0}

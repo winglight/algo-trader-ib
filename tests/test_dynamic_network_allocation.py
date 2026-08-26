@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DynamicNetworkAllocationTests(unittest.TestCase):
+    def test_optional_compose_flags_have_warning_free_defaults(self) -> None:
+        compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        optional_keys = {
+            "BROKER_ADAPTER_SWITCH_ENABLED",
+            "BROKER_ADAPTER_SWITCH_GATE_ENABLED",
+            "BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED",
+            "BROKER_ASSET_CAPABILITY_GATE_ENABLED",
+            "BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY",
+            "BROKER_RUNNER_DEFAULT_ADAPTER_ID",
+            "BROKER_RUNNER_ENABLED_ADAPTERS",
+            "BROKER_RUNNER_IBKR_PAPER_PROVIDER",
+            "BROKER_RUNNER_PROFILE_REGISTRY_ENABLED",
+            "SERVICE_WATCHDOG_MAINTENANCE_TOKEN",
+        }
+
+        unguarded = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)\}", compose))
+        self.assertTrue(optional_keys.isdisjoint(unguarded))
+
     def test_compose_files_do_not_assign_static_addresses(self) -> None:
         application_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         middleware_compose = (ROOT / "middle/docker-compose.yml").read_text(
