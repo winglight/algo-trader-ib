@@ -117,6 +117,29 @@ ensure_shared_network() {
     docker network inspect "$network_name" >/dev/null 2>&1
 }
 
+migrate_legacy_compose_owned_shared_network() {
+  local network_name="$1"
+  local marker="${ROOT_DIR}/data/.shared-network-external-v1"
+  local legacy_owner container_id service
+  [ -f "$marker" ] && return 0
+
+  legacy_owner="$(docker network inspect --format '{{index .Labels "com.docker.compose.project"}}' "$network_name" 2>/dev/null || true)"
+  if [ "$legacy_owner" = "middle" ]; then
+    echo "Migrating legacy Compose-owned shared network without removing data volumes..."
+    for service in redis mariadb ib-gateway; do
+      container_id="$(docker compose --env-file "${MIDDLE_DIR}/.env" \
+        -p "$legacy_owner" -f "${MIDDLE_DIR}/docker-compose.yml" \
+        --profile ib ps -aq "$service" 2>/dev/null || true)"
+      [ -z "$container_id" ] || docker rm -f "$container_id" >/dev/null
+    done
+  fi
+}
+
+mark_shared_network_migrated() {
+  run_as_root mkdir -p "${ROOT_DIR}/data"
+  run_as_root touch "${ROOT_DIR}/data/.shared-network-external-v1"
+}
+
 ensure_ib_gateway_settings_permissions() {
   local settings_dir="${MIDDLE_DIR}/data/ib-gateway/tws_settings"
   mkdir -p "$settings_dir"
@@ -840,12 +863,15 @@ mv "$SCREENERS_CANDIDATE" "$SCREENERS_ENV"
 chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" "$SCREENERS_ENV"
 activate_prepared_plugins
 
+migrate_legacy_compose_owned_shared_network "$(read_env_value "${ROOT_DIR}/.env" ATI_NETWORK_NAME)"
+
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then
   ensure_ib_gateway_settings_permissions
   docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" --profile ib up -d
 else
   docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" up -d
 fi
+mark_shared_network_migrated
 
 wait_for_mariadb() {
   local tries=60

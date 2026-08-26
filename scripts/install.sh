@@ -231,7 +231,7 @@ replace_install_dir_contents() {
 }
 
 download_with_zip() {
-  local tmp env_backup env_manifest runtime_backup extracted
+  local tmp env_backup env_manifest runtime_backup extracted archive_url separator
   if [ "$UPDATE_MODE" = "1" ] && ! dir_has_entries "$INSTALL_DIR"; then
     echo "Update mode requires an existing installation: $INSTALL_DIR" >&2
     exit 1
@@ -254,7 +254,14 @@ download_with_zip() {
   mkdir -p "$env_backup"
   touch "$env_manifest"
   backup_env_files "$env_backup" "$env_manifest"
-  curl -fsSL "$ARCHIVE_URL" -o "${tmp}/ati-local-runtime.zip"
+  archive_url="$ARCHIVE_URL"
+  case "$archive_url" in
+    https://github.com/*/archive/refs/heads/*.zip*)
+      case "$archive_url" in *\?*) separator='&' ;; *) separator='?' ;; esac
+      archive_url="${archive_url}${separator}ati_cache_bust=$(date -u +%s)"
+      ;;
+  esac
+  curl -fsSL "$archive_url" -o "${tmp}/ati-local-runtime.zip"
   unzip -q "${tmp}/ati-local-runtime.zip" -d "$tmp"
   extracted="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d -name 'algo-trader-ib-*' | head -n 1)"
   if [ -z "$extracted" ]; then

@@ -10,12 +10,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ScreenersPublicServiceTests(unittest.TestCase):
+    def test_installer_bypasses_stale_branch_archive_cache(self) -> None:
+        installer = (ROOT / "scripts/install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("ati_cache_bust=$(date -u +%s)", installer)
+        self.assertIn('curl -fsSL "$archive_url"', installer)
+
     def test_runtime_env_is_ignored_and_compose_project_is_stable(self) -> None:
         gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
-        self.assertIn("config/screeners_service.env\n", gitignore)
-        self.assertIn("config/screeners_service.env.candidate.*\n", gitignore)
+        self.assertIn("config/*.env\n", gitignore)
+        self.assertIn("config/*.env.candidate.*\n", gitignore)
         self.assertTrue(
             compose.startswith("name: ${COMPOSE_PROJECT_NAME:-ati-local-runtime}\n")
         )

@@ -57,7 +57,20 @@ class DynamicNetworkAllocationTests(unittest.TestCase):
 
         for compose in (application_compose, middleware_compose):
             self.assertIn("external: true", compose)
+        self.assertTrue(
+            middleware_compose.startswith(
+                "name: ${ATI_MIDDLE_COMPOSE_PROJECT_NAME:-ati-local-middle}\n"
+            )
+        )
+        self.assertIn(
+            "name: ${ATI_MARIADB_VOLUME_NAME:-middle_mariadb-data}",
+            middleware_compose,
+        )
         self.assertIn("ensure_shared_network()", installer)
+        self.assertIn("migrate_legacy_compose_owned_shared_network()", installer)
+        self.assertIn(".shared-network-external-v1", installer)
+        self.assertIn('-p "$legacy_owner"', installer)
+        self.assertIn('docker rm -f "$container_id"', installer)
         self.assertIn('docker network inspect "$network_name"', installer)
         self.assertIn('docker network create "$network_name"', installer)
         self.assertLess(
