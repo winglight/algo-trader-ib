@@ -37,16 +37,25 @@ class ScreenersPublicServiceTests(unittest.TestCase):
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         self.assertIn("    screeners-service\n", content)
 
-    def test_installer_pins_adapter_release_with_ib_screeners_support(self) -> None:
+    def test_installer_downloads_the_latest_adapter_main_source(self) -> None:
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         self.assertIn(
-            'ADAPTERS_COMMIT="0f34a78d066bbb92ed1b21ce20d8ce21667d686f"',
+            'ADAPTERS_REF="${ATI_ADAPTERS_REF:-main}"',
             content,
         )
         self.assertIn(
-            'ADAPTERS_ARCHIVE_SHA256="a41cf2caff9ecdc8a9d51a1c1d0389698fa028fbd06d057ab85aec94cebd556b"',
+            'archive/refs/heads/${ADAPTERS_REF}.tar.gz',
             content,
         )
+        self.assertIn("ati_cache_bust=$(date -u +%s)", content)
+        self.assertNotIn("ADAPTERS_COMMIT=", content)
+
+    def test_installer_requires_ib_screener_capability(self) -> None:
+        content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
+
+        self.assertIn("validate_active_adapter_contract()", content)
+        self.assertIn('local tries=60', content)
+        self.assertIn('capabilities.get("supports_screener") is True', content)
 
     def test_ib_gateway_defaults_to_scanner_filter_qualified_version(self) -> None:
         compose = (ROOT / "middle/docker-compose.yml").read_text(encoding="utf-8")

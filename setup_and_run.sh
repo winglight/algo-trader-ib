@@ -5,9 +5,10 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
 APP_URL="${ATI_APP_URL:-}"
-ADAPTERS_COMMIT="0f34a78d066bbb92ed1b21ce20d8ce21667d686f"
-ADAPTERS_ARCHIVE_SHA256="a41cf2caff9ecdc8a9d51a1c1d0389698fa028fbd06d057ab85aec94cebd556b"
-ADAPTERS_ARCHIVE_URL="https://github.com/winglight/algo-trader-broker-adapters/archive/${ADAPTERS_COMMIT}.tar.gz"
+ADAPTERS_REPOSITORY="${ATI_ADAPTERS_REPOSITORY:-winglight/algo-trader-broker-adapters}"
+ADAPTERS_REF="${ATI_ADAPTERS_REF:-main}"
+ADAPTERS_ARCHIVE_URL="${ATI_ADAPTERS_ARCHIVE_URL:-https://github.com/${ADAPTERS_REPOSITORY}/archive/refs/heads/${ADAPTERS_REF}.tar.gz}"
+ADAPTERS_ARCHIVE_SHA256="${ATI_ADAPTERS_ARCHIVE_SHA256:-}"
 # shellcheck source=scripts/installer_lib.sh
 source "${ROOT_DIR}/scripts/installer_lib.sh"
 
@@ -360,7 +361,7 @@ sha256_file() {
 }
 
 prepare_selected_adapter_plugins() {
-  local broker_runner_image="$1" archive extract_root wheelhouse lock_file runtime_arch
+  local broker_runner_image="$1" archive archive_url separator extract_root wheelhouse lock_file runtime_arch
   local line_arch package version filename checksum url target actual selected_count
   PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/.broker-plugins.candidate.XXXXXX")"
   if ! contains_profile "$ENABLED_ADAPTERS" ibkr_paper && ! contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
@@ -373,12 +374,21 @@ prepare_selected_adapter_plugins() {
   wheelhouse="${PREPARED_PLUGIN_BUILD_DIR}/wheelhouse"
   lock_file="${ROOT_DIR}/docker/alpaca-runtime-wheels.lock"
 
-  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 "$ADAPTERS_ARCHIVE_URL" -o "$archive"
+  archive_url="$ADAPTERS_ARCHIVE_URL"
+  case "$archive_url" in
+    https://github.com/*/archive/refs/heads/*.tar.gz*)
+      case "$archive_url" in *\?*) separator='&' ;; *) separator='?' ;; esac
+      archive_url="${archive_url}${separator}ati_cache_bust=$(date -u +%s)"
+      ;;
+  esac
+  echo "Downloading latest Adapter source: ${ADAPTERS_REPOSITORY}@${ADAPTERS_REF}"
+  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 "$archive_url" -o "$archive"
   actual="$(sha256_file "$archive")"
-  [ "$actual" = "$ADAPTERS_ARCHIVE_SHA256" ] || {
+  if [ -n "$ADAPTERS_ARCHIVE_SHA256" ] && [ "$actual" != "$ADAPTERS_ARCHIVE_SHA256" ]; then
     echo "Adapter source checksum verification failed: expected ${ADAPTERS_ARCHIVE_SHA256}, got ${actual}" >&2
     return 1
-  }
+  fi
+  echo "Adapter source sha256: ${actual}"
   mkdir -p "$extract_root"
   tar -xzf "$archive" --strip-components=1 -C "$extract_root"
 
@@ -633,7 +643,7 @@ echo "  Service passwords: generated automatically or preserved from the existin
 echo "  Environment file permissions: 0600"
 if [ -f "${ROOT_DIR}/.env" ]; then echo "  Redis active selection will be updated to the selected initial adapter."; fi
 if [ "$UPDATE_MODE" = "1" ]; then
-  echo "  Image channel: latest (GHCR)"
+  echo "  Image channel: ${ATI_UPDATE_IMAGE_TAG:-latest} (GHCR)"
 fi
 if [ "$NON_INTERACTIVE" = "1" ] && [ "$UPDATE_MODE" = "1" ] && [ "${ATI_ALLOW_UPDATE:-0}" != "1" ]; then
   echo "Non-interactive update requires ATI_ALLOW_UPDATE=1." >&2
@@ -666,7 +676,7 @@ cp "$ROOT_BASE" "$ROOT_CANDIDATE"
 cp "$MIDDLE_BASE" "$MIDDLE_CANDIDATE"
 cp "$SCREENERS_BASE" "$SCREENERS_CANDIDATE"
 if [ "$UPDATE_MODE" = "1" ]; then
-  env_set "$ROOT_CANDIDATE" ATI_IMAGE_TAG latest
+  env_set "$ROOT_CANDIDATE" ATI_IMAGE_TAG "${ATI_UPDATE_IMAGE_TAG:-latest}"
 fi
 cleanup_candidates() {
   rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}" "${SCREENERS_CANDIDATE:-}"
@@ -779,12 +789,19 @@ env_set "$ROOT_CANDIDATE" APP_DOCS_URL ""
 env_set "$ROOT_CANDIDATE" APP_REDOC_URL ""
 env_set "$ROOT_CANDIDATE" APP_OPENAPI_URL ""
 tag="$(read_env_value "$ROOT_CANDIDATE" ATI_IMAGE_TAG)"; tag="${tag:-latest}"
+backend_image="ghcr.io/winglight/algo-trader/backend:${tag}"
 broker_runner_image="ghcr.io/winglight/algo-trader/broker-runner-service:${tag}"
 frontend_image="${ATI_FRONTEND_IMAGE_OVERRIDE:-ghcr.io/winglight/algo-trader/frontend:${tag}}"
+validate_public_image_reference "$backend_image" backend
 validate_public_image_reference "$broker_runner_image" broker-runner-service
 validate_public_image_reference "$frontend_image" frontend
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IMAGE "$broker_runner_image"
 env_set "$ROOT_CANDIDATE" FRONTEND_IMAGE "$frontend_image"
+echo "Pulling the official Backend image: ${backend_image}"
+docker pull "$backend_image"
+backend_app_version="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$backend_image" | awk -F= '$1 == "APP_VERSION" { sub(/^[^=]*=/, ""); print; exit }')"
+[ -n "$backend_app_version" ] || { echo "Backend image does not declare APP_VERSION: ${backend_image}" >&2; exit 1; }
+env_set "$ROOT_CANDIDATE" APP_VERSION "$backend_app_version"
 echo "Pulling the official Broker Runner base image: ${broker_runner_image}"
 docker pull "$broker_runner_image"
 prepare_selected_adapter_plugins "$broker_runner_image"
@@ -903,7 +920,29 @@ if [ -f "${ROOT_DIR}/algo_trader.sql" ]; then
 fi
 
 pull_application_images
-(cd "$ROOT_DIR" && docker compose -f docker-compose.yml up -d)
+if [ "$UPDATE_MODE" = "1" ]; then
+  (cd "$ROOT_DIR" && docker compose -f docker-compose.yml up -d --force-recreate)
+else
+  (cd "$ROOT_DIR" && docker compose -f docker-compose.yml up -d)
+fi
+
+validate_active_adapter_contract() {
+  local tries=60
+  echo "Validating the active Adapter contract..."
+  while [ "$tries" -gt 0 ]; do
+    if (cd "$ROOT_DIR" && docker compose -f docker-compose.yml exec -T broker-runner-service python -c \
+      'import json, urllib.request; manifest=json.load(urllib.request.urlopen("http://127.0.0.1:8115/broker/manifest", timeout=10)); capabilities=manifest.get("capabilities") or {}; adapter_id=str(manifest.get("adapter_id") or ""); assert adapter_id != "ibkr_paper" or capabilities.get("supports_screener") is True, "IBKR Adapter does not declare supports_screener"') >/dev/null 2>&1; then
+      echo "Active Adapter contract validated."
+      return 0
+    fi
+    sleep 2
+    tries=$((tries - 1))
+  done
+  echo "Active Adapter contract validation failed." >&2
+  (cd "$ROOT_DIR" && docker compose -f docker-compose.yml exec -T broker-runner-service python -c \
+    'import json, urllib.request; manifest=json.load(urllib.request.urlopen("http://127.0.0.1:8115/broker/manifest", timeout=10)); capabilities=manifest.get("capabilities") or {}; adapter_id=str(manifest.get("adapter_id") or ""); assert adapter_id != "ibkr_paper" or capabilities.get("supports_screener") is True, "IBKR Adapter does not declare supports_screener"')
+}
+validate_active_adapter_contract
 
 COMMITTED=0
 trap cleanup_candidates EXIT
