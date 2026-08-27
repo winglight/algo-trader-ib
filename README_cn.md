@@ -20,7 +20,7 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 ## 功能概览
 
 - 本地交易工作台：浏览器访问 `http://127.0.0.1:5173`。
-- Broker adapter 支持 `sim`、`ibkr_paper`、`alpaca_paper`，以及受控的 OKX Demo Spot `ccxt_crypto`；`sim` 始终安装，可同时启用多个 profile。
+- Broker adapter 支持 `sim`、`ibkr_paper`、`alpaca_paper`，以及统一承载受控 OKX Demo Spot 与 USDT 永续的 `ccxt_crypto`；`sim` 始终安装，可同时启用多个 profile。
 - 核心服务完整运行：API、account、orders、market data、risk、strategy、simulation、strategy spec。
 - 本地策略目录：`strategies/` 会挂载到容器中，便于查看示例和添加自定义策略。
 - 数据持久化：`.env`、`middle/.env`、`data/`、`logs/` 都保留在本机；其中云端绑定状态与本机安装身份保存在 `data/license/`，更新镜像、重建容器或清理日志都不会要求重新绑定。
@@ -78,7 +78,7 @@ Docker Desktop，启动应用并等待 Docker Engine 就绪，
 
 - 如果启用 IBKR：IBKR Paper 用户名和密码
 - 如果启用 Alpaca：Alpaca Paper API key、secret 和 `iex`/`sip` data feed
-- 如果启用 OKX Demo Spot：不要求凭据；全部外部 I/O gate 默认保持关闭
+- 如果启用 OKX Demo Spot + USDT 永续：OKX Demo API key、secret 和 passphrase
 
 安装完成后打开：
 
@@ -118,11 +118,11 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib
 
 ## Broker profiles
 
-`sim` 始终启用且不需要券商账号。官方 Broker Runner 镜像还内置受控的 `ccxt_crypto` profile，但公开安装器当前只接入 `BTC/USDT`、`ETH/USDT` 的 OKX Demo Spot target，并默认关闭 public data、private read、trading 和市价单 gate；尚未暴露上游已审查的 perpetual target。
+`sim` 始终启用且不需要券商账号。官方 Broker Runner 镜像内置统一的受控 `ccxt_crypto` profile：同一 profile 同时承载 `BTC/USDT`、`ETH/USDT` Spot 上下文，以及 `BTC/USDT:USDT`、`ETH/USDT:USDT` USDT 线性永续上下文。公开安装器会配置两套相互隔离的 execution/market-data target 和运行状态；永续固定为单向持仓、逐仓、2 倍杠杆。该 profile 仍仅限 OKX Demo，不启用生产环境、转账、提现或隐式 provider fallback。
 
 选择 `ibkr_paper` 或 `alpaca_paper` 后，安装器会从固定来源下载、校验并安装对应插件到持久化的 `data/broker-plugins/`；不会修改官方镜像，也不会在用户机器上构建业务镜像。`ibkr_paper` 还会启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile。
 
-`ibkr_paper`、`alpaca_paper` 与上游 `ccxt_crypto` 的公开源代码、能力边界和开发说明见
+`ibkr_paper`、`alpaca_paper` 与 `ccxt_crypto` 的公开源代码、能力边界和开发说明见
 [Broker adapters 仓库](https://github.com/winglight/algo-trader-broker-adapters)。
 ProjectX/Topstep 受控只读与本地 dry-run 模式不在本公开安装器的可选范围内。
 
@@ -141,6 +141,17 @@ ProjectX/Topstep 受控只读与本地 dry-run 模式不在本公开安装器的
   --admin-password-file /secure/web \
   --alpaca-api-key-id-file /secure/alpaca-key \
   --alpaca-secret-key-file /secure/alpaca-secret
+```
+
+无人值守安装 OKX Demo 时，选择 `ccxt_crypto` 并提供三份 credential 文件：
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,ccxt_crypto \
+  --initial-adapter ccxt_crypto \
+  --okx-api-key-file /secure/okx-key \
+  --okx-secret-key-file /secure/okx-secret \
+  --okx-passphrase-file /secure/okx-passphrase
 ```
 
 明文 credential 命令行参数会被拒绝。可先加 `--dry-run` 验证候选配置；dry-run 不提交 env，也不启动容器。

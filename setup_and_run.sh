@@ -26,6 +26,9 @@ IBKR_PASSWORD_FILE="${ATI_IBKR_PASSWORD_FILE:-}"
 IBKR_VNC_PASSWORD_FILE="${ATI_IBKR_VNC_PASSWORD_FILE:-}"
 ALPACA_API_KEY_ID_FILE="${ATI_ALPACA_API_KEY_ID_FILE:-}"
 ALPACA_SECRET_KEY_FILE="${ATI_ALPACA_SECRET_KEY_FILE:-}"
+OKX_API_KEY_FILE="${ATI_OKX_API_KEY_FILE:-}"
+OKX_SECRET_KEY_FILE="${ATI_OKX_SECRET_KEY_FILE:-}"
+OKX_PASSPHRASE_FILE="${ATI_OKX_PASSPHRASE_FILE:-}"
 PREPARED_PLUGIN_DIR=""
 PREPARED_PLUGIN_BUILD_DIR=""
 PLUGIN_BACKUP_DIR=""
@@ -48,6 +51,9 @@ Usage: setup_and_run.sh [options]
   --ibkr-vnc-password-file PATH
   --alpaca-api-key-id-file PATH
   --alpaca-secret-key-file PATH
+  --okx-api-key-file PATH
+  --okx-secret-key-file PATH
+  --okx-passphrase-file PATH
   --dry-run
 
 Secret values are accepted only through prompts or permission-controlled files.
@@ -70,8 +76,11 @@ while [ "$#" -gt 0 ]; do
     --ibkr-vnc-password-file) IBKR_VNC_PASSWORD_FILE="$2"; shift 2 ;;
     --alpaca-api-key-id-file) ALPACA_API_KEY_ID_FILE="$2"; shift 2 ;;
     --alpaca-secret-key-file) ALPACA_SECRET_KEY_FILE="$2"; shift 2 ;;
+    --okx-api-key-file) OKX_API_KEY_FILE="$2"; shift 2 ;;
+    --okx-secret-key-file) OKX_SECRET_KEY_FILE="$2"; shift 2 ;;
+    --okx-passphrase-file) OKX_PASSPHRASE_FILE="$2"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
-    --alpaca-secret-key|--alpaca-api-key-id|--ibkr-password|--ibkr-username)
+    --alpaca-secret-key|--alpaca-api-key-id|--ibkr-password|--ibkr-username|--okx-api-key|--okx-secret-key|--okx-passphrase)
       echo "Plaintext credential arguments are forbidden; use the corresponding --*-file option." >&2
       exit 2
       ;;
@@ -212,7 +221,7 @@ legacy_initial_adapter() {
 
 choose_interactive_adapters() {
   local existing key sequence cursor=1 index selected_count first_render=1
-  local labels=("Sim (required)" "IBKR Paper" "Alpaca Paper" "OKX Demo Spot")
+  local labels=("Sim (required)" "IBKR Paper" "Alpaca Paper" "OKX Demo Spot + USDT Perpetual")
   local selected=(1 0 0 0)
   existing="$(read_env_value "${ROOT_DIR}/.env" BROKER_RUNNER_ENABLED_ADAPTERS)"
   [ -n "$existing" ] || existing="$(legacy_enabled_adapters)"
@@ -308,7 +317,7 @@ choose_interactive_initial() {
       sim) echo "  ${index}) Sim Adapter" ;;
       ibkr_paper) echo "  ${index}) IBKR Paper Adapter" ;;
       alpaca_paper) echo "  ${index}) Alpaca Paper Adapter" ;;
-      ccxt_crypto) echo "  ${index}) OKX Demo Spot (CCXT)" ;;
+      ccxt_crypto) echo "  ${index}) OKX Demo Spot + USDT Perpetual (CCXT)" ;;
     esac
     index=$((index + 1))
   done
@@ -455,7 +464,7 @@ validate_candidates() {
     -e PYTHONPATH=/plugins:/app/packages/ati-shared-sdk/src:/app/src \
     -v "${plugin_dir}:/plugins:ro" \
     --entrypoint python "$broker_runner_image" -c \
-    'from importlib import metadata; from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry, ENTRY_POINT_GROUP; import os; s=BrokerRunnerSettings.from_env(); [s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids]; entries={e.name:e for e in metadata.entry_points().select(group=ENTRY_POINT_GROUP)}; selected=[p for p in s.enabled_adapter_ids if p != "sim"]; missing_entries=[p for p in selected if p not in entries]; assert not missing_entries, f"Selected Adapter plugin entry points were not installed: {missing_entries}"; [entries[p].load() for p in selected]; r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); missing=[p for p in s.enabled_adapter_ids if not r.state(p).installed]; assert not missing, f"Selected Adapter plugins were not installed: {missing}"'
+    'from importlib import metadata; from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry, ENTRY_POINT_GROUP; import os; s=BrokerRunnerSettings.from_env(); [s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids]; entries={e.name:e for e in metadata.entry_points().select(group=ENTRY_POINT_GROUP)}; selected=[p for p in s.enabled_adapter_ids if p != "sim"]; missing_entries=[p for p in selected if p not in entries]; assert not missing_entries, f"Selected Adapter plugin entry points were not installed: {missing_entries}"; [entries[p].load() for p in selected]; r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); missing=[p for p in s.enabled_adapter_ids if not r.state(p).installed]; assert not missing, f"Selected Adapter plugins were not installed: {missing}"; adapter=r.load("ccxt_crypto") if "ccxt_crypto" in s.enabled_adapter_ids else None; capabilities=adapter.manifest().capabilities if adapter else None; asset_classes=set(capabilities.asset_classes) if capabilities else set(); assert adapter is None or {"CRYPTO_SPOT", "CRYPTO_PERPETUAL"}.issubset(asset_classes), f"ccxt_crypto must expose unified Spot and Perpetual capabilities: {asset_classes}"; native=dict(capabilities.native or {}) if capabilities else {}; assert adapter is None or native.get("executionTargets", {}).get("CRYPTO_PERPETUAL") == "okx-perpetual-demo-paper-1", "ccxt_crypto perpetual execution target is missing"; assert adapter is None or native.get("marketDataTargets", {}).get("CRYPTO_PERPETUAL") == "okx-perpetual-demo-market-1", "ccxt_crypto perpetual market-data target is missing"; policy=native.get("perpetualPolicy", {}) if native else {}; assert adapter is None or (policy.get("positionMode") == "ONE_WAY" and policy.get("marginMode") == "ISOLATED" and str(policy.get("fixedLeverage")) == "2"), f"ccxt_crypto perpetual policy is invalid: {policy}"'
 }
 
 activate_prepared_plugins() {
@@ -571,6 +580,9 @@ CURRENT_IB_PASSWORD="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.e
 CURRENT_IB_VNC="$(current_or_example "${MIDDLE_DIR}/.env" "${MIDDLE_DIR}/.env.example" VNC_SERVER_PASSWORD)"
 CURRENT_ALPACA_KEY="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_ALPACA_API_KEY_ID)"
 CURRENT_ALPACA_SECRET="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_ALPACA_SECRET_KEY)"
+CURRENT_OKX_KEY="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_CCXT_CRYPTO_API_KEY)"
+CURRENT_OKX_SECRET="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_CCXT_CRYPTO_SECRET)"
+CURRENT_OKX_PASSPHRASE="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_CCXT_CRYPTO_PASSPHRASE)"
 CURRENT_ADMIN_USERNAME="$(read_env_value "${ROOT_DIR}/.env" ADMIN_USERNAME)"
 CURRENT_ADMIN_USERNAME="${CURRENT_ADMIN_USERNAME:-ati-local-user}"
 
@@ -628,14 +640,27 @@ if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
 fi
 case "$ALPACA_DATA_FEED" in iex|sip) ;; *) echo "Alpaca data feed must be iex or sip." >&2; exit 2 ;; esac
 
+OKX_KEY="$CURRENT_OKX_KEY"; OKX_SECRET="$CURRENT_OKX_SECRET"; OKX_PASSPHRASE="$CURRENT_OKX_PASSPHRASE"
+if contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    OKX_KEY="$(configured_existing_or_file "$CURRENT_OKX_KEY" "$OKX_API_KEY_FILE" "OKX Demo API key")"
+  elif [ -n "$OKX_API_KEY_FILE" ]; then
+    OKX_KEY="$(read_secret_file "$OKX_API_KEY_FILE" "OKX Demo API key")"
+  else
+    OKX_KEY="$(prompt_masked_value "OKX Demo API key" "$CURRENT_OKX_KEY")"
+  fi
+  OKX_SECRET="$(resolve_secret "$CURRENT_OKX_SECRET" "$OKX_SECRET_KEY_FILE" "OKX Demo secret key" "OKX Demo secret key")"
+  OKX_PASSPHRASE="$(resolve_secret "$CURRENT_OKX_PASSPHRASE" "$OKX_PASSPHRASE_FILE" "OKX Demo passphrase" "OKX Demo passphrase")"
+fi
+
 echo "Configuration summary:"
 echo "  Enabled adapters: ${ENABLED_ADAPTERS}"
 echo "  Initial adapter: ${INITIAL_ADAPTER}"
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then echo "  IB Gateway: enabled"; else echo "  IB Gateway: disabled"; fi
 if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then echo "  Alpaca feed: ${ALPACA_DATA_FEED}"; fi
-if contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then echo "  OKX Demo Spot: installed with all network/trading gates disabled"; fi
-if [ "$ENABLED_ADAPTERS" = "sim" ] || [ "$ENABLED_ADAPTERS" = "sim,ccxt_crypto" ]; then
-  echo "  Adapter credentials: not required while external broker I/O is disabled"
+if contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then echo "  OKX Demo Spot + USDT Perpetual: enabled with isolated targets and fixed perpetual policy"; fi
+if [ "$ENABLED_ADAPTERS" = "sim" ]; then
+  echo "  Adapter credentials: not required"
 else
   echo "  Adapter credentials: configured (values hidden)"
 fi
@@ -768,9 +793,24 @@ env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ALPACA_STREAM_QUEUE_SIZE 512
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_EXCHANGE_ID okx
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_SANDBOX true
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_LIVE false
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_API_KEY "$OKX_KEY"
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_SECRET "$OKX_SECRET"
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PASSPHRASE "$OKX_PASSPHRASE"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_ALLOWED_SYMBOLS BTC/USDT,ETH/USDT
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_EXECUTION_TARGET_ID okx-spot-demo-paper-1
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_MARKET_DATA_TARGET_ID okx-spot-demo-market-1
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_REST_MAX_CONCURRENCY 4
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_REQUEST_TIMEOUT_MS 30000
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_RECONCILE_INTERVAL_SECONDS 60
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_FULL_RECONCILE_INTERVAL_SECONDS 900
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_CLOCK_SKEW_BLOCK_MS 1000
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_MINIMUM_NOTIONAL 5
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_ALLOWED_SYMBOLS BTC/USDT:USDT,ETH/USDT:USDT
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_EXECUTION_TARGET_ID okx-perpetual-demo-paper-1
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_MARKET_DATA_TARGET_ID okx-perpetual-demo-market-1
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_POSITION_MODE ONE_WAY
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_MARGIN_MODE ISOLATED
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_FIXED_LEVERAGE 2
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_GATEWAY_HOST ib-gateway
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_GATEWAY_PORT 4004
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_CLIENT_ID 40

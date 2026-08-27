@@ -20,7 +20,7 @@ After the first installation, the local environment can run for 24 hours before 
 ## Features
 
 - Local trading console at `http://127.0.0.1:5173`.
-- Broker profiles: `sim`, `ibkr_paper`, `alpaca_paper`, and guarded `ccxt_crypto` for OKX Demo Spot; `sim` is always installed and multiple profiles may be enabled together.
+- Broker profiles: `sim`, `ibkr_paper`, `alpaca_paper`, and the unified `ccxt_crypto` profile for guarded OKX Demo Spot and USDT perpetual trading; `sim` is always installed and multiple profiles may be enabled together.
 - Core runtime services: API, account, orders, market data, risk, strategy, simulation, and strategy spec.
 - Local strategy mount: `strategies/` is mounted into the containers for examples and custom strategies.
 - Local persistence: `.env`, `middle/.env`, `data/`, and `logs/` stay on your machine.
@@ -90,7 +90,7 @@ credentials required by the selected broker adapters:
 
 - If IBKR is enabled: IBKR Paper username and password
 - If Alpaca is enabled: Alpaca Paper API key, secret, and `iex`/`sip` data feed
-- If OKX Demo Spot is enabled: no credential prompt; all external-I/O gates remain disabled by default
+- If OKX Demo Spot + USDT Perpetual is enabled: OKX Demo API key, secret, and passphrase
 
 After installation, open:
 
@@ -136,12 +136,12 @@ package manager. Non-root users need `sudo` for this step.
 
 ## Broker Profiles
 
-`sim` is always enabled and requires no broker account. The official Broker Runner image also contains a guarded `ccxt_crypto` profile, but the public installer wires only `BTC/USDT` and `ETH/USDT` OKX Demo Spot targets and leaves public-data, private-read, trading, and Market-order gates disabled by default. It does not expose the reviewed upstream perpetual target yet.
+`sim` is always enabled and requires no broker account. The official Broker Runner image contains one guarded `ccxt_crypto` profile that owns both the `BTC/USDT`, `ETH/USDT` Spot context and the `BTC/USDT:USDT`, `ETH/USDT:USDT` USDT-linear perpetual context. The public installer configures both contexts with separate execution/market-data targets and isolated runtime state. Perpetual trading is fixed to one-way position mode, isolated margin, and 2x leverage. The profile remains OKX Demo only: production, transfers, withdrawals, and implicit provider fallback are not enabled.
 
 After `ibkr_paper` or `alpaca_paper` is selected, the installer downloads, verifies, and installs that plugin into the persistent `data/broker-plugins/` directory. It neither modifies the official image nor builds a business-service image on the user's machine. `ibkr_paper` also starts the `ib-gateway` profile from `middle/docker-compose.yml`.
 
 The public source code, capability boundaries, and development documentation for
-`ibkr_paper`, `alpaca_paper`, and the upstream `ccxt_crypto` implementation are available in the
+`ibkr_paper`, `alpaca_paper`, and `ccxt_crypto` are available in the
 [Broker adapters repository](https://github.com/winglight/algo-trader-broker-adapters).
 ProjectX/Topstep controlled read-only and local dry-run modes are not selectable in this public installer.
 
@@ -161,6 +161,18 @@ Service password file options remain available as explicit overrides:
   --admin-password-file /secure/web \
   --alpaca-api-key-id-file /secure/alpaca-key \
   --alpaca-secret-key-file /secure/alpaca-secret
+```
+
+For unattended OKX Demo installation, select `ccxt_crypto` and provide all three
+credential files:
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,ccxt_crypto \
+  --initial-adapter ccxt_crypto \
+  --okx-api-key-file /secure/okx-key \
+  --okx-secret-key-file /secure/okx-secret \
+  --okx-passphrase-file /secure/okx-passphrase
 ```
 
 Plaintext credential arguments are rejected. Add `--dry-run` to validate candidate configuration without committing env files or starting containers.
