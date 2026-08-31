@@ -351,6 +351,10 @@ generate_secret() {
   od -An -N24 -tx1 /dev/urandom | tr -d ' \n'
 }
 
+generate_urlsafe_key() {
+  openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
+}
+
 resolve_managed_secret() {
   local env_file="$1" key="$2" file="$3" label="$4" existing
   if [ -n "$file" ]; then
@@ -718,6 +722,10 @@ JWT_SECRET="$(read_env_value "$ROOT_CANDIDATE" JWT_SECRET)"
 if placeholder_or_empty "$JWT_SECRET"; then JWT_SECRET="$(generate_secret)"; fi
 WATCHDOG_MAINTENANCE_TOKEN="$(read_env_value "$ROOT_CANDIDATE" SERVICE_WATCHDOG_MAINTENANCE_TOKEN)"
 if placeholder_or_empty "$WATCHDOG_MAINTENANCE_TOKEN"; then WATCHDOG_MAINTENANCE_TOKEN="$(generate_secret)"; fi
+BROKER_CREDENTIAL_KEK="$(read_env_value "$ROOT_CANDIDATE" BROKER_RUNNER_CREDENTIAL_KEK)"
+if placeholder_or_empty "$BROKER_CREDENTIAL_KEK"; then BROKER_CREDENTIAL_KEK="$(generate_urlsafe_key)"; fi
+BROKER_ADMIN_TOKEN="$(read_env_value "$ROOT_CANDIDATE" BROKER_RUNNER_ADMIN_TOKEN)"
+if placeholder_or_empty "$BROKER_ADMIN_TOKEN"; then BROKER_ADMIN_TOKEN="$(generate_secret)"; fi
 SCREENERS_GATEWAY_SHARED_SECRET="$(read_env_value "$SCREENERS_CANDIDATE" SCREENERS_GATEWAY_SHARED_SECRET)"
 if placeholder_or_empty "$SCREENERS_GATEWAY_SHARED_SECRET"; then SCREENERS_GATEWAY_SHARED_SECRET="$(generate_secret)"; fi
 
@@ -742,6 +750,9 @@ env_set_quoted "$ROOT_CANDIDATE" ADMIN_USERNAME "$CURRENT_ADMIN_USERNAME"
 env_set_quoted "$ROOT_CANDIDATE" ADMIN_PASSWORD "$ADMIN_PASSWORD"
 env_set_quoted "$ROOT_CANDIDATE" JWT_SECRET "$JWT_SECRET"
 env_set_quoted "$ROOT_CANDIDATE" SERVICE_WATCHDOG_MAINTENANCE_TOKEN "$WATCHDOG_MAINTENANCE_TOKEN"
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_CREDENTIAL_KEK "$BROKER_CREDENTIAL_KEK"
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CREDENTIAL_KEK_VERSION v1
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_ADMIN_TOKEN "$BROKER_ADMIN_TOKEN"
 if [ "$UPDATE_MODE" = "1" ]; then
   # A legacy Orders schema can make the new Orders image exit before the
   # watchdog performs its maintenance preflight. Enable the deliberately
@@ -769,6 +780,7 @@ if [ -n "$(read_env_value "$ROOT_CANDIDATE" COMPOSE_PROJECT_NAME)" ]; then
   env_set "$MIDDLE_CANDIDATE" COMPOSE_PROJECT_NAME "$(read_env_value "$ROOT_CANDIDATE" COMPOSE_PROJECT_NAME)"
 fi
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROFILE_REGISTRY_ENABLED true
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_DATABASE_PROFILE_REGISTRY_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ENABLED_ADAPTERS "$ENABLED_ADAPTERS"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_DEFAULT_ADAPTER_ID "$INITIAL_ADAPTER"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY broker_runner:active_adapter_id
@@ -958,6 +970,11 @@ echo "Active adapter selection updated to: ${INITIAL_ADAPTER}"
 if [ -f "${ROOT_DIR}/algo_trader.sql" ]; then
   { printf '%s\n' "$MARIADB_PASSWORD"; cat "${ROOT_DIR}/algo_trader.sql"; } | docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c 'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1 algo_trader' >/dev/null
 fi
+
+echo "Seeding installed Adapter Catalog and importing legacy Broker Profiles..."
+(cd "$ROOT_DIR" && docker compose -f docker-compose.yml run --rm --no-deps \
+  broker-runner-service python scripts/maintenance/bootstrap_broker_profiles.py \
+  --enabled-adapters "$ENABLED_ADAPTERS" --app-version "$backend_app_version")
 
 pull_application_images
 if [ "$UPDATE_MODE" = "1" ]; then

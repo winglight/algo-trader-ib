@@ -13,6 +13,195 @@ CREATE TABLE IF NOT EXISTS config (
     CONSTRAINT uq_config_config_key UNIQUE KEY (config_key)
 );
 
+-- Database-backed Broker Runner adapter catalog and account profiles.  Adapter
+-- software installation is still owned by the reviewed installer/update flow;
+-- these tables never carry package names, entrypoints, images, commands, or
+-- host paths supplied by the web API.
+CREATE TABLE IF NOT EXISTS broker_adapter_types (
+    adapter_type VARCHAR(64) NOT NULL PRIMARY KEY,
+    display_name VARCHAR(191) NOT NULL,
+    installed_version VARCHAR(64) NOT NULL,
+    protocol_version VARCHAR(64) NOT NULL,
+    management_mode VARCHAR(32) NOT NULL,
+    release_tier VARCHAR(32) NOT NULL,
+    config_schema_version VARCHAR(64) NOT NULL,
+    config_schema_json JSON NOT NULL,
+    ui_schema_json JSON NOT NULL,
+    capabilities_json JSON NOT NULL,
+    available TINYINT(1) NOT NULL DEFAULT 0,
+    installed_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    KEY idx_broker_adapter_types_available (available, release_tier)
+);
+
+CREATE TABLE IF NOT EXISTS broker_adapter_profiles (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    profile_id VARCHAR(64) NOT NULL,
+    adapter_type VARCHAR(64) NOT NULL,
+    display_name VARCHAR(191) NOT NULL,
+    environment VARCHAR(32) NOT NULL,
+    management_mode VARCHAR(32) NOT NULL,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    lifecycle_status VARCHAR(32) NOT NULL,
+    configuration_status VARCHAR(32) NOT NULL,
+    diagnostic_codes_json JSON NOT NULL,
+    config_schema_version VARCHAR(64) NOT NULL,
+    config_json JSON NOT NULL,
+    config_fingerprint CHAR(64) NOT NULL,
+    current_broker_account_id CHAR(36) NULL,
+    revision BIGINT NOT NULL DEFAULT 1,
+    created_by VARCHAR(191) NOT NULL,
+    updated_by VARCHAR(191) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    deleted_at DATETIME(6) NULL,
+    singleton_adapter_type VARCHAR(64) GENERATED ALWAYS AS (
+        CASE
+            WHEN management_mode = 'deployment_singleton' AND deleted_at IS NULL
+            THEN adapter_type
+            ELSE NULL
+        END
+    ) STORED,
+    CONSTRAINT uq_broker_adapter_profiles_profile_id UNIQUE KEY (profile_id),
+    CONSTRAINT uq_broker_adapter_profiles_singleton UNIQUE KEY (singleton_adapter_type),
+    KEY idx_broker_adapter_profiles_type_status (adapter_type, lifecycle_status, enabled),
+    CONSTRAINT fk_broker_adapter_profiles_type FOREIGN KEY (adapter_type)
+        REFERENCES broker_adapter_types(adapter_type) ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS broker_adapter_profile_secrets (
+    profile_id CHAR(36) NOT NULL PRIMARY KEY,
+    ciphertext LONGBLOB NOT NULL,
+    nonce VARBINARY(32) NOT NULL,
+    wrapped_data_key BLOB NOT NULL,
+    kek_version VARCHAR(64) NOT NULL,
+    secret_fields_json JSON NOT NULL,
+    updated_by VARCHAR(191) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CONSTRAINT fk_broker_adapter_profile_secrets_profile FOREIGN KEY (profile_id)
+        REFERENCES broker_adapter_profiles(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS broker_accounts (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    profile_id CHAR(36) NOT NULL,
+    broker_account_ref_enc BLOB NULL,
+    broker_account_ref_hash CHAR(64) NULL,
+    broker_account_masked VARCHAR(64) NULL,
+    display_name VARCHAR(191) NULL,
+    base_currency VARCHAR(16) NULL,
+    status VARCHAR(32) NOT NULL,
+    first_verified_at DATETIME(6) NULL,
+    last_verified_at DATETIME(6) NULL,
+    last_snapshot_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    deleted_at DATETIME(6) NULL,
+    CONSTRAINT uq_broker_accounts_profile_ref UNIQUE KEY (profile_id, broker_account_ref_hash),
+    KEY idx_broker_accounts_profile_status (profile_id, status),
+    CONSTRAINT fk_broker_accounts_profile FOREIGN KEY (profile_id)
+        REFERENCES broker_adapter_profiles(id) ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS broker_account_fund_state (
+    broker_account_id CHAR(36) NOT NULL PRIMARY KEY,
+    equity DECIMAL(28,8) NOT NULL,
+    cash_balance DECIMAL(28,8) NULL,
+    buying_power DECIMAL(28,8) NULL,
+    available_funds DECIMAL(28,8) NULL,
+    maintenance_margin DECIMAL(28,8) NULL,
+    initial_margin DECIMAL(28,8) NULL,
+    unrealized_pnl DECIMAL(28,8) NULL,
+    broker_daily_pnl DECIMAL(28,8) NULL,
+    currency VARCHAR(16) NOT NULL,
+    equity_source VARCHAR(32) NOT NULL,
+    broker_observed_at DATETIME(6) NOT NULL,
+    received_at DATETIME(6) NOT NULL,
+    source_revision BIGINT NOT NULL,
+    quality VARCHAR(32) NOT NULL,
+    raw_schema_version VARCHAR(64) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CONSTRAINT fk_broker_account_fund_state_account FOREIGN KEY (broker_account_id)
+        REFERENCES broker_accounts(id) ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS broker_account_equity_snapshots (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    broker_account_id CHAR(36) NOT NULL,
+    equity DECIMAL(28,8) NOT NULL,
+    cash_balance DECIMAL(28,8) NULL,
+    buying_power DECIMAL(28,8) NULL,
+    available_funds DECIMAL(28,8) NULL,
+    maintenance_margin DECIMAL(28,8) NULL,
+    initial_margin DECIMAL(28,8) NULL,
+    unrealized_pnl DECIMAL(28,8) NULL,
+    broker_daily_pnl DECIMAL(28,8) NULL,
+    net_cash_flow DECIMAL(28,8) NULL,
+    currency VARCHAR(16) NOT NULL,
+    equity_source VARCHAR(32) NOT NULL,
+    broker_observed_at DATETIME(6) NOT NULL,
+    received_at DATETIME(6) NOT NULL,
+    source_revision BIGINT NOT NULL,
+    quality VARCHAR(32) NOT NULL,
+    raw_schema_version VARCHAR(64) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    CONSTRAINT uq_broker_account_equity_revision UNIQUE KEY (broker_account_id, source_revision),
+    KEY idx_broker_account_equity_observed (broker_account_id, broker_observed_at),
+    CONSTRAINT fk_broker_account_equity_account FOREIGN KEY (broker_account_id)
+        REFERENCES broker_accounts(id) ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS broker_account_equity_daily (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    broker_account_id CHAR(36) NOT NULL,
+    trading_date_ny DATE NOT NULL,
+    timezone VARCHAR(64) NOT NULL,
+    opening_equity DECIMAL(28,8) NOT NULL,
+    peak_equity DECIMAL(28,8) NOT NULL,
+    low_equity DECIMAL(28,8) NOT NULL,
+    latest_equity DECIMAL(28,8) NOT NULL,
+    closing_equity DECIMAL(28,8) NULL,
+    net_cash_flow DECIMAL(28,8) NULL,
+    adjusted_equity_change DECIMAL(28,8) NULL,
+    actual_daily_loss DECIMAL(28,8) NULL,
+    broker_daily_pnl DECIMAL(28,8) NULL,
+    currency VARCHAR(16) NOT NULL,
+    equity_source VARCHAR(32) NOT NULL,
+    metric_quality VARCHAR(32) NOT NULL,
+    first_observed_at DATETIME(6) NOT NULL,
+    last_observed_at DATETIME(6) NOT NULL,
+    sample_count INT NOT NULL,
+    source_revision BIGINT NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CONSTRAINT uq_broker_account_equity_daily UNIQUE KEY (broker_account_id, trading_date_ny),
+    CONSTRAINT fk_broker_account_equity_daily_account FOREIGN KEY (broker_account_id)
+        REFERENCES broker_accounts(id) ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS broker_profile_operations (
+    operation_id CHAR(36) NOT NULL PRIMARY KEY,
+    operation_type VARCHAR(32) NOT NULL,
+    profile_id CHAR(36) NULL,
+    status VARCHAR(32) NOT NULL,
+    step VARCHAR(64) NOT NULL,
+    idempotency_key VARCHAR(191) NOT NULL,
+    actor VARCHAR(191) NOT NULL,
+    correlation_id VARCHAR(191) NULL,
+    previous_revision BIGINT NULL,
+    target_revision BIGINT NULL,
+    error_code VARCHAR(128) NULL,
+    secret_free_error_message TEXT NULL,
+    recovery_json JSON NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    completed_at DATETIME(6) NULL,
+    CONSTRAINT uq_broker_profile_operations_idempotency UNIQUE KEY (idempotency_key),
+    KEY idx_broker_profile_operations_profile (profile_id, created_at),
+    CONSTRAINT fk_broker_profile_operations_profile FOREIGN KEY (profile_id)
+        REFERENCES broker_adapter_profiles(id) ON DELETE SET NULL ON UPDATE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS strategy_packages (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     package_key VARCHAR(191) NOT NULL,
