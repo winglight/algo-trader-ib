@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 IFS=$'\n\t'
 
 RED=$'\033[31m'
@@ -1040,9 +1040,9 @@ if [ -f "${ROOT_DIR}/algo_trader.sql" ]; then
 fi
 
 echo "Seeding installed Adapter Catalog and importing legacy Broker Profiles..."
-(cd "$ROOT_DIR" && docker compose -f docker-compose.yml run --rm --no-deps \
+docker compose -f "${ROOT_DIR}/docker-compose.yml" run --rm --no-deps \
   broker-runner-service python scripts/maintenance/bootstrap_broker_profiles.py \
-  --enabled-adapters "$ENABLED_ADAPTERS" --app-version "$backend_app_version")
+  --enabled-adapters "$ENABLED_ADAPTERS" --app-version "$backend_app_version"
 
 pull_application_images
 if [ "$UPDATE_MODE" = "1" ]; then
