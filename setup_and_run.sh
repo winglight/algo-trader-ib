@@ -18,6 +18,8 @@ UPDATE_MODE=0
 ENABLED_ADAPTERS=""
 INITIAL_ADAPTER=""
 ALPACA_DATA_FEED=""
+PROJECTX_MODE=""
+PROJECTX_API_BASE_URL=""
 REDIS_PASSWORD_FILE="${ATI_REDIS_PASSWORD_FILE:-}"
 MARIADB_PASSWORD_FILE="${ATI_MARIADB_PASSWORD_FILE:-}"
 ADMIN_PASSWORD_FILE="${ATI_ADMIN_PASSWORD_FILE:-}"
@@ -29,6 +31,9 @@ ALPACA_SECRET_KEY_FILE="${ATI_ALPACA_SECRET_KEY_FILE:-}"
 OKX_API_KEY_FILE="${ATI_OKX_API_KEY_FILE:-}"
 OKX_SECRET_KEY_FILE="${ATI_OKX_SECRET_KEY_FILE:-}"
 OKX_PASSPHRASE_FILE="${ATI_OKX_PASSPHRASE_FILE:-}"
+PROJECTX_USERNAME_FILE="${ATI_PROJECTX_USERNAME_FILE:-}"
+PROJECTX_API_KEY_FILE="${ATI_PROJECTX_API_KEY_FILE:-}"
+PROJECTX_ACCOUNT_FILE="${ATI_PROJECTX_ACCOUNT_FILE:-}"
 PREPARED_PLUGIN_DIR=""
 PREPARED_PLUGIN_BUILD_DIR=""
 PLUGIN_BACKUP_DIR=""
@@ -40,9 +45,11 @@ Usage: setup_and_run.sh [options]
 
   --non-interactive
   --update
-  --enabled-adapters sim[,ibkr_paper][,alpaca_paper][,ccxt_crypto]
-  --initial-adapter sim|ibkr_paper|alpaca_paper|ccxt_crypto
+  --enabled-adapters sim[,ibkr_paper][,alpaca_paper][,ccxt_crypto][,projectx_topstep]
+  --initial-adapter sim|ibkr_paper|alpaca_paper|ccxt_crypto|projectx_topstep
   --alpaca-data-feed iex|sip
+  --projectx-mode dry_run|read_only
+  --projectx-api-base-url URL
   --redis-password-file PATH
   --mariadb-password-file PATH
   --admin-password-file PATH
@@ -54,6 +61,9 @@ Usage: setup_and_run.sh [options]
   --okx-api-key-file PATH
   --okx-secret-key-file PATH
   --okx-passphrase-file PATH
+  --projectx-username-file PATH
+  --projectx-api-key-file PATH
+  --projectx-account-file PATH
   --dry-run
 
 Secret values are accepted only through prompts or permission-controlled files.
@@ -68,6 +78,8 @@ while [ "$#" -gt 0 ]; do
     --enabled-adapters) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; ENABLED_ADAPTERS="$2"; shift 2 ;;
     --initial-adapter) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; INITIAL_ADAPTER="$2"; shift 2 ;;
     --alpaca-data-feed) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; ALPACA_DATA_FEED="$2"; shift 2 ;;
+    --projectx-mode) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; PROJECTX_MODE="$2"; shift 2 ;;
+    --projectx-api-base-url) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; PROJECTX_API_BASE_URL="$2"; shift 2 ;;
     --redis-password-file) REDIS_PASSWORD_FILE="$2"; shift 2 ;;
     --mariadb-password-file) MARIADB_PASSWORD_FILE="$2"; shift 2 ;;
     --admin-password-file) ADMIN_PASSWORD_FILE="$2"; shift 2 ;;
@@ -79,8 +91,11 @@ while [ "$#" -gt 0 ]; do
     --okx-api-key-file) OKX_API_KEY_FILE="$2"; shift 2 ;;
     --okx-secret-key-file) OKX_SECRET_KEY_FILE="$2"; shift 2 ;;
     --okx-passphrase-file) OKX_PASSPHRASE_FILE="$2"; shift 2 ;;
+    --projectx-username-file) PROJECTX_USERNAME_FILE="$2"; shift 2 ;;
+    --projectx-api-key-file) PROJECTX_API_KEY_FILE="$2"; shift 2 ;;
+    --projectx-account-file) PROJECTX_ACCOUNT_FILE="$2"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
-    --alpaca-secret-key|--alpaca-api-key-id|--ibkr-password|--ibkr-username|--okx-api-key|--okx-secret-key|--okx-passphrase)
+    --alpaca-secret-key|--alpaca-api-key-id|--ibkr-password|--ibkr-username|--okx-api-key|--okx-secret-key|--okx-passphrase|--projectx-username|--projectx-api-key|--projectx-account)
       echo "Plaintext credential arguments are forbidden; use the corresponding --*-file option." >&2
       exit 2
       ;;
@@ -221,13 +236,14 @@ legacy_initial_adapter() {
 
 choose_interactive_adapters() {
   local existing key sequence cursor=1 index selected_count first_render=1
-  local labels=("Sim (required)" "IBKR Paper" "Alpaca Paper" "OKX Demo Spot + USDT Perpetual")
-  local selected=(1 0 0 0)
+  local labels=("Sim (required)" "IBKR Paper" "Alpaca Paper" "OKX Demo Spot + USDT Perpetual" "ProjectX / Topstep (dry-run or provider read-only)")
+  local selected=(1 0 0 0 0)
   existing="$(read_env_value "${ROOT_DIR}/.env" BROKER_RUNNER_ENABLED_ADAPTERS)"
   [ -n "$existing" ] || existing="$(legacy_enabled_adapters)"
   contains_profile "$existing" ibkr_paper && selected[1]=1
   contains_profile "$existing" alpaca_paper && selected[2]=1
   contains_profile "$existing" ccxt_crypto && selected[3]=1
+  contains_profile "$existing" projectx_topstep && selected[4]=1
 
   if [ ! -t 0 ] || [ ! -t 1 ] || [ "${TERM:-dumb}" = "dumb" ]; then
     echo "Interactive adapter selection requires a terminal." >&2
@@ -236,12 +252,12 @@ choose_interactive_adapters() {
   fi
 
   while true; do
-    [ "$first_render" = "1" ] || printf '\033[6A'
+    [ "$first_render" = "1" ] || printf '\033[7A'
     first_render=0
-    selected_count=$((selected[0] + selected[1] + selected[2] + selected[3]))
-    printf '\r\033[2KSelect adapters (%s/4 selected):\n' "$selected_count"
+    selected_count=$((selected[0] + selected[1] + selected[2] + selected[3] + selected[4]))
+    printf '\r\033[2KSelect adapters (%s/5 selected):\n' "$selected_count"
     index=0
-    while [ "$index" -lt 4 ]; do
+    while [ "$index" -lt 5 ]; do
       printf '\r\033[2K'
       if [ "$index" -eq "$cursor" ]; then
         printf '\033[36m› '
@@ -271,11 +287,11 @@ choose_interactive_adapters() {
         case "$sequence" in
           '[A'|'OA')
             cursor=$((cursor - 1))
-            [ "$cursor" -ge 1 ] || cursor=3
+            [ "$cursor" -ge 1 ] || cursor=4
             ;;
           '[B'|'OB')
             cursor=$((cursor + 1))
-            [ "$cursor" -le 3 ] || cursor=1
+            [ "$cursor" -le 4 ] || cursor=1
             ;;
         esac
         ;;
@@ -291,6 +307,7 @@ choose_interactive_adapters() {
         [ "${selected[1]}" = "1" ] && ENABLED_ADAPTERS="${ENABLED_ADAPTERS},ibkr_paper"
         [ "${selected[2]}" = "1" ] && ENABLED_ADAPTERS="${ENABLED_ADAPTERS},alpaca_paper"
         [ "${selected[3]}" = "1" ] && ENABLED_ADAPTERS="${ENABLED_ADAPTERS},ccxt_crypto"
+        [ "${selected[4]}" = "1" ] && ENABLED_ADAPTERS="${ENABLED_ADAPTERS},projectx_topstep"
         printf '\n'
         return
         ;;
@@ -303,6 +320,7 @@ choose_interactive_initial() {
   contains_profile "$ENABLED_ADAPTERS" ibkr_paper && choices+=(ibkr_paper)
   contains_profile "$ENABLED_ADAPTERS" alpaca_paper && choices+=(alpaca_paper)
   contains_profile "$ENABLED_ADAPTERS" ccxt_crypto && choices+=(ccxt_crypto)
+  contains_profile "$ENABLED_ADAPTERS" projectx_topstep && choices+=(projectx_topstep)
   if [ "${#choices[@]}" -eq 1 ]; then
     INITIAL_ADAPTER=sim
     echo "Initial adapter: Sim (the only enabled adapter)."
@@ -318,6 +336,7 @@ choose_interactive_initial() {
       ibkr_paper) echo "  ${index}) IBKR Paper Adapter" ;;
       alpaca_paper) echo "  ${index}) Alpaca Paper Adapter" ;;
       ccxt_crypto) echo "  ${index}) OKX Demo Spot + USDT Perpetual (CCXT)" ;;
+      projectx_topstep) echo "  ${index}) ProjectX / Topstep controlled profile" ;;
     esac
     index=$((index + 1))
   done
@@ -468,7 +487,7 @@ validate_candidates() {
     -e PYTHONPATH=/plugins:/app/packages/ati-shared-sdk/src:/app/src \
     -v "${plugin_dir}:/plugins:ro" \
     --entrypoint python "$broker_runner_image" -c \
-    'from importlib import metadata; from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry, ENTRY_POINT_GROUP; import os; s=BrokerRunnerSettings.from_env(); [s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids]; entries={e.name:e for e in metadata.entry_points().select(group=ENTRY_POINT_GROUP)}; selected=[p for p in s.enabled_adapter_ids if p != "sim"]; missing_entries=[p for p in selected if p not in entries]; assert not missing_entries, f"Selected Adapter plugin entry points were not installed: {missing_entries}"; [entries[p].load() for p in selected]; r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); missing=[p for p in s.enabled_adapter_ids if not r.state(p).installed]; assert not missing, f"Selected Adapter plugins were not installed: {missing}"; adapter=r.load("ccxt_crypto") if "ccxt_crypto" in s.enabled_adapter_ids else None; capabilities=adapter.manifest().capabilities if adapter else None; asset_classes=set(capabilities.asset_classes) if capabilities else set(); assert adapter is None or {"CRYPTO_SPOT", "CRYPTO_PERPETUAL"}.issubset(asset_classes), f"ccxt_crypto must expose unified Spot and Perpetual capabilities: {asset_classes}"; native=dict(capabilities.native or {}) if capabilities else {}; assert adapter is None or native.get("executionTargets", {}).get("CRYPTO_PERPETUAL") == "okx-perpetual-demo-paper-1", "ccxt_crypto perpetual execution target is missing"; assert adapter is None or native.get("marketDataTargets", {}).get("CRYPTO_PERPETUAL") == "okx-perpetual-demo-market-1", "ccxt_crypto perpetual market-data target is missing"; policy=native.get("perpetualPolicy", {}) if native else {}; assert adapter is None or (policy.get("positionMode") == "ONE_WAY" and policy.get("marginMode") == "ISOLATED" and str(policy.get("fixedLeverage")) == "2"), f"ccxt_crypto perpetual policy is invalid: {policy}"'
+    'from importlib import metadata; from src.broker_runner.settings import BrokerRunnerSettings; from src.broker_runner.profile_registry import AdapterProfileRegistry, ENTRY_POINT_GROUP; import os; s=BrokerRunnerSettings.from_env(); parsed={p:s.profile_settings(p, os.environ) for p in s.enabled_adapter_ids}; entries={e.name:e for e in metadata.entry_points().select(group=ENTRY_POINT_GROUP)}; selected=[p for p in s.enabled_adapter_ids if p in {"ibkr_paper", "alpaca_paper", "ccxt_crypto"}]; missing_entries=[p for p in selected if p not in entries]; assert not missing_entries, f"Selected Adapter plugin entry points were not installed: {missing_entries}"; [entries[p].load() for p in selected]; r=AdapterProfileRegistry(s.enabled_adapter_ids, os.environ); missing=[p for p in s.enabled_adapter_ids if not r.state(p).installed]; assert not missing, f"Selected Adapter plugins were not installed: {missing}"; projectx=parsed.get("projectx_topstep"); assert projectx is None or (projectx.get("execution_mode") in {"dry_run", "read_only"} and projectx.get("live", False) is False and not projectx.get("provider_api_activation_enabled", False)), f"Public ProjectX mode must remain dry_run/read_only and non-live: {projectx}"; adapter=r.load("ccxt_crypto") if "ccxt_crypto" in s.enabled_adapter_ids else None; capabilities=adapter.manifest().capabilities if adapter else None; asset_classes=set(capabilities.asset_classes) if capabilities else set(); assert adapter is None or {"CRYPTO_SPOT", "CRYPTO_PERPETUAL"}.issubset(asset_classes), f"ccxt_crypto must expose unified Spot and Perpetual capabilities: {asset_classes}"; native=dict(capabilities.native or {}) if capabilities else {}; assert adapter is None or native.get("executionTargets", {}).get("CRYPTO_PERPETUAL") == "okx-perpetual-demo-paper-1", "ccxt_crypto perpetual execution target is missing"; assert adapter is None or native.get("marketDataTargets", {}).get("CRYPTO_PERPETUAL") == "okx-perpetual-demo-market-1", "ccxt_crypto perpetual market-data target is missing"; policy=native.get("perpetualPolicy", {}) if native else {}; assert adapter is None or (policy.get("positionMode") == "ONE_WAY" and policy.get("marginMode") == "ISOLATED" and str(policy.get("fixedLeverage")) == "2"), f"ccxt_crypto perpetual policy is invalid: {policy}"'
 }
 
 activate_prepared_plugins() {
@@ -587,6 +606,12 @@ CURRENT_ALPACA_SECRET="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env
 CURRENT_OKX_KEY="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_CCXT_CRYPTO_API_KEY)"
 CURRENT_OKX_SECRET="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_CCXT_CRYPTO_SECRET)"
 CURRENT_OKX_PASSPHRASE="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_CCXT_CRYPTO_PASSPHRASE)"
+CURRENT_PROJECTX_MODE="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_PROJECTX_EXECUTION_MODE)"
+CURRENT_PROJECTX_API_BASE_URL="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_PROJECTX_API_BASE_URL)"
+CURRENT_PROJECTX_USERNAME="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_PROJECTX_USERNAME)"
+CURRENT_PROJECTX_API_KEY="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_PROJECTX_API_KEY)"
+CURRENT_PROJECTX_ACCOUNT="$(current_or_example "${ROOT_DIR}/.env" "${ROOT_DIR}/.env.example" BROKER_RUNNER_PROJECTX_ACCOUNT)"
+[ "$CURRENT_PROJECTX_ACCOUNT" != "TOPSTEP-DRYRUN-50K" ] || CURRENT_PROJECTX_ACCOUNT=""
 CURRENT_ADMIN_USERNAME="$(read_env_value "${ROOT_DIR}/.env" ADMIN_USERNAME)"
 CURRENT_ADMIN_USERNAME="${CURRENT_ADMIN_USERNAME:-ati-local-user}"
 
@@ -657,12 +682,53 @@ if contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then
   OKX_PASSPHRASE="$(resolve_secret "$CURRENT_OKX_PASSPHRASE" "$OKX_PASSPHRASE_FILE" "OKX Demo passphrase" "OKX Demo passphrase")"
 fi
 
+PROJECTX_MODE="${PROJECTX_MODE:-${CURRENT_PROJECTX_MODE:-dry_run}}"
+PROJECTX_API_BASE_URL="${PROJECTX_API_BASE_URL:-$CURRENT_PROJECTX_API_BASE_URL}"
+PROJECTX_USERNAME=""; PROJECTX_API_KEY=""; PROJECTX_ACCOUNT="TOPSTEP-DRYRUN-50K"
+if contains_profile "$ENABLED_ADAPTERS" projectx_topstep; then
+  if [ "$NON_INTERACTIVE" = "0" ]; then
+    PROJECTX_MODE="$(prompt_value "ProjectX mode (dry_run/read_only)" "$PROJECTX_MODE" 0)"
+  fi
+  case "$PROJECTX_MODE" in
+    dry_run) ;;
+    read_only)
+      if [ "$NON_INTERACTIVE" = "0" ]; then
+        PROJECTX_API_BASE_URL="$(prompt_value "ProjectX API base URL (HTTPS)" "$PROJECTX_API_BASE_URL" 0)"
+      fi
+      case "$PROJECTX_API_BASE_URL" in
+        https://*) ;;
+        *) echo "ProjectX read_only requires an HTTPS --projectx-api-base-url." >&2; exit 2 ;;
+      esac
+      if [ "$NON_INTERACTIVE" = "1" ]; then
+        PROJECTX_USERNAME="$(configured_existing_or_file "$CURRENT_PROJECTX_USERNAME" "$PROJECTX_USERNAME_FILE" "ProjectX username")"
+        PROJECTX_ACCOUNT="$(configured_existing_or_file "$CURRENT_PROJECTX_ACCOUNT" "$PROJECTX_ACCOUNT_FILE" "ProjectX account")"
+      else
+        if [ -n "$PROJECTX_USERNAME_FILE" ]; then PROJECTX_USERNAME="$(read_secret_file "$PROJECTX_USERNAME_FILE" "ProjectX username")"; else PROJECTX_USERNAME="$(prompt_masked_value "ProjectX username" "$CURRENT_PROJECTX_USERNAME")"; fi
+        if [ -n "$PROJECTX_ACCOUNT_FILE" ]; then PROJECTX_ACCOUNT="$(read_secret_file "$PROJECTX_ACCOUNT_FILE" "ProjectX account")"; else PROJECTX_ACCOUNT="$(prompt_masked_value "ProjectX account" "$CURRENT_PROJECTX_ACCOUNT")"; fi
+      fi
+      PROJECTX_API_KEY="$(resolve_secret "$CURRENT_PROJECTX_API_KEY" "$PROJECTX_API_KEY_FILE" "ProjectX API key" "ProjectX API key")"
+      ;;
+    provider_api)
+      echo "ProjectX provider_api is not available through the public installer; choose dry_run or read_only." >&2
+      exit 2
+      ;;
+    *) echo "ProjectX mode must be dry_run or read_only." >&2; exit 2 ;;
+  esac
+else
+  PROJECTX_MODE="dry_run"
+  PROJECTX_API_BASE_URL=""
+  PROJECTX_USERNAME=""
+  PROJECTX_API_KEY=""
+  PROJECTX_ACCOUNT="TOPSTEP-DRYRUN-50K"
+fi
+
 echo "Configuration summary:"
 echo "  Enabled adapters: ${ENABLED_ADAPTERS}"
 echo "  Initial adapter: ${INITIAL_ADAPTER}"
 if contains_profile "$ENABLED_ADAPTERS" ibkr_paper; then echo "  IB Gateway: enabled"; else echo "  IB Gateway: disabled"; fi
 if contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then echo "  Alpaca feed: ${ALPACA_DATA_FEED}"; fi
 if contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then echo "  OKX Demo Spot + USDT Perpetual: enabled with isolated targets and fixed perpetual policy"; fi
+if contains_profile "$ENABLED_ADAPTERS" projectx_topstep; then echo "  ProjectX / Topstep: ${PROJECTX_MODE} (provider mutation and live execution disabled)"; fi
 if [ "$ENABLED_ADAPTERS" = "sim" ]; then
   echo "  Adapter credentials: not required"
 else
@@ -781,6 +847,7 @@ if [ -n "$(read_env_value "$ROOT_CANDIDATE" COMPOSE_PROJECT_NAME)" ]; then
 fi
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROFILE_REGISTRY_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_DATABASE_PROFILE_REGISTRY_ENABLED true
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CONTROLLED_PROFILES_ENABLED "$(contains_profile "$ENABLED_ADAPTERS" projectx_topstep && echo true || echo false)"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ENABLED_ADAPTERS "$ENABLED_ADAPTERS"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_DEFAULT_ADAPTER_ID "$INITIAL_ADAPTER"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_ACTIVE_ADAPTER_REDIS_KEY broker_runner:active_adapter_id
@@ -790,7 +857,7 @@ env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_GATE_ENABLED true
 env_set "$ROOT_CANDIDATE" BROKER_ADAPTER_SWITCH_POSITION_OVERRIDE_ENABLED false
 env_set "$ROOT_CANDIDATE" VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED true
-if contains_profile "$ENABLED_ADAPTERS" alpaca_paper || contains_profile "$ENABLED_ADAPTERS" ccxt_crypto; then
+if contains_profile "$ENABLED_ADAPTERS" alpaca_paper || contains_profile "$ENABLED_ADAPTERS" ccxt_crypto || contains_profile "$ENABLED_ADAPTERS" projectx_topstep; then
   env_set "$ROOT_CANDIDATE" BROKER_ASSET_CAPABILITY_GATE_ENABLED true
 else
   env_set "$ROOT_CANDIDATE" BROKER_ASSET_CAPABILITY_GATE_ENABLED false
@@ -823,6 +890,26 @@ env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_MARKET_DATA_TARGET
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_POSITION_MODE ONE_WAY
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_MARGIN_MODE ISOLATED
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_FIXED_LEVERAGE 2
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_EXECUTION_MODE "$PROJECTX_MODE"
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_MARKET_DATA_MODE "$( [ "$PROJECTX_MODE" = "read_only" ] && echo provider_read_only || echo local )"
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_ACCOUNT "$PROJECTX_ACCOUNT"
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_INITIAL_CASH 50000
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_ALLOWED_ROOTS MNQ
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_DRY_RUN_STATE_PATH logs/projectx_topstep/dry_run_state.json
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_SLIPPAGE_BPS 0.0
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_SEED 20260721
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_API_BASE_URL "$PROJECTX_API_BASE_URL"
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_RTC_BASE_URL https://rtc.topstepx.com
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_USERNAME "$PROJECTX_USERNAME"
+env_set_quoted "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_API_KEY "$PROJECTX_API_KEY"
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_ACTIVE_CONTRACT_ID ""
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_LIVE false
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_REQUEST_TIMEOUT_SECONDS 15.0
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_RECONCILE_INTERVAL_SECONDS 60
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_FULL_RECONCILE_INTERVAL_SECONDS 900
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_PROVIDER_API_ACTIVATION_ENABLED false
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_LOCAL_PERSONAL_DEVICE_ATTESTED false
+env_set "$ROOT_CANDIDATE" BROKER_RUNNER_PROJECTX_REMOTE_EXECUTION false
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_GATEWAY_HOST ib-gateway
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_GATEWAY_PORT 4004
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_CLIENT_ID 40
@@ -860,7 +947,7 @@ prepare_selected_adapter_plugins "$broker_runner_image"
 validate_candidates "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE" "$broker_runner_image" "$PREPARED_PLUGIN_DIR"
 
 echo "Validated configuration changes:"
-for key in BROKER_RUNNER_ENABLED_ADAPTERS BROKER_RUNNER_DEFAULT_ADAPTER_ID BROKER_RUNNER_PROFILE_REGISTRY_ENABLED BROKER_RUNNER_IBKR_PAPER_PROVIDER BROKER_RUNNER_PLUGIN_PATH BROKER_ADAPTER_SWITCH_ENABLED BROKER_ASSET_CAPABILITY_GATE_ENABLED VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED BROKER_RUNNER_IMAGE FRONTEND_IMAGE; do
+for key in BROKER_RUNNER_ENABLED_ADAPTERS BROKER_RUNNER_DEFAULT_ADAPTER_ID BROKER_RUNNER_PROFILE_REGISTRY_ENABLED BROKER_RUNNER_CONTROLLED_PROFILES_ENABLED BROKER_RUNNER_IBKR_PAPER_PROVIDER BROKER_RUNNER_PLUGIN_PATH BROKER_ADAPTER_SWITCH_ENABLED BROKER_ASSET_CAPABILITY_GATE_ENABLED VITE_BROKER_ADAPTER_SWITCH_UI_ENABLED BROKER_RUNNER_PROJECTX_EXECUTION_MODE BROKER_RUNNER_PROJECTX_MARKET_DATA_MODE BROKER_RUNNER_IMAGE FRONTEND_IMAGE; do
   echo "  ${key}=$(read_env_value "$ROOT_CANDIDATE" "$key")"
 done
 echo "  credential fields=<redacted>"

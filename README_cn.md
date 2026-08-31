@@ -20,7 +20,7 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 ## 功能概览
 
 - 本地交易工作台：浏览器访问 `http://127.0.0.1:5173`。
-- Broker adapter 支持 `sim`、`ibkr_paper`、`alpaca_paper`，以及统一承载受控 OKX Demo Spot 与 USDT 永续的 `ccxt_crypto`；`sim` 始终安装，可同时启用多个 profile。
+- Broker adapter 支持 `sim`、`ibkr_paper`、`alpaca_paper`、统一承载受控 OKX Demo Spot 与 USDT 永续的 `ccxt_crypto`，以及内置受控 `projectx_topstep`；`sim` 始终安装，可同时启用多个 profile。
 - 核心服务完整运行：API、account、orders、market data、risk、strategy、simulation、strategy spec。
 - 本地策略目录：`strategies/` 会挂载到容器中，便于查看示例和添加自定义策略。
 - 数据持久化：`.env`、`middle/.env`、`data/`、`logs/` 都保留在本机；其中云端绑定状态与本机安装身份保存在 `data/license/`，更新镜像、重建容器或清理日志都不会要求重新绑定。
@@ -79,6 +79,7 @@ Docker Desktop，启动应用并等待 Docker Engine 就绪，
 - 如果启用 IBKR：IBKR Paper 用户名和密码
 - 如果启用 Alpaca：Alpaca Paper API key、secret 和 `iex`/`sip` data feed
 - 如果启用 OKX Demo Spot + USDT 永续：OKX Demo API key、secret 和 passphrase
+- 如果启用 ProjectX/Topstep：选择本地 `dry_run` 或 provider `read_only`；只读模式还需要 HTTPS API base URL、username、API key 和准确的 account selector
 
 安装完成后打开：
 
@@ -120,11 +121,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib
 
 `sim` 始终启用且不需要券商账号。官方 Broker Runner 镜像内置统一的受控 `ccxt_crypto` profile：同一 profile 同时承载 `BTC/USDT`、`ETH/USDT` Spot 上下文，以及 `BTC/USDT:USDT`、`ETH/USDT:USDT` USDT 线性永续上下文。公开安装器会配置两套相互隔离的 execution/market-data target 和运行状态；永续固定为单向持仓、逐仓、2 倍杠杆。该 profile 仍仅限 OKX Demo，不启用生产环境、转账、提现或隐式 provider fallback。
 
+`projectx_topstep` 内置在官方 Broker Runner 镜像中，公开安装器只允许两种模式。`dry_run` 的订单、成交、仓位和账户状态全部保留在本地，并使用本地行情；`read_only` 登录已配置的 ProjectX/Topstep provider，只观察所选账户、仓位、订单、成交与 MNQ 行情，不提供 provider 订单变更。安装器始终写入 `LIVE=false`、`PROVIDER_API_ACTIVATION_ENABLED=false`、`LOCAL_PERSONAL_DEVICE_ATTESTED=false` 和 `REMOTE_EXECUTION=false`，并拒绝 `provider_api`。因此选择该 profile 不会授权、提交、撤销、修改或平仓 provider 订单。
+
 选择 `ibkr_paper` 或 `alpaca_paper` 后，安装器会从固定来源下载、校验并安装对应插件到持久化的 `data/broker-plugins/`；不会修改官方镜像，也不会在用户机器上构建业务镜像。`ibkr_paper` 还会启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile。
 
 `ibkr_paper`、`alpaca_paper` 与 `ccxt_crypto` 的公开源代码、能力边界和开发说明见
 [Broker adapters 仓库](https://github.com/winglight/algo-trader-broker-adapters)。
-ProjectX/Topstep 受控只读与本地 dry-run 模式不在本公开安装器的可选范围内。
+ProjectX 是 [ATI Local Runtime 主源码仓库](https://github.com/winglight/algo-trader)中的内置受控 profile，不是需要从 adapter 仓库另行安装的独立 package。
 
 安装完成后可在顶部栏查看已安装 profile。切换动作受后端 gate 和确认流程控制。只有 watchdog 容器挂载宿主机 Docker socket，其他业务容器默认不挂载。
 
@@ -155,6 +158,33 @@ ProjectX/Topstep 受控只读与本地 dry-run 模式不在本公开安装器的
 ```
 
 明文 credential 命令行参数会被拒绝。可先加 `--dry-run` 验证候选配置；dry-run 不提交 env，也不启动容器。
+
+ProjectX 本地 dry-run 不需要 provider credential：
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,projectx_topstep \
+  --initial-adapter projectx_topstep \
+  --projectx-mode dry_run \
+  --dry-run
+```
+
+ProjectX provider 只读模式必须使用权限受控的 credential 文件。API base URL 不是 secret，
+但必须使用 HTTPS：
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,projectx_topstep \
+  --initial-adapter projectx_topstep \
+  --projectx-mode read_only \
+  --projectx-api-base-url https://provider.example \
+  --projectx-username-file /secure/projectx-username \
+  --projectx-api-key-file /secure/projectx-api-key \
+  --projectx-account-file /secure/projectx-account \
+  --dry-run
+```
+
+请把示例 URL 替换为账号获准使用的 ProjectX API endpoint。此处命令末尾的 `--dry-run` 表示只验证安装器候选配置，与 Adapter 的本地 `dry_run` 执行模式不是同一概念。
 
 ## 管理命令
 

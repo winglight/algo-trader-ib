@@ -129,19 +129,37 @@ contains_profile() {
 }
 
 validate_enabled_adapters() {
-  case "$1" in
-    sim|sim,ccxt_crypto|sim,ibkr_paper|sim,alpaca_paper|sim,ibkr_paper,ccxt_crypto|sim,alpaca_paper,ccxt_crypto|sim,ibkr_paper,alpaca_paper|sim,ibkr_paper,alpaca_paper,ccxt_crypto) ;;
-    *)
-      echo "Enabled adapters must be an ordered subset of sim,ibkr_paper,alpaca_paper,ccxt_crypto and must include sim." >&2
+  local value="$1" profile rank previous_rank=0
+  local -a profiles
+  IFS=',' read -r -a profiles <<<"$value"
+  [ "${#profiles[@]}" -gt 0 ] && [ "${profiles[0]}" = "sim" ] || {
+    echo "Enabled adapters must begin with sim." >&2
+    return 1
+  }
+  for profile in "${profiles[@]}"; do
+    case "$profile" in
+      sim) rank=1 ;;
+      ibkr_paper) rank=2 ;;
+      alpaca_paper) rank=3 ;;
+      ccxt_crypto) rank=4 ;;
+      projectx_topstep) rank=5 ;;
+      *)
+        echo "Unknown enabled adapter: ${profile:-<empty>}" >&2
+        return 1
+        ;;
+    esac
+    if [ "$rank" -le "$previous_rank" ]; then
+      echo "Enabled adapters must be a duplicate-free ordered subset of sim,ibkr_paper,alpaca_paper,ccxt_crypto,projectx_topstep." >&2
       return 1
-      ;;
-  esac
+    fi
+    previous_rank="$rank"
+  done
 }
 
 validate_initial_adapter() {
   local enabled="$1" initial="$2"
   case "$initial" in
-    sim|ibkr_paper|alpaca_paper|ccxt_crypto) ;;
+    sim|ibkr_paper|alpaca_paper|ccxt_crypto|projectx_topstep) ;;
     *) echo "Unknown initial adapter: $initial" >&2; return 1 ;;
   esac
   if ! contains_profile "$enabled" "$initial"; then

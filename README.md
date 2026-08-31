@@ -20,7 +20,7 @@ After the first installation, the local environment can run for 24 hours before 
 ## Features
 
 - Local trading console at `http://127.0.0.1:5173`.
-- Broker profiles: `sim`, `ibkr_paper`, `alpaca_paper`, and the unified `ccxt_crypto` profile for guarded OKX Demo Spot and USDT perpetual trading; `sim` is always installed and multiple profiles may be enabled together.
+- Broker profiles: `sim`, `ibkr_paper`, `alpaca_paper`, the unified `ccxt_crypto` profile for guarded OKX Demo Spot and USDT perpetual trading, and the built-in controlled `projectx_topstep` profile; `sim` is always installed and multiple profiles may be enabled together.
 - Core runtime services: API, account, orders, market data, risk, strategy, simulation, and strategy spec.
 - Local strategy mount: `strategies/` is mounted into the containers for examples and custom strategies.
 - Local persistence: `.env`, `middle/.env`, `data/`, and `logs/` stay on your machine.
@@ -91,6 +91,7 @@ credentials required by the selected broker adapters:
 - If IBKR is enabled: IBKR Paper username and password
 - If Alpaca is enabled: Alpaca Paper API key, secret, and `iex`/`sip` data feed
 - If OKX Demo Spot + USDT Perpetual is enabled: OKX Demo API key, secret, and passphrase
+- If ProjectX/Topstep is enabled: choose local `dry_run` or provider `read_only`; read-only additionally requires an HTTPS API base URL, username, API key, and exact account selector
 
 After installation, open:
 
@@ -138,6 +139,8 @@ package manager. Non-root users need `sudo` for this step.
 
 `sim` is always enabled and requires no broker account. The official Broker Runner image contains one guarded `ccxt_crypto` profile that owns both the `BTC/USDT`, `ETH/USDT` Spot context and the `BTC/USDT:USDT`, `ETH/USDT:USDT` USDT-linear perpetual context. The public installer configures both contexts with separate execution/market-data targets and isolated runtime state. Perpetual trading is fixed to one-way position mode, isolated margin, and 2x leverage. The profile remains OKX Demo only: production, transfers, withdrawals, and implicit provider fallback are not enabled.
 
+`projectx_topstep` is built into the official Broker Runner image and is selectable only in two public modes. `dry_run` keeps orders, fills, positions, and account state local and uses local market data. `read_only` authenticates to the configured ProjectX/Topstep provider to observe the selected account, positions, orders, trades, and MNQ market data, but exposes no provider order mutations. The public installer always writes `LIVE=false`, `PROVIDER_API_ACTIVATION_ENABLED=false`, `LOCAL_PERSONAL_DEVICE_ATTESTED=false`, and `REMOTE_EXECUTION=false`; it rejects `provider_api` mode. Selecting this profile therefore does not authorize, submit, cancel, modify, or close provider orders.
+
 IBKR remains a deployment-managed singleton: the web UI cannot add a second IB account or rewrite Gateway credentials. To replace the configured IBKR Paper account, stop strategy activity and run `./scripts/reconfigure_ib_account.sh` from this directory on the host. The script acquires the trading gate, verifies that strategies/orders/positions are clear, backs up both env files and the secret-free Profile projection, rebuilds the single Gateway and dependent services, verifies the expected account plus its first fund snapshot, and rebinds the deployment Profile. On failure it restores the old configuration; if the old account cannot be reverified, it deliberately leaves the trading gate in place for manual recovery.
 
 After `ibkr_paper` or `alpaca_paper` is selected, the installer downloads, verifies, and installs that plugin into the persistent `data/broker-plugins/` directory. It neither modifies the official image nor builds a business-service image on the user's machine. `ibkr_paper` also starts the `ib-gateway` profile from `middle/docker-compose.yml`.
@@ -145,7 +148,8 @@ After `ibkr_paper` or `alpaca_paper` is selected, the installer downloads, verif
 The public source code, capability boundaries, and development documentation for
 `ibkr_paper`, `alpaca_paper`, and `ccxt_crypto` are available in the
 [Broker adapters repository](https://github.com/winglight/algo-trader-broker-adapters).
-ProjectX/Topstep controlled read-only and local dry-run modes are not selectable in this public installer.
+ProjectX is a built-in controlled profile in the
+[ATI Local Runtime source repository](https://github.com/winglight/algo-trader), not a separately installed adapter package.
 
 Installed profiles are shown in the top bar. Adapter changes use the backend gate and confirmation flow. Only the watchdog container mounts the host Docker socket; application containers do not mount it.
 
@@ -178,6 +182,33 @@ credential files:
 ```
 
 Plaintext credential arguments are rejected. Add `--dry-run` to validate candidate configuration without committing env files or starting containers.
+
+ProjectX local dry-run needs no provider credentials:
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,projectx_topstep \
+  --initial-adapter projectx_topstep \
+  --projectx-mode dry_run \
+  --dry-run
+```
+
+ProjectX provider read-only requires permission-controlled credential files. The
+API base URL is configuration rather than a secret, but it must use HTTPS:
+
+```bash
+./setup_and_run.sh --non-interactive \
+  --enabled-adapters sim,projectx_topstep \
+  --initial-adapter projectx_topstep \
+  --projectx-mode read_only \
+  --projectx-api-base-url https://provider.example \
+  --projectx-username-file /secure/projectx-username \
+  --projectx-api-key-file /secure/projectx-api-key \
+  --projectx-account-file /secure/projectx-account \
+  --dry-run
+```
+
+Replace the example URL with the ProjectX API endpoint authorized for your account. `--dry-run` here validates installer configuration; it is distinct from the adapter's local `dry_run` execution mode.
 
 ## Operations
 
