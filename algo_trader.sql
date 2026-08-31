@@ -55,13 +55,9 @@ CREATE TABLE IF NOT EXISTS broker_adapter_profiles (
     created_at DATETIME(6) NOT NULL,
     updated_at DATETIME(6) NOT NULL,
     deleted_at DATETIME(6) NULL,
-    singleton_adapter_type VARCHAR(64) GENERATED ALWAYS AS (
-        CASE
-            WHEN management_mode = 'deployment_singleton' AND deleted_at IS NULL
-            THEN adapter_type
-            ELSE NULL
-        END
-    ) STORED,
+    -- Written by the service on create/delete. MariaDB 11.4 rejects the old
+    -- generated expression because it references adapter_type in this table.
+    singleton_adapter_type VARCHAR(64) NULL,
     CONSTRAINT uq_broker_adapter_profiles_profile_id UNIQUE KEY (profile_id),
     CONSTRAINT uq_broker_adapter_profiles_singleton UNIQUE KEY (singleton_adapter_type),
     KEY idx_broker_adapter_profiles_type_status (adapter_type, lifecycle_status, enabled),

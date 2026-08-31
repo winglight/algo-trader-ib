@@ -1,6 +1,40 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 IFS=$'\n\t'
+
+RED=$'\033[31m'
+RESET=$'\033[0m'
+INSTALL_ERROR_REPORTED=0
+
+print_error() {
+  printf '%sERROR: %s%s\n' "$RED" "$*" "$RESET" >&2
+}
+
+stop_on_install_error() {
+  local rc=$? failed_command="${BASH_COMMAND:-unknown}" failed_line="${BASH_LINENO[0]:-unknown}"
+  trap - ERR
+  INSTALL_ERROR_REPORTED=1
+  print_error "Installation stopped immediately."
+  print_error "Exit code ${rc} at line ${failed_line}: ${failed_command}"
+  print_error "No automatic rollback was attempted; inspect the failed state before rerunning."
+  exit "$rc"
+}
+
+finish_install() {
+  local rc=$?
+  trap - EXIT
+  set +e
+  if declare -F cleanup_candidates >/dev/null 2>&1; then
+    cleanup_candidates
+  fi
+  if [ "$rc" -ne 0 ] && [ "$INSTALL_ERROR_REPORTED" -ne 1 ]; then
+    print_error "Installation stopped with exit code ${rc}. No automatic rollback was attempted."
+  fi
+  exit "$rc"
+}
+
+trap stop_on_install_error ERR
+trap finish_install EXIT
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
@@ -782,7 +816,6 @@ cleanup_candidates() {
     run_as_root rm -rf "$PREPARED_PLUGIN_BUILD_DIR"
   fi
 }
-trap cleanup_candidates EXIT
 
 JWT_SECRET="$(read_env_value "$ROOT_CANDIDATE" JWT_SECRET)"
 if placeholder_or_empty "$JWT_SECRET"; then JWT_SECRET="$(generate_secret)"; fi
@@ -961,58 +994,11 @@ ensure_shared_network "$(read_env_value "$ROOT_CANDIDATE" ATI_NETWORK_NAME)"
 backup_database_for_update
 
 BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/.installer-backup.XXXXXX")"
-ROOT_EXISTED=0; MIDDLE_EXISTED=0; SCREENERS_EXISTED=0
-[ -f "${ROOT_DIR}/.env" ] && { cp "${ROOT_DIR}/.env" "${BACKUP_DIR}/root.env"; ROOT_EXISTED=1; }
-[ -f "${MIDDLE_DIR}/.env" ] && { cp "${MIDDLE_DIR}/.env" "${BACKUP_DIR}/middle.env"; MIDDLE_EXISTED=1; }
-[ -f "$SCREENERS_ENV" ] && { cp "$SCREENERS_ENV" "${BACKUP_DIR}/screeners_service.env"; SCREENERS_EXISTED=1; }
+[ -f "${ROOT_DIR}/.env" ] && cp "${ROOT_DIR}/.env" "${BACKUP_DIR}/root.env"
+[ -f "${MIDDLE_DIR}/.env" ] && cp "${MIDDLE_DIR}/.env" "${BACKUP_DIR}/middle.env"
+[ -f "$SCREENERS_ENV" ] && cp "$SCREENERS_ENV" "${BACKUP_DIR}/screeners_service.env"
 chmod 700 "$BACKUP_DIR"
 chmod 600 "${BACKUP_DIR}"/*.env 2>/dev/null || true
-PREVIOUS_IB_ENABLED="$(read_env_value "${ROOT_DIR}/.env" SERVICE_WATCHDOG_IB_GATEWAY_ENABLED)"
-ACTIVE_ADAPTER_SELECTION_CAPTURED=0
-PREVIOUS_ACTIVE_ADAPTER_SELECTION=""
-COMMITTED=1
-rollback() {
-  local rc=$?
-  trap - EXIT
-  if [ "$rc" -ne 0 ] && [ "${COMMITTED:-0}" = "1" ]; then
-    echo "Installation failed; restoring previous environment files." >&2
-    set +e
-    if [ "$ROOT_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/root.env" "${ROOT_DIR}/.env"; else rm -f "${ROOT_DIR}/.env"; fi
-    if [ "$MIDDLE_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/middle.env" "${MIDDLE_DIR}/.env"; else rm -f "${MIDDLE_DIR}/.env"; fi
-    if [ "$SCREENERS_EXISTED" = "1" ]; then cp "${BACKUP_DIR}/screeners_service.env" "$SCREENERS_ENV"; else rm -f "$SCREENERS_ENV"; fi
-    if [ "$PLUGIN_ACTIVATED" = "1" ]; then
-      run_as_root rm -rf "${ROOT_DIR}/data/broker-plugins"
-      if run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
-        run_as_root mv "$PLUGIN_BACKUP_DIR" "${ROOT_DIR}/data/broker-plugins"
-      fi
-      PLUGIN_ACTIVATED=0
-    fi
-    if [ "$ACTIVE_ADAPTER_SELECTION_CAPTURED" = "1" ]; then
-      if [ -n "$PREVIOUS_ACTIVE_ADAPTER_SELECTION" ]; then
-        docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
-          -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli SET broker_runner:active_adapter_id \
-          "$PREVIOUS_ACTIVE_ADAPTER_SELECTION" >/dev/null 2>&1 || true
-      else
-        docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
-          -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli DEL broker_runner:active_adapter_id \
-          >/dev/null 2>&1 || true
-      fi
-    fi
-    chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" "$SCREENERS_ENV" 2>/dev/null || true
-    if [ "$PREVIOUS_IB_ENABLED" = "1" ]; then
-      ensure_ib_gateway_settings_permissions || true
-      docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" --profile ib up -d >/dev/null 2>&1 || true
-    else
-      docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" --profile ib stop ib-gateway >/dev/null 2>&1 || true
-      docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" up -d >/dev/null 2>&1 || true
-    fi
-    docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d >/dev/null 2>&1 || true
-    set -e
-  fi
-  cleanup_candidates
-  exit "$rc"
-}
-trap rollback EXIT
 mv "$ROOT_CANDIDATE" "${ROOT_DIR}/.env"
 mv "$MIDDLE_CANDIDATE" "${MIDDLE_DIR}/.env"
 mv "$SCREENERS_CANDIDATE" "$SCREENERS_ENV"
@@ -1044,11 +1030,6 @@ SQL_PASSWORD="$(printf '%s' "$MARIADB_PASSWORD" | sed -e 's/\\/\\\\/g' -e "s/'/\
 INIT_SQL="CREATE DATABASE IF NOT EXISTS algo_trader; CREATE DATABASE IF NOT EXISTS algo_trader_backtest; CREATE USER IF NOT EXISTS 'algo_trader'@'%' IDENTIFIED BY '${SQL_PASSWORD}'; CREATE USER IF NOT EXISTS 'algo_trader_backtest'@'%' IDENTIFIED BY '${SQL_PASSWORD}'; GRANT ALL PRIVILEGES ON algo_trader.* TO 'algo_trader'@'%'; GRANT ALL PRIVILEGES ON algo_trader_backtest.* TO 'algo_trader_backtest'@'%'; FLUSH PRIVILEGES;"
 { printf '%s\n' "$MARIADB_PASSWORD"; printf '%s\n' "$INIT_SQL"; } | docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c 'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1' >/dev/null
 
-PREVIOUS_ACTIVE_ADAPTER_SELECTION="$(
-  docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
-    -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli --raw GET broker_runner:active_adapter_id
-)"
-ACTIVE_ADAPTER_SELECTION_CAPTURED=1
 docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.yml" exec -T \
   -e REDISCLI_AUTH="$REDIS_PASSWORD" redis redis-cli SET broker_runner:active_adapter_id \
   "$INITIAL_ADAPTER" >/dev/null
@@ -1088,8 +1069,6 @@ validate_active_adapter_contract() {
 }
 validate_active_adapter_contract
 
-COMMITTED=0
-trap cleanup_candidates EXIT
 if [ -n "$PLUGIN_BACKUP_DIR" ] && run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
   run_as_root rm -rf "$PLUGIN_BACKUP_DIR"
 fi
