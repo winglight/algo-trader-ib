@@ -224,6 +224,11 @@ current_or_example() {
 
 resolve_redis_volume_name() {
   local configured compose_file middle_env container_id mounted_name project_name
+  configured="${ATI_PRESERVED_REDIS_VOLUME_NAME:-}"
+  if [ -n "$configured" ]; then
+    printf '%s' "$configured"
+    return
+  fi
   configured="$(read_env_value "${MIDDLE_DIR}/.env" ATI_REDIS_VOLUME_NAME)"
   [ -n "$configured" ] || configured="$(read_env_value "${ROOT_DIR}/.env" ATI_REDIS_VOLUME_NAME)"
   if [ -n "$configured" ]; then
@@ -574,6 +579,7 @@ pull_application_images() {
     simulation-service
     strategy-spec-service
     strategy-service
+    audit-service
     screeners-service
     service-watchdog
     frontend

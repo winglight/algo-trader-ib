@@ -117,6 +117,29 @@ restore_env_files() {
   done <"$manifest"
 }
 
+capture_redis_volume_name() {
+  local compose_file="${INSTALL_DIR}/middle/docker-compose.yml"
+  local middle_env="${INSTALL_DIR}/middle/.env"
+  local container_id mounted_name
+  [ -f "$compose_file" ] || return 0
+  if [ -f "$middle_env" ]; then
+    container_id="$(docker compose --env-file "$middle_env" -f "$compose_file" ps -q redis 2>/dev/null || true)"
+  else
+    container_id="$(docker compose -f "$compose_file" ps -q redis 2>/dev/null || true)"
+  fi
+  [ -n "$container_id" ] || return 0
+  mounted_name="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)"
+  [ -n "$mounted_name" ] || return 0
+  case "$mounted_name" in
+    *[!a-zA-Z0-9_.-]*)
+      echo "Existing Redis volume name contains unsupported characters: ${mounted_name}" >&2
+      return 1
+      ;;
+  esac
+  export ATI_PRESERVED_REDIS_VOLUME_NAME="$mounted_name"
+  echo "Preserving the mounted Redis identity volume: ${mounted_name}"
+}
+
 preserve_runtime_paths() {
   local backup_dir="$1" rel_path
   [ -d "$INSTALL_DIR" ] || return 0
@@ -254,6 +277,7 @@ download_with_zip() {
   mkdir -p "$env_backup"
   touch "$env_manifest"
   backup_env_files "$env_backup" "$env_manifest"
+  capture_redis_volume_name
   archive_url="$ARCHIVE_URL"
   case "$archive_url" in
     https://github.com/*/archive/refs/heads/*.zip*)

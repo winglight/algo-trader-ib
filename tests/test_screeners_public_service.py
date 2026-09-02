@@ -33,9 +33,20 @@ class ScreenersPublicServiceTests(unittest.TestCase):
         self.assertIn("screeners|http://screeners-service:8116/healthz", content)
         self.assertIn("OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec,screeners", content)
 
+    def test_compose_runs_and_monitors_the_licensed_audit_service(self) -> None:
+        content = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        audit_env = (ROOT / "config/audit_service.env.example").read_text(encoding="utf-8")
+
+        self.assertIn("audit-service:", content)
+        self.assertIn("algo-trader/audit-service:", content)
+        self.assertIn("audit|http://audit-service:8109/healthz", content)
+        self.assertIn("AUDIT_SERVICE_REGISTRY_HOST: audit-service", content)
+        self.assertIn('AUDIT_SERVICE_REGISTRY_NAME="audit"', audit_env)
+
     def test_installer_pulls_screeners_image(self) -> None:
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
         self.assertIn("    screeners-service\n", content)
+        self.assertIn("    audit-service\n", content)
 
     def test_installer_downloads_the_latest_adapter_main_source(self) -> None:
         content = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
