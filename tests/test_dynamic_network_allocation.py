@@ -88,6 +88,19 @@ class DynamicNetworkAllocationTests(unittest.TestCase):
         self.assertNotIn("ATI_NETWORK_PREFIX", installer)
         self.assertNotIn("ATI_NETWORK_SUBNET", installer)
 
+    def test_installer_routes_ib_recovery_through_service_watchdog(self) -> None:
+        installer = (ROOT / "setup_and_run.sh").read_text(encoding="utf-8")
+
+        expected_url = (
+            "http://service-watchdog:8110/watchdog/actions/ib-gateway/restart"
+        )
+        self.assertIn(
+            'env_set "$ROOT_CANDIDATE" MARKET_DATA_IB_RESTART_URL '
+            f'"$(contains_profile "$ENABLED_ADAPTERS" ibkr_paper && echo {expected_url} || true)"',
+            installer,
+        )
+        self.assertNotIn("http://backend:8000/runtime/ib-gateway/restart", installer)
+
 
 if __name__ == "__main__":
     unittest.main()

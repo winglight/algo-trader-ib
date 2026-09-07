@@ -956,7 +956,7 @@ env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IB_READ_ONLY false
 env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_IB_GATEWAY_ENABLED "$(contains_profile "$ENABLED_ADAPTERS" ibkr_paper && echo 1 || echo 0)"
 env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_IB_GATEWAY_CONTAINER "$(read_env_value "$ROOT_CANDIDATE" ATI_IB_GATEWAY_CONTAINER_NAME)"
 env_set "$ROOT_CANDIDATE" SERVICE_WATCHDOG_IB_GATEWAY_DOCKER_HOST unix:///var/run/docker.sock
-env_set "$ROOT_CANDIDATE" MARKET_DATA_IB_RESTART_URL "$(contains_profile "$ENABLED_ADAPTERS" ibkr_paper && echo http://backend:8000/runtime/ib-gateway/restart || true)"
+env_set "$ROOT_CANDIDATE" MARKET_DATA_IB_RESTART_URL "$(contains_profile "$ENABLED_ADAPTERS" ibkr_paper && echo http://service-watchdog:8110/watchdog/actions/ib-gateway/restart || true)"
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_URL http://broker-runner-service:8115
 env_set "$ROOT_CANDIDATE" ACCOUNT_BROKER_RUNNER_URL http://broker-runner-service:8115
 env_set "$ROOT_CANDIDATE" ORDERS_BROKER_RUNNER_URL http://broker-runner-service:8115
