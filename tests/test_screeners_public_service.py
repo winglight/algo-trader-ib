@@ -33,6 +33,22 @@ class ScreenersPublicServiceTests(unittest.TestCase):
         self.assertIn("screeners|http://screeners-service:8116/healthz", content)
         self.assertIn("OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec,screeners", content)
 
+    def test_screeners_waits_for_runtime_dependencies_to_be_healthy(self) -> None:
+        content = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        screeners = content.split("  screeners-service:\n", 1)[1].split(
+            "  service-watchdog:\n", 1
+        )[0]
+
+        for service in (
+            "broker-runner-service",
+            "market-data-service",
+            "strategy-spec-service",
+        ):
+            self.assertIn(
+                f"      {service}:\n        condition: service_healthy",
+                screeners,
+            )
+
     def test_compose_runs_and_monitors_the_licensed_audit_service(self) -> None:
         content = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         audit_env = (ROOT / "config/audit_service.env.example").read_text(encoding="utf-8")

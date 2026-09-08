@@ -272,9 +272,11 @@ services:
       start_period: 10s
     depends_on:
       broker-runner-service:
-        condition: service_started
+        condition: service_healthy
+      market-data-service:
+        condition: service_healthy
       strategy-spec-service:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   service-watchdog:
