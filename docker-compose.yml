@@ -101,6 +101,12 @@ services:
       BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_MARGIN_MODE: ${BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_MARGIN_MODE:-ISOLATED}
       BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_FIXED_LEVERAGE: ${BROKER_RUNNER_CCXT_CRYPTO_PERPETUAL_FIXED_LEVERAGE:-2}
       BROKER_RUNNER_SERVICE_REGISTRY_URL: http://broker-runner-service:8115
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8115/healthz', timeout=3).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
 
   account-service:
@@ -151,6 +157,12 @@ services:
     depends_on:
       broker-runner-service:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/healthz', timeout=3).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   risk-service:
     image: ghcr.io/winglight/algo-trader/risk-service:${ATI_IMAGE_TAG:-latest}
@@ -191,6 +203,12 @@ services:
       BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED:-true}
       BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED:-true}
     command: ["/bin/sh", "./docker/start_strategy_spec_service.sh"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8114/healthz', timeout=3).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
 
   strategy-service:

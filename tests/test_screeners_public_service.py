@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,20 +36,29 @@ class ScreenersPublicServiceTests(unittest.TestCase):
         self.assertIn("OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec,screeners", content)
 
     def test_screeners_waits_for_runtime_dependencies_to_be_healthy(self) -> None:
-        content = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        compose_path = ROOT / "docker-compose.yml"
+        content = compose_path.read_text(encoding="utf-8")
         screeners = content.split("  screeners-service:\n", 1)[1].split(
             "  service-watchdog:\n", 1
         )[0]
+        services = yaml.safe_load(content)["services"]
 
-        for service in (
-            "broker-runner-service",
-            "market-data-service",
-            "strategy-spec-service",
-        ):
+        dependencies = {
+            "broker-runner-service": "8115",
+            "market-data-service": "8102",
+            "strategy-spec-service": "8114",
+        }
+        for service, port in dependencies.items():
             self.assertIn(
                 f"      {service}:\n        condition: service_healthy",
                 screeners,
             )
+            healthcheck = services[service]["healthcheck"]
+            self.assertIn(f"http://127.0.0.1:{port}/healthz", healthcheck["test"][-1])
+            self.assertEqual(healthcheck["interval"], "5s")
+            self.assertEqual(healthcheck["timeout"], "3s")
+            self.assertEqual(healthcheck["retries"], 12)
+            self.assertEqual(healthcheck["start_period"], "10s")
 
     def test_compose_runs_and_monitors_the_licensed_audit_service(self) -> None:
         content = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
