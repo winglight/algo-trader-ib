@@ -153,6 +153,7 @@ services:
       - ./config:/app/config
     environment:
       MARKET_DATA_BROKER_RUNNER_URL: http://broker-runner-service:8115
+      MARKET_DATA_SERVICE_REGISTRY_RESTART_MODE: watchdog
     restart: unless-stopped
     depends_on:
       broker-runner-service:
