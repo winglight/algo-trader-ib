@@ -576,7 +576,6 @@ pull_application_images() {
     orders-service
     market-data-service
     risk-service
-    simulation-service
     strategy-spec-service
     strategy-service
     audit-service
