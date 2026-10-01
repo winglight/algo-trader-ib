@@ -584,7 +584,7 @@ pull_application_images() {
     frontend
   )
   services+=(broker-runner-service)
-  (cd "$ROOT_DIR" && docker compose -f docker-compose.yml pull "${services[@]}")
+  (cd "$ROOT_DIR" && retry_image_transfer docker compose -f docker-compose.yml pull "${services[@]}")
 }
 
 backup_database_for_update() {
@@ -975,12 +975,12 @@ validate_public_image_reference "$frontend_image" frontend
 env_set "$ROOT_CANDIDATE" BROKER_RUNNER_IMAGE "$broker_runner_image"
 env_set "$ROOT_CANDIDATE" FRONTEND_IMAGE "$frontend_image"
 echo "Pulling the official Backend image: ${backend_image}"
-docker pull "$backend_image"
+retry_image_transfer docker pull "$backend_image"
 backend_app_version="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$backend_image" | awk -F= '$1 == "APP_VERSION" { sub(/^[^=]*=/, ""); print; exit }')"
 [ -n "$backend_app_version" ] || { echo "Backend image does not declare APP_VERSION: ${backend_image}" >&2; exit 1; }
 env_set "$ROOT_CANDIDATE" APP_VERSION "$backend_app_version"
 echo "Pulling the official Broker Runner base image: ${broker_runner_image}"
-docker pull "$broker_runner_image"
+retry_image_transfer docker pull "$broker_runner_image"
 prepare_selected_adapter_plugins "$broker_runner_image"
 validate_candidates "$ROOT_CANDIDATE" "$MIDDLE_CANDIDATE" "$broker_runner_image" "$PREPARED_PLUGIN_DIR"
 

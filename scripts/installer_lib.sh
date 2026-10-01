@@ -1,5 +1,27 @@
 #!/usr/bin/env bash
 
+# Retry only image transfers, never the installer or database migrations.
+retry_image_transfer() {
+  local attempt=1 rc delay="${ATI_RELEASE_RETRY_DELAY_SECONDS:-10}"
+  local attempts="${ATI_RELEASE_RETRY_ATTEMPTS:-4}"
+  if ! [[ "$attempts" =~ ^[1-9][0-9]*$ && "$delay" =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "Invalid release retry settings." >&2
+    return 2
+  fi
+  while true; do
+    if "$@"; then return 0; else rc=$?; fi
+    if [ "$attempt" -ge "$attempts" ]; then
+      echo "Image transfer exhausted ${attempts} attempts (exit ${rc})." >&2
+      return "$rc"
+    fi
+    echo "Image transfer failed (exit ${rc}); retry ${attempt}/${attempts} in ${delay}s." >&2
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+    [ "$delay" -le 120 ] || delay=120
+  done
+}
+
 read_env_value() {
   local file="$1" key="$2" value
   if [ -f "$file" ]; then
