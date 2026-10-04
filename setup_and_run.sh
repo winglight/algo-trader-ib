@@ -577,7 +577,6 @@ pull_application_images() {
     market-data-service
     risk-service
     strategy-spec-service
-    strategy-service
     audit-service
     screeners-service
     service-watchdog

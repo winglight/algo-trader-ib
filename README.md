@@ -2,16 +2,16 @@
 
 [中文说明](README_cn.md)
 
-ATI Local Runtime is the local runtime package for Algo Trading Intelligence. It runs the trading console, API, account, orders, market data, risk, strategy, simulation, and strategy spec services as a Docker Compose environment on your own machine or server.
+ATI Local Runtime is the local runtime package for Algo Trading Intelligence. It runs the trading console, API, account, orders, market data, risk, audit, screeners, and strategy spec services as a Docker Compose environment on your own machine or server.
 
-Official website: [ati.broyustudio.com](https://ati.broyustudio.com)  
-Membership and product page: [ati.broyustudio.com](https://ati.broyustudio.com)  
-Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)  
+Official website: [ati.broyustudio.com](https://ati.broyustudio.com)
+Membership and product page: [ati.broyustudio.com](https://ati.broyustudio.com)
+Cloud Strategy Studio: [ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)
 Local trading system demo: [ati-trading.broyustudio.com](https://ati-trading.broyustudio.com)
 
 Open-source Broker adapters: [winglight/algo-trader-broker-adapters](https://github.com/winglight/algo-trader-broker-adapters)
 
-Use the local runtime for your own trading environment and local validation. Use Cloud Strategy Studio for hosted workflow design, trial access, and future subscription features. 
+Use the local runtime for your own trading environment and local validation. Use Cloud Strategy Studio for hosted workflow design, trial access, and future subscription features.
 
 After the first installation, the local environment can run for 24 hours before it is bound to a cloud account. After binding, local services are enabled or disabled according to the capabilities attached to the cloud subscription tier.
 
@@ -21,8 +21,7 @@ After the first installation, the local environment can run for 24 hours before 
 
 - Local trading console at `http://127.0.0.1:5173`.
 - Broker profiles: `sim`, `ibkr_paper`, `alpaca_paper`, the unified `ccxt_crypto` profile for guarded OKX Demo Spot and USDT perpetual trading, and the built-in controlled `projectx_topstep` profile; `sim` is always installed and multiple profiles may be enabled together.
-- Core runtime services: API, account, orders, market data, risk, strategy, simulation, and strategy spec.
-- Local strategy mount: `strategies/` is mounted into the containers for examples and custom strategies.
+- Core runtime services: API, account, orders, market data, risk, audit, screeners, and strategy spec.
 - Local persistence: `.env`, `middle/.env`, `data/`, and `logs/` stay on your machine.
 - Backend docs/redoc/openapi routes are disabled by default, and backend, Redis, and MariaDB ports are not published to the host by default.
 
@@ -264,7 +263,6 @@ creates a new installation fingerprint and requires binding again.
 - `middle/docker-compose.yml`: Redis, MariaDB, and optional IBKR Paper Gateway.
 - `.env.example`: application configuration template.
 - `config/*.env.example`: per-service configuration templates.
-- `strategies/`: local example and custom strategy mount directory.
 - `algo_trader.sql`: local database initialization SQL.
 
 ## Disclaimer

@@ -143,11 +143,11 @@ def get(url):
     with urllib.request.urlopen(url, timeout=15) as response:
         return json.load(response)
 
-strategies = get("http://strategy-service:8104/strategies?compact=true")
-items = strategies.get("strategies", strategies if isinstance(strategies, list) else [])
+deployments = get("http://strategy-spec-service:8114/spec/deployments")
+items = deployments.get("items", deployments.get("deployments", []))
 running = [item for item in items if str(item.get("status") or item.get("runtimeStatus") or "").lower() in {"running", "starting", "stopping"}]
 if running:
-    raise SystemExit("Running/transitioning strategies block IB account replacement")
+    raise SystemExit("Running/transitioning SPEC deployments block IB account replacement")
 open_orders = get("http://broker-runner-service:8115/broker/orders/open")
 positions = get("http://broker-runner-service:8115/broker/account/positions")
 if open_orders:

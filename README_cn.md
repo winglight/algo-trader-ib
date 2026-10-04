@@ -4,9 +4,9 @@
 
 ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交易工作台、API、账户、订单、行情、风控、策略、仿真和策略规格服务打包为一套 Docker Compose 环境，适合在个人电脑或自有服务器上运行。
 
-官方网站：[ati.broyustudio.com](https://ati.broyustudio.com)  
-会员与产品页入口：[ati.broyustudio.com](https://ati.broyustudio.com)  
-云端 Strategy Studio：[ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)  
+官方网站：[ati.broyustudio.com](https://ati.broyustudio.com)
+会员与产品页入口：[ati.broyustudio.com](https://ati.broyustudio.com)
+云端 Strategy Studio：[ati-studio.broyustudio.com](https://ati-studio.broyustudio.com)
 本地交易系统 Demo：[ati-trading.broyustudio.com](https://ati-trading.broyustudio.com)
 
 开源 Broker adapters：[winglight/algo-trader-broker-adapters](https://github.com/winglight/algo-trader-broker-adapters)
@@ -21,8 +21,7 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 
 - 本地交易工作台：浏览器访问 `http://127.0.0.1:5173`。
 - Broker adapter 支持 `sim`、`ibkr_paper`、`alpaca_paper`、统一承载受控 OKX Demo Spot 与 USDT 永续的 `ccxt_crypto`，以及内置受控 `projectx_topstep`；`sim` 始终安装，可同时启用多个 profile。
-- 核心服务完整运行：API、account、orders、market data、risk、strategy、simulation、strategy spec。
-- 本地策略目录：`strategies/` 会挂载到容器中，便于查看示例和添加自定义策略。
+- 核心服务完整运行：API、account、orders、market data、risk、audit、screeners、strategy spec。
 - 数据持久化：`.env`、`middle/.env`、`data/`、`logs/` 都保留在本机；其中云端绑定状态与本机安装身份保存在 `data/license/`，更新镜像、重建容器或清理日志都不会要求重新绑定。
 - 默认关闭后端 docs/redoc/openapi，默认不暴露后端、Redis、MariaDB 到宿主机公网端口。
 
@@ -233,7 +232,6 @@ installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行
 - `middle/docker-compose.yml`：Redis、MariaDB，以及可选 IBKR Paper Gateway。
 - `.env.example`：应用配置模板。
 - `config/*.env.example`：各服务配置模板。
-- `strategies/`：本地策略示例与自定义策略挂载目录。
 - `algo_trader.sql`：本地数据库初始化 SQL。
 
 ## 免责声明

@@ -721,101 +721,6 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
-DELIMITER //
-CREATE PROCEDURE add_trade_logs_foreign_keys()
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'users'
-    ) THEN
-        IF NOT EXISTS (
-            SELECT 1
-            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'trade_logs'
-              AND CONSTRAINT_NAME = 'fk_trade_logs_user'
-        ) THEN
-            ALTER TABLE trade_logs
-                ADD CONSTRAINT fk_trade_logs_user FOREIGN KEY (user_id)
-                    REFERENCES users(id)
-                    ON DELETE SET NULL
-                    ON UPDATE CASCADE;
-        END IF;
-    END IF;
-
-    IF EXISTS (
-        SELECT 1
-        FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'accounts'
-    ) THEN
-        IF NOT EXISTS (
-            SELECT 1
-            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'trade_logs'
-              AND CONSTRAINT_NAME = 'fk_trade_logs_account'
-        ) THEN
-            ALTER TABLE trade_logs
-                ADD CONSTRAINT fk_trade_logs_account FOREIGN KEY (account_id)
-                    REFERENCES accounts(id)
-                    ON DELETE SET NULL
-                    ON UPDATE CASCADE;
-        END IF;
-    END IF;
-END//
-DELIMITER ;
-
-CALL add_trade_logs_foreign_keys();
-DROP PROCEDURE add_trade_logs_foreign_keys;
-
-CREATE TABLE IF NOT EXISTS news_trade_signal (
-    signal_id VARCHAR(191) NOT NULL PRIMARY KEY,
-    symbol VARCHAR(64) NOT NULL,
-    action VARCHAR(32) NOT NULL,
-    quantity DOUBLE NULL,
-    stop_loss DOUBLE NULL,
-    take_profit DOUBLE NULL,
-    confidence DOUBLE NULL,
-    prompt_template_id VARCHAR(191) NULL,
-    news_ref LONGTEXT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'news_trade_signal'
-      AND INDEX_NAME = 'idx_news_trade_signal_symbol_created_at'
-);
-SET @sql = IF(
-    @idx_exists = 0,
-    'CREATE INDEX idx_news_trade_signal_symbol_created_at ON news_trade_signal (symbol, created_at)',
-    'DO 0'
-);
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-CREATE TABLE IF NOT EXISTS news_trade_execution (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    signal_id VARCHAR(191) NOT NULL,
-    status VARCHAR(32) NOT NULL,
-    order_id BIGINT UNSIGNED NULL,
-    reason TEXT NULL,
-    filled_qty DOUBLE NULL,
-    filled_price DOUBLE NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_news_trade_execution_signal_id (signal_id),
-    KEY idx_news_trade_execution_order_id (order_id),
-    CONSTRAINT fk_news_trade_execution_order_id FOREIGN KEY (order_id)
-        REFERENCES orders(id)
-        ON DELETE SET NULL
-        ON UPDATE CASCADE
-);
 
 CREATE TABLE IF NOT EXISTS risk_rules (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -870,75 +775,6 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
-CREATE TABLE IF NOT EXISTS optimizer_plans (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    symbol VARCHAR(32) NOT NULL,
-    algorithm VARCHAR(64) NOT NULL,
-    base_metrics JSON NULL,
-    feature_metrics JSON NULL,
-    parameters JSON NULL,
-    start_date VARCHAR(32) NULL,
-    end_date VARCHAR(32) NULL,
-    frequency_minutes INT NULL,
-    iterations INT NULL,
-    created_at VARCHAR(64) NOT NULL,
-    updated_at VARCHAR(64) NOT NULL,
-    is_active TINYINT(1) NOT NULL DEFAULT 0,
-    last_run_at VARCHAR(64) NULL
-);
-
-CREATE TABLE IF NOT EXISTS optimizer_jobs (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    optimizer_plan_id BIGINT UNSIGNED NOT NULL,
-    objective VARCHAR(128) NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    progress DOUBLE NOT NULL DEFAULT 0,
-    metadata JSON NULL,
-    parameter_space JSON NULL,
-    result_payload JSON NULL,
-    error TEXT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_optimizer_jobs_plan FOREIGN KEY (optimizer_plan_id) REFERENCES optimizer_plans (id)
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'optimizer_jobs'
-      AND INDEX_NAME = 'idx_optimizer_jobs_status'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_optimizer_jobs_status ON optimizer_jobs (status)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'optimizer_jobs'
-      AND INDEX_NAME = 'idx_optimizer_jobs_optimizer_plan_id'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_optimizer_jobs_optimizer_plan_id ON optimizer_jobs (optimizer_plan_id)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'optimizer_jobs'
-      AND INDEX_NAME = 'idx_optimizer_jobs_created_at'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_optimizer_jobs_created_at ON optimizer_jobs (created_at)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
 CREATE TABLE IF NOT EXISTS notifications (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     message TEXT NOT NULL,
@@ -976,53 +812,6 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
-CREATE TABLE IF NOT EXISTS strategies (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    strategy_type VARCHAR(191) NOT NULL,
-    strategy_origin VARCHAR(32) NOT NULL DEFAULT 'internal',
-    title VARCHAR(191) NOT NULL,
-    description TEXT NULL,
-    file_path TEXT NULL,
-    enabled TINYINT(1) NOT NULL DEFAULT 1,
-    parameters JSON NULL,
-    schedule JSON NULL,
-    child_strategy_type VARCHAR(191) NULL,
-    child_parameters JSON NULL,
-    max_children INT NULL,
-    selection_limit INT NULL,
-    primary_symbol VARCHAR(191) NULL,
-    data_source VARCHAR(191) NULL,
-    trigger_count INT NOT NULL DEFAULT 0,
-    last_triggered_at DATETIME NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'strategies'
-      AND INDEX_NAME = 'idx_strategies_enabled'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_strategies_enabled ON strategies (enabled)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'strategies'
-      AND INDEX_NAME = 'idx_strategies_updated_at'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_strategies_updated_at ON strategies (updated_at)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
 CREATE TABLE IF NOT EXISTS watchlist_groups (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(191) NOT NULL,
@@ -1030,11 +819,7 @@ CREATE TABLE IF NOT EXISTS watchlist_groups (
     strategy_ref_id BIGINT UNSIGNED NULL,
     sort_order INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT uq_watchlist_groups_strategy UNIQUE KEY (strategy_ref_id),
-    CONSTRAINT fk_watchlist_groups_strategy FOREIGN KEY (strategy_ref_id)
-        REFERENCES strategies (id)
-        ON DELETE CASCADE
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 SET @idx_exists = (
@@ -1085,24 +870,6 @@ SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_watchlist_items_group_sort ON w
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
-
-CREATE TABLE IF NOT EXISTS strategy_risk_settings (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    strategy_ref_id BIGINT UNSIGNED NOT NULL,
-    max_position INT NULL,
-    forbid_pyramiding TINYINT(1) NOT NULL DEFAULT 0,
-    loss_threshold DOUBLE NULL,
-    loss_duration_minutes INT NULL,
-    notify_on_breach TINYINT(1) NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT uq_strategy_risk_settings_strategy_ref_id UNIQUE KEY (strategy_ref_id),
-    CONSTRAINT fk_strategy_risk_settings_strategy FOREIGN KEY (strategy_ref_id) REFERENCES strategies (id)
-);
-
--- =========================================================
--- Audit service tables (main/live schema)
--- =========================================================
 
 CREATE TABLE IF NOT EXISTS audit_events (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1157,19 +924,6 @@ CREATE TABLE IF NOT EXISTS audit_issues (
     CONSTRAINT uq_audit_issues_issue_key UNIQUE KEY (issue_key)
 );
 
-CREATE TABLE IF NOT EXISTS audit_ai_reports (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    report_id VARCHAR(64) NOT NULL,
-    from_time DATETIME NULL,
-    to_time DATETIME NULL,
-    strategy_id VARCHAR(128) NULL,
-    summary TEXT NULL,
-    suggestions_json JSON NULL,
-    payload_json JSON NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_audit_ai_reports_report_id UNIQUE KEY (report_id)
-);
-
 CREATE TABLE IF NOT EXISTS audit_config_changes (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     service VARCHAR(64) NOT NULL,
@@ -1182,178 +936,6 @@ CREATE TABLE IF NOT EXISTS audit_config_changes (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS audit_counterfactual_jobs (
-    job_id VARCHAR(191) NOT NULL PRIMARY KEY,
-    status VARCHAR(32) NOT NULL,
-    scenario VARCHAR(64) NOT NULL,
-    request_json TEXT NULL,
-    result_json TEXT NULL,
-    rows_count INT NOT NULL DEFAULT 0,
-    requested_by VARCHAR(191) NULL,
-    error TEXT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    started_at DATETIME NULL,
-    finished_at DATETIME NULL,
-    updated_at DATETIME NOT NULL
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM information_schema.statistics
-    WHERE table_schema = DATABASE()
-      AND table_name = 'audit_counterfactual_jobs'
-      AND index_name = 'idx_audit_counterfactual_jobs_status'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_audit_counterfactual_jobs_status ON audit_counterfactual_jobs (status)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM information_schema.statistics
-    WHERE table_schema = DATABASE()
-      AND table_name = 'audit_counterfactual_jobs'
-      AND index_name = 'idx_audit_counterfactual_jobs_created_at'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_audit_counterfactual_jobs_created_at ON audit_counterfactual_jobs (created_at)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-CREATE TABLE IF NOT EXISTS sim_runs (
-    sim_run_id VARCHAR(191) NOT NULL PRIMARY KEY,
-    correlation_id VARCHAR(191) NOT NULL,
-    decision_trace_id VARCHAR(191) NULL,
-    run_mode VARCHAR(32) NOT NULL DEFAULT 'sync',
-    status VARCHAR(32) NOT NULL DEFAULT 'completed',
-    priority INT NOT NULL DEFAULT 0,
-    timeout_ms INT NULL,
-    budget_json JSON NULL,
-    model_version_map_json JSON NULL,
-    trade_candidate_json JSON NULL,
-    payoff_spec_json JSON NULL,
-    exec_plan_id VARCHAR(191) NULL,
-    error TEXT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    started_at DATETIME NULL,
-    finished_at DATETIME NULL,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'sim_runs'
-      AND INDEX_NAME = 'idx_sim_runs_correlation_id'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_sim_runs_correlation_id ON sim_runs (correlation_id)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'sim_runs'
-      AND INDEX_NAME = 'idx_sim_runs_decision_trace_id'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_sim_runs_decision_trace_id ON sim_runs (decision_trace_id)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'sim_runs'
-      AND INDEX_NAME = 'idx_sim_runs_exec_plan_id'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_sim_runs_exec_plan_id ON sim_runs (exec_plan_id)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'sim_runs'
-      AND INDEX_NAME = 'idx_sim_runs_created_run_id'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_sim_runs_created_run_id ON sim_runs (created_at, sim_run_id)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-CREATE TABLE IF NOT EXISTS sim_results (
-    sim_run_id VARCHAR(191) NOT NULL PRIMARY KEY,
-    status VARCHAR(32) NOT NULL DEFAULT 'completed',
-    summary_json JSON NULL,
-    recommendations_json JSON NULL,
-    diagnostics_json JSON NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_sim_results_runs FOREIGN KEY (sim_run_id)
-        REFERENCES sim_runs(sim_run_id)
-        ON DELETE CASCADE
-        ON UPDATE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS sim_templates (
-    template_id VARCHAR(191) NOT NULL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    enabled TINYINT(1) NOT NULL DEFAULT 1,
-    config_json JSON NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS exec_plans (
-    exec_plan_id VARCHAR(191) NOT NULL PRIMARY KEY,
-    sim_run_id VARCHAR(191) NULL,
-    decision_trace_id VARCHAR(191) NULL,
-    symbol VARCHAR(64) NULL,
-    side VARCHAR(16) NULL,
-    quantity DOUBLE NULL,
-    plan_json JSON NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_exec_plans_runs FOREIGN KEY (sim_run_id)
-        REFERENCES sim_runs(sim_run_id)
-        ON DELETE SET NULL
-        ON UPDATE CASCADE
-);
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'exec_plans'
-      AND INDEX_NAME = 'idx_exec_plans_sim_run_id'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_exec_plans_sim_run_id ON exec_plans (sim_run_id)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @idx_exists = (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'exec_plans'
-      AND INDEX_NAME = 'idx_exec_plans_decision_trace_id'
-);
-SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_exec_plans_decision_trace_id ON exec_plans (decision_trace_id)', 'DO 0');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-
--- Strategy Spec Runtime evaluation tables.
 CREATE TABLE IF NOT EXISTS spec_runtime_backtest_baselines (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     baseline_id VARCHAR(191) NOT NULL,
@@ -1483,43 +1065,6 @@ CREATE TABLE IF NOT EXISTS spec_runtime_evaluation_settings (
     CONSTRAINT uq_spec_runtime_evaluation_settings_key UNIQUE KEY (settings_key)
 );
 
-CREATE TABLE IF NOT EXISTS strategy_runtime_simulation_runs (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    trace_id VARCHAR(191) NOT NULL,
-    sim_run_id VARCHAR(191) NULL,
-    exec_plan_id VARCHAR(191) NULL,
-    decision_trace_id VARCHAR(191) NULL,
-    workflow_id VARCHAR(191) NULL,
-    spec_hash VARCHAR(191) NULL,
-    strategy_id VARCHAR(191) NULL,
-    strategy_name VARCHAR(255) NULL,
-    symbol VARCHAR(64) NULL,
-    side VARCHAR(32) NULL,
-    quantity DOUBLE NULL,
-    order_type VARCHAR(64) NULL,
-    order_status VARCHAR(64) NULL,
-    status VARCHAR(64) NOT NULL,
-    action VARCHAR(64) NOT NULL,
-    reason VARCHAR(255) NULL,
-    enforcement_mode VARCHAR(64) NULL,
-    summary_json LONGTEXT NOT NULL,
-    recommendations_json LONGTEXT NOT NULL,
-    breaches_json LONGTEXT NOT NULL,
-    logs_json LONGTEXT NOT NULL,
-    trace_json LONGTEXT NOT NULL,
-    evaluated_at DATETIME NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    CONSTRAINT uq_strategy_runtime_sim_trace UNIQUE KEY (trace_id),
-    KEY idx_strategy_runtime_sim_created (created_at),
-    KEY idx_strategy_runtime_sim_symbol (symbol),
-    KEY idx_strategy_runtime_sim_strategy (strategy_id),
-    KEY idx_strategy_runtime_sim_status (status)
-);
-
-
--- Local Screeners service. Schema is provisioned here; production startup must
--- never create or mutate these tables dynamically.
 CREATE TABLE IF NOT EXISTS screeners_definitions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     screener_id VARCHAR(191) NOT NULL,

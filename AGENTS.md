@@ -1,6 +1,6 @@
 # Algo Trader IB / Public Agent 说明
 
-本仓库是根项目 `public/` 的真实独立仓库，主要保存公开安装、IB Gateway、运行配置与公共策略资源。
+本仓库是根项目 `public/` 的真实独立仓库，主要保存公开安装、IB Gateway、运行配置与 SPEC 服务安装配置。
 
 ## 工作区布局
 
@@ -28,4 +28,4 @@ algo-trader-intelligence/
 - 只有用户明确要求时才提交、推送、合并或发布。
 - Docker 与安装入口：`docker/`、`scripts/`
 - 运行配置：`config/`
-- 公共策略：`strategies/`
+- 本地策略运行：`strategy-spec-service`；旧 Python 策略模板已退役。
