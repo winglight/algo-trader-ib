@@ -1209,6 +1209,76 @@ CREATE TABLE IF NOT EXISTS screeners_runs (
         REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+-- ATI_OPTIONS_V9_ORDERS_FILLS_BEGIN
+-- Expand the existing fill authority; never recover option precision from DOUBLE.
+ALTER TABLE order_fills
+    ADD COLUMN IF NOT EXISTS quantity_decimal DECIMAL(65,12) NULL,
+    ADD COLUMN IF NOT EXISTS price_decimal DECIMAL(65,12) NULL,
+    ADD COLUMN IF NOT EXISTS commission_decimal DECIMAL(65,12) NULL,
+    ADD COLUMN IF NOT EXISTS price_multiplier_decimal DECIMAL(65,12) NULL;
+
+CREATE TABLE IF NOT EXISTS option_order_account (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    broker VARCHAR(16) NOT NULL,
+    environment VARCHAR(16) NOT NULL,
+    account_id VARCHAR(128) NOT NULL,
+    account_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (broker IN ('ALPACA','IBKR')),
+    CHECK (environment IN ('PAPER','LIVE'))
+) ENGINE=InnoDB;
+
+-- Immutable revisions reference the same existing financial fill, not a second fill ledger.
+CREATE TABLE IF NOT EXISTS option_execution_identity (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    broker_execution_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    contract_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    revision BIGINT UNSIGNED NOT NULL,
+    fill_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    order_fill_id BIGINT UNSIGNED NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    raw_ref VARCHAR(128) NOT NULL,
+    observed_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,broker_execution_id,contract_id,revision),
+    UNIQUE KEY uq_option_execution_revision (order_fill_id,revision),
+    UNIQUE KEY uq_option_domain_fill_revision (account_key,fill_id,revision),
+    KEY idx_option_execution_fill (account_key,fill_id),
+    CONSTRAINT fk_option_execution_fill FOREIGN KEY (order_fill_id) REFERENCES order_fills(id),
+    CHECK (revision > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_fee_revision (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    fill_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    revision BIGINT UNSIGNED NOT NULL,
+    order_fill_id BIGINT UNSIGNED NULL,
+    fee_cash DECIMAL(65,12) NOT NULL,
+    currency VARCHAR(3) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    raw_ref VARCHAR(128) NOT NULL,
+    observed_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,fill_id,revision),
+    KEY idx_option_fee_fill (order_fill_id,revision),
+    CONSTRAINT fk_option_fee_fill FOREIGN KEY (order_fill_id) REFERENCES order_fills(id),
+    CHECK (revision > 0 AND currency='USD' AND status IN ('PROVISIONAL','FINAL'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_fill_outbox (
+    event_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_sequence BIGINT UNSIGNED NOT NULL,
+    event_kind VARCHAR(16) NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    published_at DATETIME(6) NULL,
+    UNIQUE KEY uq_option_fill_account_sequence (account_key,account_sequence),
+    CHECK (event_kind IN ('FILL_REVISION','FEE_REVISION'))
+) ENGINE=InnoDB;
+-- ATI_OPTIONS_V9_ORDERS_FILLS_END
+
 -- ATI_OPTIONS_V9_RUNNER_CONTEXT_BEGIN
 -- Stable identity is shared by profiles. Generation is durable across restarts.
 CREATE TABLE IF NOT EXISTS option_broker_account_identity (
