@@ -1856,6 +1856,36 @@ CREATE TABLE IF NOT EXISTS screeners_runtime_state (
         REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+-- ATI_OPTIONS_V9_EXECUTION_ALIASES_BEGIN
+CREATE TABLE IF NOT EXISTS option_execution_alias (
+    alias_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    match_candidate VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    contract_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    proof_payload JSON NOT NULL,
+    proof_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    financial_execution_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    financial_effective_at VARCHAR(32) NOT NULL,
+    identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    UNIQUE KEY uq_option_execution_alias (account_key,match_candidate,contract_id),
+    CONSTRAINT fk_option_alias_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_execution_alias_source (
+    alias_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    native_execution_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    evidence_receipt_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    observed_effective_at VARCHAR(32) NOT NULL,
+    source_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (alias_key,source),
+    CONSTRAINT fk_option_alias_source FOREIGN KEY (alias_key) REFERENCES option_execution_alias(alias_key),
+    CONSTRAINT fk_option_alias_receipt FOREIGN KEY (evidence_receipt_id) REFERENCES option_order_raw_inbox(receipt_id),
+    CHECK (source IN ('ALPACA_TRADE_UPDATES','ALPACA_ACTIVITY_FILL'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ATI_OPTIONS_V9_EXECUTION_ALIASES_END
+
 -- ATI_OPTIONS_V9_RUNNER_JOURNAL_BEGIN
 CREATE TABLE IF NOT EXISTS broker_option_journal_account (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
@@ -2012,6 +2042,47 @@ CREATE TABLE IF NOT EXISTS broker_option_activity_item (
     CHECK (ordinal<100 AND byte_start<byte_end AND byte_end<=8388608)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_RUNNER_ACTIVITIES_END
+
+-- ATI_OPTIONS_V9_ACTIVITY_INTERPRETATION_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_activity_work (
+    work_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    page_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    ordinal INT UNSIGNED NOT NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    processing_state VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    reason VARCHAR(128) NOT NULL DEFAULT 'ACTIVITY_ORDER_PENDING',
+    receipt_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    UNIQUE KEY uq_runner_activity_work (page_id,ordinal),
+    KEY ix_runner_activity_work (account_key,processing_state,work_id),
+    CONSTRAINT fk_runner_activity_work_item FOREIGN KEY (page_id,ordinal) REFERENCES broker_option_activity_item(page_id,ordinal),
+    CONSTRAINT fk_runner_activity_work_raw FOREIGN KEY (receipt_id) REFERENCES broker_option_raw_event(receipt_id),
+    CHECK (processing_state IN ('PENDING','PUBLISHED','NON_OPTION'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_activity_replay_cursor (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    after_work_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    CONSTRAINT fk_runner_activity_replay_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_native_order_evidence (
+    evidence_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    requested_order_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    observed_target JSON NOT NULL,
+    raw_payload LONGBLOB NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    validated BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    KEY ix_runner_native_order (account_key,requested_order_id,validated),
+    CONSTRAINT fk_runner_native_order_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key),
+    CHECK (OCTET_LENGTH(raw_payload)>0 AND OCTET_LENGTH(raw_payload)<=8388608)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO broker_option_activity_work (page_id,ordinal,account_key)
+SELECT page_id,ordinal,account_key FROM broker_option_activity_item WHERE activity_type='FILL';
+-- ATI_OPTIONS_V9_ACTIVITY_INTERPRETATION_END
 
 -- ATI_OPTIONS_V9_ORDERS_CONSUMER_BEGIN
 CREATE TABLE IF NOT EXISTS option_broker_feed_cursor (
