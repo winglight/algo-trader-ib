@@ -1209,6 +1209,39 @@ CREATE TABLE IF NOT EXISTS screeners_runs (
         REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+-- ATI_OPTIONS_V9_RUNNER_CONTEXT_BEGIN
+-- Stable identity is shared by profiles. Generation is durable across restarts.
+CREATE TABLE IF NOT EXISTS option_broker_account_identity (
+    account_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    broker VARCHAR(16) NOT NULL,
+    environment VARCHAR(8) NOT NULL,
+    native_identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    generation BIGINT NOT NULL DEFAULT 0,
+    active_connection_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uq_option_native_identity (broker,environment,native_identity_hash),
+    UNIQUE KEY uq_option_active_connection (active_connection_id),
+    CONSTRAINT ck_option_identity_generation CHECK (generation >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS option_broker_connection (
+    connection_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    account_id VARCHAR(128) NOT NULL,
+    generation BIGINT NOT NULL,
+    profile_id VARCHAR(128) NOT NULL,
+    profile_account_id VARCHAR(128) NOT NULL,
+    profile_revision BIGINT NOT NULL,
+    runner_instance_id VARCHAR(128) NOT NULL,
+    connected_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uq_option_connection_generation (account_id,generation),
+    CONSTRAINT fk_option_connection_identity FOREIGN KEY (account_id) REFERENCES option_broker_account_identity(account_id),
+    CONSTRAINT ck_option_connection_generation CHECK (generation > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_RUNNER_CONTEXT_END
+
+
 -- ATI_OPTIONS_V9_ACCOUNT_BEGIN
 -- A01: Account owns broker evidence; Orders remains the owner of financial lots.
 CREATE TABLE IF NOT EXISTS option_account_cursor (
