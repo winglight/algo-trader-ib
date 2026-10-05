@@ -1279,6 +1279,58 @@ CREATE TABLE IF NOT EXISTS option_fill_outbox (
 ) ENGINE=InnoDB;
 -- ATI_OPTIONS_V9_ORDERS_FILLS_END
 
+-- ATI_OPTIONS_V9_WRITER_LEASES_BEGIN
+-- Orders owns the exit writer fence. Expiry/renewal use database UTC time.
+CREATE TABLE IF NOT EXISTS option_writer_lease (
+    session_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    creation_token CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    owner VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    epoch BIGINT UNSIGNED NOT NULL,
+    profile_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    context_generation BIGINT UNSIGNED NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    row_version BIGINT UNSIGNED NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    KEY idx_option_writer_account (account_key),
+    CONSTRAINT fk_option_writer_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CHECK (epoch BETWEEN 1 AND 9007199254740991),
+    CHECK (context_generation BETWEEN 1 AND 9007199254740991),
+    CHECK (row_version BETWEEN 1 AND 9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE option_writer_lease ADD COLUMN IF NOT EXISTS creation_token CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL;
+
+CREATE TABLE IF NOT EXISTS option_writer_command (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    operation VARCHAR(8) NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    response JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    CONSTRAINT fk_option_writer_command FOREIGN KEY (session_id) REFERENCES option_writer_lease(session_id),
+    CHECK (operation IN ('CLAIM','RENEW'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_writer_outbox (
+    event_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    resource_version BIGINT UNSIGNED NOT NULL,
+    event_kind VARCHAR(16) NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    published_at DATETIME(6) NULL,
+    UNIQUE KEY uq_option_writer_version (session_id,resource_version),
+    CONSTRAINT fk_option_writer_outbox FOREIGN KEY (session_id) REFERENCES option_writer_lease(session_id),
+    CHECK (event_kind IN ('CLAIMED','RENEWED')),
+    CHECK (resource_version BETWEEN 1 AND 9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ATI_OPTIONS_V9_WRITER_LEASES_END
+
 -- ATI_OPTIONS_V9_RUNNER_CONTEXT_BEGIN
 -- Stable identity is shared by profiles. Generation is durable across restarts.
 CREATE TABLE IF NOT EXISTS option_broker_account_identity (
