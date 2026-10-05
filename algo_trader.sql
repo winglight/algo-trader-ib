@@ -1209,6 +1209,72 @@ CREATE TABLE IF NOT EXISTS screeners_runs (
         REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+-- ATI_OPTIONS_V9_ACCOUNT_BEGIN
+-- A01: Account owns broker evidence; Orders remains the owner of financial lots.
+CREATE TABLE IF NOT EXISTS option_account_cursor (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    broker VARCHAR(16) NOT NULL,
+    environment VARCHAR(8) NOT NULL,
+    account_id VARCHAR(128) NOT NULL,
+    profile_id VARCHAR(128) NULL,
+    generation BIGINT NOT NULL DEFAULT 0,
+    account_sequence BIGINT NOT NULL DEFAULT 0,
+    as_of DATETIME(6) NULL,
+    checkpoint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    UNIQUE KEY uq_option_account_identity (broker,environment,account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS option_account_snapshot (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    snapshot_id VARCHAR(128) NOT NULL,
+    account_sequence BIGINT NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    profile_id VARCHAR(128) NOT NULL,
+    generation BIGINT NOT NULL,
+    as_of DATETIME(6) NOT NULL,
+    checkpoint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    equity_cash DECIMAL(65,12) NOT NULL,
+    cash_available DECIMAL(65,12) NOT NULL,
+    option_buying_power DECIMAL(65,12) NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,snapshot_id),
+    UNIQUE KEY uq_option_account_sequence (account_key,account_sequence),
+    UNIQUE KEY uq_option_account_checkpoint (account_key,checkpoint),
+    CONSTRAINT fk_option_account_snapshot_cursor FOREIGN KEY (account_key) REFERENCES option_account_cursor(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS option_account_lifecycle (
+    sequence BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    activity_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    revision BIGINT NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    effective_at DATETIME(6) NOT NULL,
+    received_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uq_option_lifecycle_revision (account_key,activity_key,revision),
+    KEY idx_option_lifecycle_account_sequence (account_key,sequence),
+    CONSTRAINT fk_option_account_lifecycle_cursor FOREIGN KEY (account_key) REFERENCES option_account_cursor(account_key),
+    CONSTRAINT ck_option_lifecycle_revision CHECK (revision > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS option_account_outbox (
+    sequence BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    event_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    checkpoint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    delivered_at DATETIME(6) NULL,
+    UNIQUE KEY uq_option_account_event (event_id),
+    KEY idx_option_account_outbox_pending (delivered_at,sequence),
+    KEY idx_option_account_outbox_account (account_key,sequence),
+    CONSTRAINT fk_option_account_outbox_cursor FOREIGN KEY (account_key) REFERENCES option_account_cursor(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_ACCOUNT_END
+
+
 -- ATI_OPTIONS_V9_EXPOSURE_BEGIN
 -- R01: all coordinated account order writers share these Risk-owned tables.
 CREATE TABLE IF NOT EXISTS account_exposure_budget (
