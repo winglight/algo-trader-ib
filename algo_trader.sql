@@ -1949,6 +1949,70 @@ ON e.account_key=r.account_key AND e.event_kind='RAW'
 AND JSON_UNQUOTE(JSON_EXTRACT(e.payload,'$.raw.receipt_id'))=r.receipt_id;
 -- ATI_OPTIONS_V9_RUNNER_NORMALIZATION_END
 
+-- ATI_OPTIONS_V9_RUNNER_ACTIVITIES_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_activity_scan (
+    scan_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    scan_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    query_payload JSON NOT NULL,
+    query_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    page_cursor VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    pages_indexed INT UNSIGNED NOT NULL DEFAULT 0,
+    records_indexed INT UNSIGNED NOT NULL DEFAULT 0,
+    pagination_exhausted BOOLEAN NOT NULL DEFAULT FALSE,
+    reason VARCHAR(128) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    UNIQUE KEY uq_runner_activity_scan (account_key,scan_id),
+    CHECK (pages_indexed<=10000 AND records_indexed<=1000000),
+    CHECK (NOT pagination_exhausted OR page_cursor IS NULL),
+    CONSTRAINT fk_runner_activity_scan_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_activity_page (
+    page_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    scan_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    page_number INT UNSIGNED NOT NULL,
+    accepted_number INT UNSIGNED NULL,
+    cursor_in VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    cursor_out VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    observed_target JSON NOT NULL,
+    request_payload JSON NOT NULL,
+    raw_payload LONGBLOB NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    capture_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    index_payload JSON NULL,
+    index_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    state VARCHAR(16) NOT NULL DEFAULT 'RAW',
+    reason VARCHAR(128) NOT NULL DEFAULT 'ACTIVITY_INDEX_PENDING',
+    received_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    UNIQUE KEY uq_runner_activity_accepted_page (scan_key,accepted_number),
+    KEY ix_runner_activity_pending (scan_key,page_number,state),
+    KEY ix_runner_activity_cursor (scan_key,cursor_out),
+    CONSTRAINT fk_runner_activity_page_scan FOREIGN KEY (scan_key) REFERENCES broker_option_activity_scan(scan_key),
+    CHECK (state IN ('RAW','INDEXED','INVALID','STALE')),
+    CHECK (page_number>0 AND page_number<=10000),
+    CHECK ((state='INDEXED' AND accepted_number=page_number AND index_hash IS NOT NULL AND index_payload IS NOT NULL)
+        OR (state<>'INDEXED' AND accepted_number IS NULL AND index_hash IS NULL AND index_payload IS NULL)),
+    CHECK (OCTET_LENGTH(raw_payload)>0 AND OCTET_LENGTH(raw_payload)<=8388608)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_activity_item (
+    page_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    ordinal INT UNSIGNED NOT NULL,
+    activity_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    activity_type VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    byte_start INT UNSIGNED NOT NULL,
+    byte_end INT UNSIGNED NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (page_id,ordinal),
+    KEY ix_runner_activity_native (account_key,activity_type,activity_id),
+    CONSTRAINT fk_runner_activity_item_page FOREIGN KEY (page_id) REFERENCES broker_option_activity_page(page_id),
+    CHECK (ordinal<100 AND byte_start<byte_end AND byte_end<=8388608)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ATI_OPTIONS_V9_RUNNER_ACTIVITIES_END
+
 -- ATI_OPTIONS_V9_ORDERS_CONSUMER_BEGIN
 CREATE TABLE IF NOT EXISTS option_broker_feed_cursor (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
