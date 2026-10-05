@@ -1331,6 +1331,117 @@ CREATE TABLE IF NOT EXISTS option_writer_outbox (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_WRITER_LEASES_END
 
+-- ATI_OPTIONS_V9_ORDER_GROUPS_BEGIN
+ALTER TABLE option_order_account
+    ADD COLUMN IF NOT EXISTS ownership_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS ownership_reasons JSON NULL;
+
+CREATE TABLE IF NOT EXISTS option_order_group (
+    group_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    creation_token CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    intent_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    basket_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    round_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    plan_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    action VARCHAR(24) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
+    admission_phase VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    resource_version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+    active_close_key VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    open_round_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    request JSON NOT NULL,
+    frozen_spec JSON NOT NULL,
+    close_permit JSON NULL,
+    accepted_receipt JSON NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uq_option_group_command (account_key,command_id),
+    UNIQUE KEY uq_option_active_close (active_close_key),
+    UNIQUE KEY uq_option_initial_open_round (open_round_key),
+    KEY idx_option_group_round (account_key,round_id),
+    CONSTRAINT fk_option_group_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CONSTRAINT fk_option_group_writer FOREIGN KEY (session_id) REFERENCES option_writer_lease(session_id),
+    CHECK (action IN ('OPEN','CLOSE','REDUCE_RESIDUAL')),
+    CHECK (status IN ('PENDING','SENDING','SUBMISSION_UNKNOWN','ACKNOWLEDGED','PARTIALLY_FILLED','FILLED','CANCEL_PENDING','CANCELED','REJECTED','EXPIRED')),
+    CHECK (admission_phase IN ('PENDING','AUTHORIZED','ABORTED')),
+    CHECK (resource_version BETWEEN 1 AND 9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_order_leg (
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    leg_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    contract_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    side VARCHAR(8) NOT NULL,
+    ratio_qty BIGINT UNSIGNED NOT NULL,
+    target_contracts DECIMAL(65,12) NOT NULL,
+    filled_contracts DECIMAL(65,12) NOT NULL DEFAULT 0,
+    binding JSON NOT NULL,
+    PRIMARY KEY (group_id,leg_id),
+    UNIQUE KEY uq_option_leg_order (order_id),
+    CONSTRAINT fk_option_leg_group FOREIGN KEY (group_id) REFERENCES option_order_group(group_id),
+    CONSTRAINT fk_option_leg_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CHECK (side IN ('BUY','SELL') AND ratio_qty>0 AND target_contracts>0 AND filled_contracts>=0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_owned_lot (
+    lot_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    leg_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    order_fill_id BIGINT UNSIGNED NOT NULL,
+    fill_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    basket_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    round_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    contract_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    direction SMALLINT NOT NULL,
+    open_contracts DECIMAL(65,12) NOT NULL,
+    signed_open_contracts DECIMAL(65,12) NOT NULL,
+    closed_contracts DECIMAL(65,12) NOT NULL DEFAULT 0,
+    reserved_close_contracts DECIMAL(65,12) NOT NULL DEFAULT 0,
+    signed_remaining_contracts DECIMAL(65,12) NOT NULL,
+    source_ref VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    row_version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+    updated_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uq_option_lot_fill (order_fill_id),
+    KEY idx_option_lot_account (account_key,basket_id,round_id),
+    CONSTRAINT fk_option_lot_leg FOREIGN KEY (group_id,leg_id) REFERENCES option_order_leg(group_id,leg_id),
+    CONSTRAINT fk_option_lot_fill FOREIGN KEY (order_fill_id) REFERENCES order_fills(id),
+    CHECK (direction IN (-1,1) AND open_contracts>=0 AND closed_contracts>=0 AND reserved_close_contracts>=0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_close_allocation (
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    lot_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    leg_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    contracts DECIMAL(65,12) NOT NULL,
+    consumed_contracts DECIMAL(65,12) NOT NULL DEFAULT 0,
+    released TINYINT(1) NOT NULL DEFAULT 0,
+    PRIMARY KEY (group_id,lot_id),
+    CONSTRAINT fk_option_allocation_leg FOREIGN KEY (group_id,leg_id) REFERENCES option_order_leg(group_id,leg_id),
+    CONSTRAINT fk_option_allocation_lot FOREIGN KEY (lot_id) REFERENCES option_owned_lot(lot_id),
+    CHECK (contracts>0 AND consumed_contracts>=0 AND released IN (0,1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_order_outbox (
+    event_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    resource_version BIGINT UNSIGNED NOT NULL,
+    event_kind VARCHAR(32) NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    published_at DATETIME(6) NULL,
+    UNIQUE KEY uq_option_group_event (group_id,resource_version,event_kind),
+    CONSTRAINT fk_option_order_outbox FOREIGN KEY (group_id) REFERENCES option_order_group(group_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ATI_OPTIONS_V9_ORDER_GROUPS_END
+
 -- ATI_OPTIONS_V9_RUNNER_CONTEXT_BEGIN
 -- Stable identity is shared by profiles. Generation is durable across restarts.
 CREATE TABLE IF NOT EXISTS option_broker_account_identity (
