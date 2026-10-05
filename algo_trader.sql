@@ -1564,6 +1564,17 @@ CREATE TABLE IF NOT EXISTS option_account_cursor (
     UNIQUE KEY uq_option_account_identity (broker,environment,account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS option_account_broker_observation (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    observation_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    broker_snapshot_id VARCHAR(128) NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,observation_key),
+    CONSTRAINT fk_option_broker_observation_cursor FOREIGN KEY (account_key) REFERENCES option_account_cursor(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS option_account_snapshot (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     snapshot_id VARCHAR(128) NOT NULL,
