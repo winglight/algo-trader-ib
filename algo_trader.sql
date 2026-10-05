@@ -1909,6 +1909,46 @@ CREATE TABLE IF NOT EXISTS broker_option_event_outbox (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_RUNNER_JOURNAL_END
 
+-- ATI_OPTIONS_V9_RUNNER_NORMALIZATION_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_qualification (
+    evidence_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    adapter_id VARCHAR(64) COLLATE utf8mb4_bin NOT NULL,
+    native_contract_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    local_symbol VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    canonical_id VARCHAR(68) COLLATE utf8mb4_bin NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    observed_target JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    KEY ix_runner_qualification_native (account_key,adapter_id,native_contract_id,local_symbol),
+    CONSTRAINT fk_runner_qualification_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_normalization_cursor (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    after_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    CHECK (after_sequence<=9007199254740991),
+    CONSTRAINT fk_runner_normalization_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_normalization_attempt (
+    receipt_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source_sequence BIGINT UNSIGNED NOT NULL,
+    reason VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    observed_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    KEY ix_runner_normalization_pending (account_key,source_sequence),
+    CONSTRAINT fk_runner_normalization_raw FOREIGN KEY (receipt_id) REFERENCES broker_option_raw_event(receipt_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO broker_option_normalization_attempt (receipt_id,account_key,source_sequence,reason)
+SELECT r.receipt_id,r.account_key,e.event_sequence,IF(r.normalized_hash IS NULL,'UNPROCESSED','NORMALIZED')
+FROM broker_option_raw_event r JOIN broker_option_event_outbox e
+ON e.account_key=r.account_key AND e.event_kind='RAW'
+AND JSON_UNQUOTE(JSON_EXTRACT(e.payload,'$.raw.receipt_id'))=r.receipt_id;
+-- ATI_OPTIONS_V9_RUNNER_NORMALIZATION_END
+
 -- ATI_OPTIONS_V9_ORDERS_CONSUMER_BEGIN
 CREATE TABLE IF NOT EXISTS option_broker_feed_cursor (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
