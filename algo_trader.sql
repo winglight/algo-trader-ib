@@ -1441,6 +1441,80 @@ CREATE TABLE IF NOT EXISTS option_order_outbox (
     CONSTRAINT fk_option_order_outbox FOREIGN KEY (group_id) REFERENCES option_order_group(group_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
+-- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
+ALTER TABLE option_order_account
+    ADD COLUMN IF NOT EXISTS raw_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0;
+ALTER TABLE option_order_group
+    ADD COLUMN IF NOT EXISTS progress_reasons JSON NULL;
+
+CREATE TABLE IF NOT EXISTS option_order_client_ref (
+    group_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    client_order_ref VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    UNIQUE KEY uq_option_client_ref (account_key,client_order_ref),
+    CONSTRAINT fk_option_client_group FOREIGN KEY (group_id) REFERENCES option_order_group(group_id),
+    CONSTRAINT fk_option_client_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_order_raw_inbox (
+    receipt_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    receive_sequence BIGINT UNSIGNED NOT NULL,
+    source VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    native_event_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    observed_target JSON NOT NULL,
+    raw_payload LONGBLOB NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    processing_state VARCHAR(16) NOT NULL DEFAULT 'RECEIVED',
+    normalized JSON NULL,
+    normalized_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    reason VARCHAR(64) NULL,
+    result_ref JSON NULL,
+    received_at DATETIME(6) NOT NULL,
+    applied_at DATETIME(6) NULL,
+    UNIQUE KEY uq_option_raw_sequence (account_key,receive_sequence),
+    KEY idx_option_raw_pending (account_key,processing_state,receive_sequence),
+    CONSTRAINT fk_option_raw_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CHECK (processing_state IN ('RECEIVED','PENDING','APPLIED','QUARANTINED')),
+    CHECK (receive_sequence BETWEEN 1 AND 9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_broker_order_link (
+    link_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    broker_order_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    broker_order_session_key VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    leg_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    client_order_ref VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    evidence_receipt_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    UNIQUE KEY uq_option_native_order (account_key,broker_order_session_key,broker_order_id),
+    CONSTRAINT fk_option_link_group FOREIGN KEY (group_id) REFERENCES option_order_group(group_id),
+    CONSTRAINT fk_option_link_leg FOREIGN KEY (group_id,leg_id) REFERENCES option_order_leg(group_id,leg_id),
+    CONSTRAINT fk_option_link_evidence FOREIGN KEY (evidence_receipt_id) REFERENCES option_order_raw_inbox(receipt_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_order_effect_owner (
+    execution_key VARCHAR(68) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    fill_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    leg_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    UNIQUE KEY uq_option_effect_owner (account_key,fill_id),
+    CONSTRAINT fk_option_effect_leg FOREIGN KEY (group_id,leg_id) REFERENCES option_order_leg(group_id,leg_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_order_status_fact (
+    receipt_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    status VARCHAR(24) NOT NULL,
+    effective_at DATETIME(6) NOT NULL,
+    CONSTRAINT fk_option_status_group FOREIGN KEY (group_id) REFERENCES option_order_group(group_id),
+    CONSTRAINT fk_option_status_raw FOREIGN KEY (receipt_id) REFERENCES option_order_raw_inbox(receipt_id),
+    CHECK (status IN ('ACKNOWLEDGED','PARTIALLY_FILLED','FILLED','CANCEL_PENDING','CANCELED','REJECTED','EXPIRED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ATI_OPTIONS_V9_ORDER_INBOX_END
+
 
 -- ATI_OPTIONS_V9_RUNNER_CONTEXT_BEGIN
 -- Stable identity is shared by profiles. Generation is durable across restarts.
