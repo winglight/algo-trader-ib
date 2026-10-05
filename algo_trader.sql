@@ -1209,6 +1209,104 @@ CREATE TABLE IF NOT EXISTS screeners_runs (
         REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+-- ATI_OPTIONS_V9_EXPOSURE_BEGIN
+-- R01: all coordinated account order writers share these Risk-owned tables.
+CREATE TABLE IF NOT EXISTS account_exposure_budget (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    broker VARCHAR(64) NOT NULL,
+    environment VARCHAR(8) NOT NULL,
+    account_id VARCHAR(128) NOT NULL,
+    profile_id VARCHAR(128) NULL,
+    generation BIGINT NOT NULL DEFAULT 0,
+    snapshot_id VARCHAR(128) NULL,
+    snapshot_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    account_checkpoint VARCHAR(128) NULL,
+    as_of DATETIME(6) NULL,
+    free_bp_cash DECIMAL(65,12) NOT NULL DEFAULT 0,
+    cash_available DECIMAL(65,12) NOT NULL DEFAULT 0,
+    open_risk_cash DECIMAL(65,12) NOT NULL DEFAULT 0,
+    max_open_risk_cash DECIMAL(65,12) NOT NULL DEFAULT 0,
+    bp_limit_cash DECIMAL(65,12) NOT NULL DEFAULT 0,
+    complete BOOLEAN NOT NULL DEFAULT FALSE,
+    unresolved_orders INT NOT NULL DEFAULT 0,
+    unallocated_positions INT NOT NULL DEFAULT 0,
+    all_order_writers_admission_version INT NOT NULL DEFAULT 0,
+    options_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    global_halt BOOLEAN NOT NULL DEFAULT FALSE,
+    revision BIGINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uq_exposure_account_identity (broker,environment,account_id),
+    CONSTRAINT ck_exposure_budget_nonnegative CHECK (
+        free_bp_cash >= 0 AND cash_available >= 0 AND open_risk_cash >= 0
+        AND max_open_risk_cash >= 0 AND bp_limit_cash >= 0
+    )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS account_exposure_claims (
+    reservation_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    owner_domain VARCHAR(16) NOT NULL,
+    owner_id VARCHAR(128) NOT NULL,
+    profile_id VARCHAR(128) NOT NULL,
+    generation BIGINT NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    held_bp_cash DECIMAL(65,12) NOT NULL,
+    held_cash DECIMAL(65,12) NOT NULL,
+    held_risk_cash DECIMAL(65,12) NOT NULL,
+    remaining_bp_cash DECIMAL(65,12) NOT NULL,
+    remaining_cash DECIMAL(65,12) NOT NULL,
+    bound_order_group_id VARCHAR(128) NULL,
+    bound_legacy_order_id VARCHAR(128) NULL,
+    account_checkpoint VARCHAR(128) NOT NULL,
+    release_evidence_ref VARCHAR(128) NULL,
+    reflection_evidence_ref VARCHAR(128) NULL,
+    created_at DATETIME(6) NOT NULL,
+    expires_at DATETIME(6) NULL,
+    resource_version BIGINT NOT NULL DEFAULT 1,
+    UNIQUE KEY uq_exposure_command (account_key,command_id),
+    UNIQUE KEY uq_exposure_group (account_key,bound_order_group_id),
+    UNIQUE KEY uq_exposure_legacy_order (account_key,bound_legacy_order_id),
+    KEY idx_exposure_active (account_key,status,expires_at),
+    CONSTRAINT fk_exposure_budget FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
+    CONSTRAINT ck_exposure_claim_status CHECK (status IN ('HELD','COMMITTED','REFLECTED','RELEASED','EXPIRED')),
+    CONSTRAINT ck_exposure_claim_domain CHECK (owner_domain IN ('LEGACY','OPTIONS','MANUAL')),
+    CONSTRAINT ck_exposure_claim_nonnegative CHECK (
+        held_bp_cash >= 0 AND held_cash >= 0 AND held_risk_cash >= 0
+        AND remaining_bp_cash >= 0 AND remaining_bp_cash <= held_bp_cash
+        AND remaining_cash >= 0 AND remaining_cash <= held_cash
+    ),
+    CONSTRAINT ck_exposure_single_order CHECK (bound_order_group_id IS NULL OR bound_legacy_order_id IS NULL),
+    CONSTRAINT ck_exposure_held_unbound CHECK (
+        status != 'HELD' OR (bound_order_group_id IS NULL AND bound_legacy_order_id IS NULL)
+    ),
+    CONSTRAINT ck_exposure_claimed_bound CHECK (
+        status NOT IN ('COMMITTED','REFLECTED') OR
+        (owner_domain='OPTIONS' AND bound_order_group_id IS NOT NULL AND bound_legacy_order_id IS NULL) OR
+        (owner_domain IN ('LEGACY','MANUAL') AND bound_legacy_order_id IS NOT NULL AND bound_order_group_id IS NULL)
+    )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+ALTER TABLE account_exposure_claims ADD COLUMN IF NOT EXISTS reflection_evidence_ref VARCHAR(128) NULL;
+
+CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
+    sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    event_id VARCHAR(128) NOT NULL,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    aggregate_id VARCHAR(128) NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    delivered_at DATETIME(6) NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    UNIQUE KEY uq_exposure_outbox_event (event_id),
+    KEY idx_exposure_outbox_pending (delivered_at,sequence_id),
+    KEY idx_exposure_outbox_account (account_key,sequence_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_EXPOSURE_END
+
 CREATE TABLE IF NOT EXISTS screeners_run_stages (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     run_id VARCHAR(191) NOT NULL,
