@@ -1855,3 +1855,81 @@ CREATE TABLE IF NOT EXISTS screeners_runtime_state (
     CONSTRAINT fk_screeners_runtime_revision FOREIGN KEY (revision_id)
         REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
+
+-- ATI_OPTIONS_V9_RUNNER_JOURNAL_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_journal_account (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_id VARCHAR(128) NOT NULL,
+    broker VARCHAR(16) NOT NULL,
+    environment VARCHAR(8) NOT NULL,
+    event_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    CHECK (event_sequence<=9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_raw_event (
+    receipt_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    native_event_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    observed_target JSON NOT NULL,
+    raw_payload LONGBLOB NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    normalized JSON NULL,
+    normalized_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    correlation_state VARCHAR(16) NOT NULL DEFAULT 'RAW',
+    received_at DATETIME(6) NOT NULL,
+    CONSTRAINT fk_option_runner_raw_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key),
+    CHECK (correlation_state IN ('RAW','NORMALIZED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_watermark (
+    watermark_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    dataset VARCHAR(16) NOT NULL,
+    source_ref VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    captured_through_sequence BIGINT UNSIGNED NOT NULL,
+    UNIQUE KEY uq_option_runner_watermark (account_key,source,dataset,source_ref),
+    CONSTRAINT fk_option_runner_watermark_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS broker_option_event_outbox (
+    event_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    event_sequence BIGINT UNSIGNED NOT NULL,
+    event_kind VARCHAR(16) NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    published_at DATETIME(6) NULL,
+    UNIQUE KEY uq_option_runner_event_sequence (account_key,event_sequence),
+    CONSTRAINT fk_option_runner_event_account FOREIGN KEY (account_key) REFERENCES broker_option_journal_account(account_key),
+    CHECK (event_kind IN ('RAW','NORMALIZED','WATERMARK'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ATI_OPTIONS_V9_RUNNER_JOURNAL_END
+
+-- ATI_OPTIONS_V9_ORDERS_CONSUMER_BEGIN
+CREATE TABLE IF NOT EXISTS option_broker_feed_cursor (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    consumed_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    replay_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    CONSTRAINT fk_option_feed_cursor_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CHECK (consumed_sequence<=9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_broker_feed_event (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source_sequence BIGINT UNSIGNED NOT NULL,
+    event_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    event_kind VARCHAR(16) NOT NULL,
+    runner_receipt_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    local_receipt_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    payload JSON NOT NULL,
+    PRIMARY KEY (account_key,source_sequence),
+    UNIQUE KEY uq_option_feed_event_id (account_key,event_id),
+    KEY idx_option_feed_raw (account_key,runner_receipt_id,event_kind),
+    CONSTRAINT fk_option_feed_event_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CONSTRAINT fk_option_feed_event_raw FOREIGN KEY (local_receipt_id) REFERENCES option_order_raw_inbox(receipt_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ATI_OPTIONS_V9_ORDERS_CONSUMER_END
