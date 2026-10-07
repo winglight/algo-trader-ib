@@ -2172,3 +2172,34 @@ ALTER TABLE order_exposure_dispatch
     ADD COLUMN IF NOT EXISTS estimation_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     ADD COLUMN IF NOT EXISTS estimation_evidence JSON NULL;
 -- ATI_OPTIONS_V9_CASH_ESTIMATION_END
+
+-- ATI_OPTIONS_V9_NATIVE_DISPATCH_BEGIN
+ALTER TABLE order_exposure_dispatch
+    ADD COLUMN IF NOT EXISTS native_dispatch_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    ADD COLUMN IF NOT EXISTS native_dispatch_payload JSON NULL;
+
+CREATE TABLE IF NOT EXISTS broker_stock_dispatch (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    reservation_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    client_order_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_payload JSON NOT NULL,
+    authorization_payload JSON NOT NULL,
+    authorization_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    phase VARCHAR(16) NOT NULL,
+    receipt_payload JSON NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,order_id),
+    UNIQUE KEY uq_broker_dispatch_command (account_key,command_id),
+    UNIQUE KEY uq_broker_dispatch_reservation (account_key,reservation_id),
+    UNIQUE KEY uq_broker_dispatch_client (account_key,client_order_id),
+    CHECK (phase IN ('SENDING','ACKNOWLEDGED','UNKNOWN')),
+    CHECK ((phase='ACKNOWLEDGED' AND receipt_payload IS NOT NULL AND receipt_hash IS NOT NULL)
+        OR (phase<>'ACKNOWLEDGED' AND receipt_payload IS NULL AND receipt_hash IS NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_NATIVE_DISPATCH_END
