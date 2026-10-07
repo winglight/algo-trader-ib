@@ -1676,6 +1676,20 @@ CREATE TABLE IF NOT EXISTS option_broker_connection (
     CONSTRAINT fk_option_connection_identity FOREIGN KEY (account_id) REFERENCES option_broker_account_identity(account_id),
     CONSTRAINT ck_option_connection_generation CHECK (generation > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS broker_account_admission_fence (
+    account_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    broker VARCHAR(16) NOT NULL,
+    environment VARCHAR(8) NOT NULL,
+    native_identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    profile_identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    enforcement_version INT NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uq_admission_native_identity (broker,environment,native_identity_hash),
+    UNIQUE KEY uq_admission_profile_identity (broker,environment,profile_identity_hash),
+    CONSTRAINT fk_admission_fence_identity FOREIGN KEY (account_id) REFERENCES option_broker_account_identity(account_id),
+    CONSTRAINT ck_admission_fence_version CHECK (enforcement_version = 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_RUNNER_CONTEXT_END
 
 
