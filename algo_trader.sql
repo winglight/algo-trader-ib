@@ -1570,6 +1570,24 @@ CREATE TABLE IF NOT EXISTS option_allocation_reconciliation (
     KEY idx_allocation_reconciliation_session (account_key,session_id,created_at),
     CONSTRAINT fk_allocation_reconciliation_writer FOREIGN KEY (session_id) REFERENCES option_writer_lease(session_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS option_lifecycle_allocation (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    activity_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    revision BIGINT UNSIGNED NOT NULL,
+    financial_sequence BIGINT UNSIGNED NOT NULL,
+    receipt JSON NOT NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_evidence JSON NOT NULL,
+    evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    UNIQUE KEY uq_lifecycle_allocation_sequence (account_key,financial_sequence),
+    UNIQUE KEY uq_lifecycle_allocation_revision (account_key,activity_key,revision),
+    CONSTRAINT fk_lifecycle_allocation_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CHECK (revision > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
 -- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
 ALTER TABLE option_order_account
