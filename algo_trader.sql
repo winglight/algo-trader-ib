@@ -1508,6 +1508,22 @@ CREATE TABLE IF NOT EXISTS option_reprice_request (
     CHECK (phase IN ('PENDING','REPLACED','SUPERSEDED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+
+CREATE TABLE IF NOT EXISTS option_protection_recovery (
+    recovery_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    terminal_receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    phase VARCHAR(16) NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    resolved_at DATETIME(6) NULL,
+    UNIQUE KEY uq_recovery_terminal (terminal_receipt_hash),
+    KEY ix_pending_recovery (account_key,phase),
+    CONSTRAINT fk_recovery_terminal FOREIGN KEY (terminal_receipt_hash) REFERENCES option_terminal_reconciliation(receipt_hash),
+    CHECK (phase IN ('PENDING','ACTIVE','CLOSED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
 -- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
 ALTER TABLE option_order_account
@@ -1828,6 +1844,7 @@ CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     KEY idx_exposure_outbox_pending (delivered_at,sequence_id),
     KEY idx_exposure_outbox_account (account_key,sequence_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS option_recovery_required BOOLEAN NOT NULL DEFAULT FALSE;
 -- ATI_OPTIONS_V9_EXPOSURE_END
 
 CREATE TABLE IF NOT EXISTS screeners_run_stages (
