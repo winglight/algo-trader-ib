@@ -2364,6 +2364,20 @@ CREATE TABLE IF NOT EXISTS option_protection_command (
     CONSTRAINT fk_protection_command_budget FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
     CHECK (operation IN ('PREPARE','TIGHTEN','REQUEST_CLOSE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS option_entry_replacement (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    previous_group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    previous_reservation JSON NOT NULL,
+    receipt JSON NOT NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    UNIQUE KEY uq_entry_replacement_previous (account_key,previous_group_id),
+    CONSTRAINT fk_entry_replacement_budget FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_PROTECTION_END
 
 
