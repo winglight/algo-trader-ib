@@ -2380,6 +2380,10 @@ CREATE TABLE IF NOT EXISTS broker_option_dispatch (
     CHECK ((phase='ACKNOWLEDGED' AND receipt_payload IS NOT NULL AND receipt_hash IS NOT NULL)
         OR (phase<>'ACKNOWLEDGED' AND receipt_payload IS NULL AND receipt_hash IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE broker_option_dispatch
+    ADD COLUMN IF NOT EXISTS prepared_native_payload JSON NULL,
+    ADD COLUMN IF NOT EXISTS prepared_native_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
+
 CREATE TABLE IF NOT EXISTS broker_option_cancel (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
