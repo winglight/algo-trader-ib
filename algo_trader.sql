@@ -1885,9 +1885,14 @@ CREATE TABLE IF NOT EXISTS risk_exposure_command (
     created_at DATETIME(6) NOT NULL,
     PRIMARY KEY (account_key,command_id),
     CONSTRAINT fk_exposure_command_account FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
-    CHECK (operation IN ('RESERVE','CLAIM','RELEASE'))
+    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+
+ALTER TABLE risk_exposure_command
+    DROP CONSTRAINT IF EXISTS CONSTRAINT_1,
+    DROP CONSTRAINT IF EXISTS ck_exposure_command_operation,
+    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE'));
 
 CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1907,6 +1912,8 @@ CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
 ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS option_recovery_required BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS account_evidence JSON NULL;
 ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS account_evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
+ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS admission_evidence JSON NULL;
+ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS admission_evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
 -- ATI_OPTIONS_V9_EXPOSURE_END
 
 CREATE TABLE IF NOT EXISTS screeners_run_stages (
