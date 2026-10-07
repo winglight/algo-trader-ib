@@ -1706,6 +1706,23 @@ CREATE TABLE IF NOT EXISTS account_exposure_claims (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 ALTER TABLE account_exposure_claims ADD COLUMN IF NOT EXISTS reflection_evidence_ref VARCHAR(128) NULL;
+ALTER TABLE account_exposure_claims
+    ADD COLUMN IF NOT EXISTS source_claim JSON NULL,
+    ADD COLUMN IF NOT EXISTS claim_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
+
+CREATE TABLE IF NOT EXISTS risk_exposure_command (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    operation VARCHAR(16) NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    receipt JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    CONSTRAINT fk_exposure_command_account FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
+    CHECK (operation IN ('RESERVE','CLAIM','RELEASE'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 
 CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
