@@ -2203,3 +2203,36 @@ CREATE TABLE IF NOT EXISTS broker_stock_dispatch (
         OR (phase<>'ACKNOWLEDGED' AND receipt_payload IS NULL AND receipt_hash IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_NATIVE_DISPATCH_END
+
+-- ATI_OPTIONS_V9_PROTECTION_BEGIN
+CREATE TABLE IF NOT EXISTS option_protection_session (
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    round_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    resource_version BIGINT UNSIGNED NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uq_protection_round (round_id),
+    KEY ix_protection_account (account_key),
+    KEY ix_protection_recovery (status,session_id),
+    CONSTRAINT fk_protection_budget FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
+    CHECK (resource_version>=1),
+    CHECK (status IN ('PREPARED','ARMED','EXIT_REQUESTED','EXIT_WORKING','RECOVERING','RESIDUAL_EXPOSURE','FLAT_PENDING_RECONCILE','CLOSED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS option_protection_command (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    operation VARCHAR(32) NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_payload JSON NOT NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    receipt JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    CONSTRAINT fk_protection_command_budget FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
+    CHECK (operation IN ('PREPARE','TIGHTEN','REQUEST_CLOSE'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_PROTECTION_END
