@@ -1492,6 +1492,22 @@ CREATE TABLE IF NOT EXISTS option_order_replacement (
     CONSTRAINT fk_option_replacement_receipt FOREIGN KEY (receipt_hash) REFERENCES option_close_reconciliation(receipt_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS option_reprice_request (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_payload JSON NOT NULL,
+    accepted_receipt JSON NOT NULL,
+    phase VARCHAR(16) NOT NULL,
+    successor_group_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    UNIQUE KEY uq_option_reprice_group (account_key,group_id),
+    CONSTRAINT fk_option_reprice_group FOREIGN KEY (group_id) REFERENCES option_order_group(group_id),
+    CHECK (phase IN ('PENDING','REPLACED','SUPERSEDED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
 -- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
 ALTER TABLE option_order_account
