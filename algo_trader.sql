@@ -1440,6 +1440,16 @@ CREATE TABLE IF NOT EXISTS option_order_outbox (
     UNIQUE KEY uq_option_group_event (group_id,resource_version,event_kind),
     CONSTRAINT fk_option_order_outbox FOREIGN KEY (group_id) REFERENCES option_order_group(group_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS option_terminal_reconciliation (
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    KEY idx_option_terminal_session (account_key,session_id),
+    CONSTRAINT fk_option_terminal_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
 -- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
 ALTER TABLE option_order_account
