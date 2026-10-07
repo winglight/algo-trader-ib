@@ -1705,6 +1705,8 @@ CREATE TABLE IF NOT EXISTS account_exposure_claims (
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS broker_snapshot_id VARCHAR(128) NULL;
+
 ALTER TABLE account_exposure_claims ADD COLUMN IF NOT EXISTS reflection_evidence_ref VARCHAR(128) NULL;
 ALTER TABLE account_exposure_claims
     ADD COLUMN IF NOT EXISTS source_claim JSON NULL,
