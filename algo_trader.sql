@@ -1329,6 +1329,38 @@ CREATE TABLE IF NOT EXISTS option_writer_outbox (
     CHECK (event_kind IN ('CLAIMED','RENEWED')),
     CHECK (resource_version BETWEEN 1 AND 9007199254740991)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_emergency_exit (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    active_session_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    phase VARCHAR(16) NOT NULL,
+    resource_version BIGINT UNSIGNED NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    UNIQUE KEY uq_emergency_active_session (active_session_id),
+    KEY idx_emergency_session (account_key,session_id,created_at),
+    CONSTRAINT fk_emergency_writer FOREIGN KEY (session_id) REFERENCES option_writer_lease(session_id),
+    CHECK (phase IN ('ACTIVE','CLOSED')),
+    CHECK ((phase='ACTIVE' AND active_session_id=session_id) OR (phase='CLOSED' AND active_session_id IS NULL)),
+    CHECK (resource_version BETWEEN 1 AND 9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_emergency_event (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    resource_version BIGINT UNSIGNED NOT NULL,
+    event_kind VARCHAR(16) NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id,resource_version),
+    CONSTRAINT fk_emergency_event FOREIGN KEY (account_key,command_id) REFERENCES option_emergency_exit(account_key,command_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_WRITER_LEASES_END
 
 -- ATI_OPTIONS_V9_ORDER_GROUPS_BEGIN
