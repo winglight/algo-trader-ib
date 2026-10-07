@@ -1450,6 +1450,25 @@ CREATE TABLE IF NOT EXISTS option_terminal_reconciliation (
     CONSTRAINT fk_option_terminal_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS option_cancel_command (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_payload JSON NOT NULL,
+    accepted_receipt JSON NOT NULL,
+    phase VARCHAR(16) NOT NULL,
+    receipt_payload JSON NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    UNIQUE KEY uq_option_group_cancel (account_key,group_id),
+    CONSTRAINT fk_option_cancel_group FOREIGN KEY (group_id) REFERENCES option_order_group(group_id),
+    CHECK (phase IN ('PENDING','SENDING','ACKNOWLEDGED','UNKNOWN'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
 -- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
 ALTER TABLE option_order_account
@@ -2259,6 +2278,20 @@ CREATE TABLE IF NOT EXISTS broker_option_dispatch (
     CHECK ((phase='ACKNOWLEDGED' AND receipt_payload IS NOT NULL AND receipt_hash IS NOT NULL)
         OR (phase<>'ACKNOWLEDGED' AND receipt_payload IS NULL AND receipt_hash IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS broker_option_cancel (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    command_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_payload JSON NOT NULL,
+    phase VARCHAR(16) NOT NULL,
+    receipt_payload JSON NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    CHECK (phase IN ('SENDING','ACKNOWLEDGED','UNKNOWN'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ATI_OPTIONS_V9_OPTION_DISPATCH_END
 
 -- ATI_OPTIONS_V9_PROTECTION_BEGIN
