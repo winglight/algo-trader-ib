@@ -1556,6 +1556,20 @@ CREATE TABLE IF NOT EXISTS option_protection_recovery (
     CONSTRAINT fk_recovery_terminal FOREIGN KEY (terminal_receipt_hash) REFERENCES option_terminal_reconciliation(receipt_hash),
     CHECK (phase IN ('PENDING','ACTIVE','CLOSED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE option_close_allocation
+    ADD COLUMN IF NOT EXISTS reconciled_consumed_contracts DECIMAL(65,12) NULL,
+    ADD COLUMN IF NOT EXISTS consumption_receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
+
+CREATE TABLE IF NOT EXISTS option_allocation_reconciliation (
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    session_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    KEY idx_allocation_reconciliation_session (account_key,session_id,created_at),
+    CONSTRAINT fk_allocation_reconciliation_writer FOREIGN KEY (session_id) REFERENCES option_writer_lease(session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
 -- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
 ALTER TABLE option_order_account
