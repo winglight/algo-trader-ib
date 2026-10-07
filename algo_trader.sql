@@ -1610,6 +1610,23 @@ CREATE TABLE IF NOT EXISTS option_account_lifecycle (
     CONSTRAINT ck_option_lifecycle_revision CHECK (revision > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+-- Native account fees remain unallocated until exact financial ownership exists.
+-- Cash is already reflected in broker balances; this is a reporting ledger.
+CREATE TABLE IF NOT EXISTS option_account_fee (
+    sequence BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    fee_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    fee_cash DECIMAL(65,12) NOT NULL,
+    currency CHAR(3) NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    received_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uq_option_account_fee (account_key,fee_key),
+    KEY idx_option_account_fee_sequence (account_key,sequence),
+    CONSTRAINT fk_option_account_fee_cursor FOREIGN KEY (account_key) REFERENCES option_account_cursor(account_key),
+    CONSTRAINT ck_option_account_fee_currency CHECK (currency='USD')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS option_account_outbox (
     sequence BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     event_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
