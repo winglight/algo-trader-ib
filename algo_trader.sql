@@ -2166,3 +2166,9 @@ CREATE TABLE IF NOT EXISTS order_exposure_dispatch (
         OR (phase<>'PREPARED' AND reservation_id IS NOT NULL AND receipt_hash IS NOT NULL AND reservation_receipt IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_LEGACY_ADMISSION_END
+
+-- ATI_OPTIONS_V9_CASH_ESTIMATION_BEGIN
+ALTER TABLE order_exposure_dispatch
+    ADD COLUMN IF NOT EXISTS estimation_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    ADD COLUMN IF NOT EXISTS estimation_evidence JSON NULL;
+-- ATI_OPTIONS_V9_CASH_ESTIMATION_END
