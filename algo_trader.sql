@@ -1602,7 +1602,7 @@ CREATE TABLE IF NOT EXISTS option_account_lifecycle (
     revision BIGINT NOT NULL,
     payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     payload JSON NOT NULL,
-    effective_at DATETIME(6) NOT NULL,
+    effective_at DATETIME(6) NULL,
     received_at DATETIME(6) NOT NULL,
     UNIQUE KEY uq_option_lifecycle_revision (account_key,activity_key,revision),
     KEY idx_option_lifecycle_account_sequence (account_key,sequence),
@@ -1623,6 +1623,8 @@ CREATE TABLE IF NOT EXISTS option_account_outbox (
     KEY idx_option_account_outbox_account (account_key,sequence),
     CONSTRAINT fk_option_account_outbox_cursor FOREIGN KEY (account_key) REFERENCES option_account_cursor(account_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- Native NTAs can provide only a broker date, retained in payload.
+ALTER TABLE option_account_lifecycle MODIFY COLUMN effective_at DATETIME(6) NULL;
 -- ATI_OPTIONS_V9_ACCOUNT_END
 
 
@@ -2264,3 +2266,15 @@ CREATE TABLE IF NOT EXISTS option_protection_command (
     CHECK (operation IN ('PREPARE','TIGHTEN','REQUEST_CLOSE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_PROTECTION_END
+
+
+-- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_lifecycle_evidence (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    observed_scope JSON NOT NULL,
+    raw_payload MEDIUMBLOB NOT NULL,
+    received_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    PRIMARY KEY (account_key, raw_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_END
