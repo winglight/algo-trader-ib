@@ -2138,3 +2138,31 @@ CREATE TABLE IF NOT EXISTS option_broker_feed_event (
     CONSTRAINT fk_option_feed_event_raw FOREIGN KEY (local_receipt_id) REFERENCES option_order_raw_inbox(receipt_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDERS_CONSUMER_END
+
+
+-- ATI_OPTIONS_V9_LEGACY_ADMISSION_BEGIN
+CREATE TABLE IF NOT EXISTS order_exposure_dispatch (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_payload JSON NOT NULL,
+    order_payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    reservation_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    reservation_receipt JSON NULL,
+    phase VARCHAR(16) NOT NULL,
+    version BIGINT UNSIGNED NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,order_id),
+    UNIQUE KEY uq_order_exposure_order (order_id),
+    UNIQUE KEY uq_order_exposure_command (account_key,command_id),
+    UNIQUE KEY uq_order_exposure_reservation (account_key,reservation_id),
+    CONSTRAINT fk_order_exposure_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CONSTRAINT fk_order_exposure_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CHECK (phase IN ('PREPARED','RESERVED','SENDING','ACKNOWLEDGED','UNKNOWN')),
+    CHECK (version>=1),
+    CHECK ((phase='PREPARED' AND reservation_id IS NULL AND receipt_hash IS NULL AND reservation_receipt IS NULL)
+        OR (phase<>'PREPARED' AND reservation_id IS NOT NULL AND receipt_hash IS NOT NULL AND reservation_receipt IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_LEGACY_ADMISSION_END
