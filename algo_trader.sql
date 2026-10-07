@@ -2462,3 +2462,17 @@ CREATE TABLE IF NOT EXISTS broker_option_lifecycle_evidence (
     PRIMARY KEY (account_key, raw_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_END
+
+
+-- ATI_OPTIONS_V9_ENTRY_POLICY_BEGIN
+CREATE TABLE IF NOT EXISTS option_entry_policy_definition (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    policy_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    revision BIGINT NOT NULL,
+    definition_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    definition JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    PRIMARY KEY (account_key,policy_id,revision),
+    UNIQUE KEY uq_option_entry_policy_hash (definition_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- ATI_OPTIONS_V9_ENTRY_POLICY_END
