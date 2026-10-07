@@ -1469,6 +1469,29 @@ CREATE TABLE IF NOT EXISTS option_cancel_command (
     CHECK (phase IN ('PENDING','SENDING','ACKNOWLEDGED','UNKNOWN'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+ALTER TABLE option_close_allocation
+    ADD COLUMN IF NOT EXISTS released_consumed_contracts DECIMAL(65,12) NULL;
+
+CREATE TABLE IF NOT EXISTS option_close_reconciliation (
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    KEY idx_option_close_reconciliation (account_key,group_id),
+    CONSTRAINT fk_option_close_reconciliation_group FOREIGN KEY (group_id) REFERENCES option_order_group(group_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_order_replacement (
+    previous_group_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
+    next_group_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL UNIQUE,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    CONSTRAINT fk_option_replacement_previous FOREIGN KEY (previous_group_id) REFERENCES option_order_group(group_id),
+    CONSTRAINT fk_option_replacement_next FOREIGN KEY (next_group_id) REFERENCES option_order_group(group_id),
+    CONSTRAINT fk_option_replacement_receipt FOREIGN KEY (receipt_hash) REFERENCES option_close_reconciliation(receipt_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ATI_OPTIONS_V9_ORDER_GROUPS_END
 -- ATI_OPTIONS_V9_ORDER_INBOX_BEGIN
 ALTER TABLE option_order_account
