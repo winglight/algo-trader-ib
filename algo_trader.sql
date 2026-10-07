@@ -1891,6 +1891,8 @@ CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     KEY idx_exposure_outbox_account (account_key,sequence_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS option_recovery_required BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS account_evidence JSON NULL;
+ALTER TABLE account_exposure_budget ADD COLUMN IF NOT EXISTS account_evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
 -- ATI_OPTIONS_V9_EXPOSURE_END
 
 CREATE TABLE IF NOT EXISTS screeners_run_stages (
