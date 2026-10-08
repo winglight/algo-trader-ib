@@ -2862,4 +2862,26 @@ CREATE TABLE IF NOT EXISTS option_local_outbox (
     payload_hash CHAR(64) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 );
+CREATE TABLE IF NOT EXISTS option_local_event_cursor (
+    subject VARCHAR(128) NOT NULL PRIMARY KEY,
+    sequence BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS option_local_event (
+    subject VARCHAR(128) NOT NULL,
+    sequence BIGINT NOT NULL,
+    event_id CHAR(64) NOT NULL UNIQUE,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    PRIMARY KEY (subject,sequence),
+    FOREIGN KEY (subject) REFERENCES option_local_event_cursor(subject)
+);
+CREATE TABLE IF NOT EXISTS option_local_delivery (
+    event_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    receipt_hash CHAR(64) NOT NULL,
+    ack LONGTEXT NULL,
+    ack_hash CHAR(64) NULL,
+    last_error VARCHAR(128) NULL,
+    next_attempt_at DATETIME(6) NULL,
+    FOREIGN KEY (event_id) REFERENCES option_local_outbox(event_id)
+);
 -- ATI_OPTIONS_V9_LOCAL_IMPORTS_END
