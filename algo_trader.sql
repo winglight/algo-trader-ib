@@ -2444,6 +2444,10 @@ CREATE TABLE IF NOT EXISTS order_cash_terminal (
     KEY idx_cash_terminal_order (account_key,order_id),
     CONSTRAINT fk_cash_terminal_order FOREIGN KEY (account_key,order_id) REFERENCES order_exposure_dispatch(account_key,order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE order_exposure_dispatch
+    ADD COLUMN IF NOT EXISTS terminal_evidence_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    ADD COLUMN IF NOT EXISTS settlement_receipt JSON NULL,
+    ADD COLUMN IF NOT EXISTS settlement_receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
 -- ATI_OPTIONS_V9_NATIVE_DISPATCH_END
 
 -- ATI_OPTIONS_V9_OPTION_DISPATCH_BEGIN
