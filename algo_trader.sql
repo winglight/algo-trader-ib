@@ -2799,3 +2799,54 @@ CREATE TABLE IF NOT EXISTS option_local_control (
     FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
 );
 -- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_END
+
+-- ATI_OPTIONS_V9_LOCAL_IMPORTS_BEGIN
+CREATE TABLE IF NOT EXISTS option_local_import (
+    import_id CHAR(64) NOT NULL PRIMARY KEY,
+    replay_key CHAR(64) NOT NULL UNIQUE,
+    subject VARCHAR(128) NOT NULL,
+    bundle_hash CHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'RECEIVED',
+    resource_version BIGINT NOT NULL DEFAULT 1,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+);
+CREATE TABLE IF NOT EXISTS option_local_import_operation (
+    operation_id CHAR(64) NOT NULL PRIMARY KEY,
+    import_id CHAR(64) NULL,
+    kind VARCHAR(24) NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    receipt LONGTEXT NULL,
+    receipt_hash CHAR(64) NULL,
+    FOREIGN KEY (import_id) REFERENCES option_local_import(import_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_import_review (
+    import_id CHAR(64) NOT NULL,
+    review_version BIGINT NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    PRIMARY KEY (import_id,review_version),
+    FOREIGN KEY (import_id) REFERENCES option_local_import(import_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_origin (
+    source_key CHAR(64) NOT NULL PRIMARY KEY,
+    basket_id VARCHAR(128) NOT NULL UNIQUE,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_import_quarantine (
+    conflict_id CHAR(64) NOT NULL PRIMARY KEY,
+    subject VARCHAR(128) NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS option_local_outbox (
+    event_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    kind VARCHAR(32) NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+);
+-- ATI_OPTIONS_V9_LOCAL_IMPORTS_END
