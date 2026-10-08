@@ -2497,6 +2497,33 @@ CREATE TABLE IF NOT EXISTS order_cash_reflection (
     CHECK ((receipt IS NULL AND receipt_hash IS NULL AND completed_at IS NULL)
         OR (receipt IS NOT NULL AND receipt_hash IS NOT NULL AND completed_at IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS order_cash_reduction (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    reduction_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    phase VARCHAR(16) NOT NULL,
+    terminal_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    PRIMARY KEY (account_key,order_id),
+    UNIQUE KEY uq_cash_reduction_ref (reduction_ref),
+    CONSTRAINT fk_cash_reduction_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CHECK (phase IN ('RESERVED','SETTLED')),
+    CHECK ((phase='RESERVED' AND terminal_ref IS NULL) OR (phase='SETTLED' AND terminal_ref IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS order_cash_close_lot (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    entry_order_id BIGINT UNSIGNED NOT NULL,
+    fill_id BIGINT UNSIGNED NOT NULL,
+    quantity DECIMAL(65,12) NOT NULL,
+    active_quantity DECIMAL(65,12) NOT NULL,
+    consumed_quantity DECIMAL(65,12) NOT NULL,
+    PRIMARY KEY (account_key,order_id,fill_id),
+    KEY idx_cash_close_execution (account_key,fill_id),
+    CONSTRAINT fk_cash_close_allocation FOREIGN KEY (account_key,order_id) REFERENCES order_cash_reduction(account_key,order_id),
+    CONSTRAINT fk_cash_close_entry FOREIGN KEY (entry_order_id) REFERENCES orders(id),
+    CHECK (quantity>0 AND active_quantity BETWEEN 0 AND quantity AND consumed_quantity BETWEEN 0 AND active_quantity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_NATIVE_DISPATCH_END
 
 -- ATI_OPTIONS_V9_OPTION_DISPATCH_BEGIN
