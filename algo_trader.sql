@@ -1903,14 +1903,14 @@ CREATE TABLE IF NOT EXISTS risk_exposure_command (
     created_at DATETIME(6) NOT NULL,
     PRIMARY KEY (account_key,command_id),
     CONSTRAINT fk_exposure_command_account FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
-    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE'))
+    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 
 ALTER TABLE risk_exposure_command
     DROP CONSTRAINT IF EXISTS CONSTRAINT_1,
     DROP CONSTRAINT IF EXISTS ck_exposure_command_operation,
-    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE'));
+    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT'));
 
 CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -2481,6 +2481,22 @@ ALTER TABLE order_exposure_dispatch
     ADD COLUMN IF NOT EXISTS terminal_evidence_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     ADD COLUMN IF NOT EXISTS settlement_receipt JSON NULL,
     ADD COLUMN IF NOT EXISTS settlement_receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
+CREATE TABLE IF NOT EXISTS order_cash_reflection (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    evidence_payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    receipt JSON NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    completed_at DATETIME(6) NULL,
+    PRIMARY KEY (account_key,order_id),
+    UNIQUE KEY uq_cash_reflection_evidence (evidence_hash),
+    CONSTRAINT fk_cash_reflection_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CHECK ((receipt IS NULL AND receipt_hash IS NULL AND completed_at IS NULL)
+        OR (receipt IS NOT NULL AND receipt_hash IS NOT NULL AND completed_at IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_NATIVE_DISPATCH_END
 
 -- ATI_OPTIONS_V9_OPTION_DISPATCH_BEGIN
