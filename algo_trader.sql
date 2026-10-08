@@ -2524,6 +2524,17 @@ CREATE TABLE IF NOT EXISTS order_cash_close_lot (
     CONSTRAINT fk_cash_close_entry FOREIGN KEY (entry_order_id) REFERENCES orders(id),
     CHECK (quantity>0 AND active_quantity BETWEEN 0 AND quantity AND consumed_quantity BETWEEN 0 AND active_quantity)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS order_cash_risk_release (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    evidence_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    evidence_payload JSON NOT NULL,
+    receipt JSON NOT NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (account_key,order_id),
+    CONSTRAINT fk_cash_risk_release_order FOREIGN KEY (order_id) REFERENCES orders(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_NATIVE_DISPATCH_END
 
 -- ATI_OPTIONS_V9_OPTION_DISPATCH_BEGIN
