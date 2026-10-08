@@ -2912,6 +2912,22 @@ CREATE TABLE IF NOT EXISTS option_local_proposal (
     payload_hash CHAR(64) NOT NULL,
     FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
 );
+CREATE TABLE IF NOT EXISTS option_local_performance (
+    round_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    basket_id VARCHAR(128) NOT NULL,
+    revision BIGINT NOT NULL DEFAULT 0,
+    payload LONGTEXT NULL,
+    payload_hash CHAR(64) NULL,
+    observed_at DATETIME(6) NULL,
+    source_as_of DATETIME(6) NULL,
+    last_error VARCHAR(128) NULL,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    lease_token VARCHAR(36) NULL,
+    lease_until DATETIME(6) NULL,
+    INDEX option_local_performance_due (next_attempt_at,round_id),
+    FOREIGN KEY (round_id) REFERENCES option_local_round(round_id),
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
 -- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_END
 
 -- ATI_OPTIONS_V9_LOCAL_IMPORTS_BEGIN
