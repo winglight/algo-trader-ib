@@ -1903,14 +1903,14 @@ CREATE TABLE IF NOT EXISTS risk_exposure_command (
     created_at DATETIME(6) NOT NULL,
     PRIMARY KEY (account_key,command_id),
     CONSTRAINT fk_exposure_command_account FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
-    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT'))
+    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 
 ALTER TABLE risk_exposure_command
     DROP CONSTRAINT IF EXISTS CONSTRAINT_1,
     DROP CONSTRAINT IF EXISTS ck_exposure_command_operation,
-    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT'));
+    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST'));
 
 CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -2389,6 +2389,19 @@ CREATE TABLE IF NOT EXISTS order_exposure_dispatch (
     CHECK ((phase='PREPARED' AND reservation_id IS NULL AND receipt_hash IS NULL AND reservation_receipt IS NULL)
         OR (phase<>'PREPARED' AND reservation_id IS NOT NULL AND receipt_hash IS NOT NULL AND reservation_receipt IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS order_exposure_amendment (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    phase VARCHAR(16) NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload LONGTEXT NOT NULL,
+    receipt LONGTEXT NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    PRIMARY KEY (account_key,command_id),
+    KEY ix_exposure_amendment_order (order_id,phase),
+    FOREIGN KEY (account_key,order_id) REFERENCES order_exposure_dispatch(account_key,order_id)
+);
 -- ATI_OPTIONS_V9_LEGACY_ADMISSION_END
 
 -- ATI_OPTIONS_V9_CASH_ESTIMATION_BEGIN
