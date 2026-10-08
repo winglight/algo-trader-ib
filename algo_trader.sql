@@ -2960,6 +2960,29 @@ CREATE TABLE IF NOT EXISTS option_local_performance (
     FOREIGN KEY (round_id) REFERENCES option_local_round(round_id),
     FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
 );
+CREATE TABLE IF NOT EXISTS option_local_template (
+    subject VARCHAR(128) NOT NULL,
+    template_id VARCHAR(128) NOT NULL,
+    version BIGINT NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    source_envelope LONGTEXT NULL,
+    source_envelope_hash CHAR(64) NULL,
+    installed_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (subject,template_id,version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS option_local_template_install (
+    operation_id CHAR(64) NOT NULL PRIMARY KEY,
+    request_hash CHAR(64) NOT NULL,
+    jti CHAR(64) NOT NULL,
+    subject VARCHAR(128) NOT NULL,
+    receipt LONGTEXT NULL,
+    receipt_hash CHAR(64) NULL,
+    UNIQUE KEY uq_option_template_jti (subject,jti)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+ALTER TABLE option_local_template ADD COLUMN IF NOT EXISTS source_envelope LONGTEXT NULL;
+ALTER TABLE option_local_template ADD COLUMN IF NOT EXISTS source_envelope_hash CHAR(64) NULL;
 -- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_END
 
 -- ATI_OPTIONS_V9_LOCAL_IMPORTS_BEGIN
