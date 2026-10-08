@@ -2660,6 +2660,22 @@ CREATE TABLE IF NOT EXISTS option_entry_resolution (
 
 
 -- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_flex_trade_cancel (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    cancellation_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    receipt_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    file_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    execution_family VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    native_revision BIGINT UNSIGNED NOT NULL,
+    published_revision BIGINT UNSIGNED NULL,
+    proof_payload JSON NOT NULL,
+    proof_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (account_key,cancellation_id),
+    UNIQUE KEY uq_flex_trade_cancel_receipt (receipt_id),
+    KEY ix_flex_trade_cancel_family (account_key,execution_family),
+    CHECK (native_revision>=1),
+    CHECK (published_revision IS NULL OR published_revision=native_revision+1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS broker_option_flex_request (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     source_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
