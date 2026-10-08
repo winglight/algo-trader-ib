@@ -1855,6 +1855,16 @@ CREATE TABLE IF NOT EXISTS account_exposure_budget (
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS account_exposure_limits (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    max_open_risk_cash DECIMAL(65,12) NOT NULL,
+    bp_limit_cash DECIMAL(65,12) NOT NULL,
+    resource_version BIGINT NOT NULL,
+    updated_by VARCHAR(128) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CONSTRAINT ck_account_user_limits CHECK (max_open_risk_cash >= 0 AND bp_limit_cash >= 0 AND resource_version >= 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS account_exposure_claims (
     reservation_id VARCHAR(128) NOT NULL PRIMARY KEY,
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -1919,14 +1929,14 @@ CREATE TABLE IF NOT EXISTS risk_exposure_command (
     created_at DATETIME(6) NOT NULL,
     PRIMARY KEY (account_key,command_id),
     CONSTRAINT fk_exposure_command_account FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
-    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST'))
+    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST','LIMITS'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 
 ALTER TABLE risk_exposure_command
     DROP CONSTRAINT IF EXISTS CONSTRAINT_1,
     DROP CONSTRAINT IF EXISTS ck_exposure_command_operation,
-    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST'));
+    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST','LIMITS'));
 
 CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
