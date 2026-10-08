@@ -2636,6 +2636,13 @@ CREATE TABLE IF NOT EXISTS option_entry_replacement (
 
 
 -- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_flex_request (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    reference_code VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    PRIMARY KEY (account_key, source_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS broker_option_lifecycle_evidence (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
