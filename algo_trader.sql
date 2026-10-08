@@ -2198,6 +2198,21 @@ SELECT r.receipt_id,r.account_key,e.event_sequence,IF(r.normalized_hash IS NULL,
 FROM broker_option_raw_event r JOIN broker_option_event_outbox e
 ON e.account_key=r.account_key AND e.event_kind='RAW'
 AND JSON_UNQUOTE(JSON_EXTRACT(e.payload,'$.raw.receipt_id'))=r.receipt_id;
+CREATE TABLE IF NOT EXISTS broker_option_fee_revision (
+  account_key CHAR(64) NOT NULL,
+  execution_family VARCHAR(128) NOT NULL,
+  observation_hash CHAR(64) NOT NULL,
+  input_hash CHAR(64) NOT NULL,
+  financial_revision BIGINT NOT NULL,
+  native_revision BIGINT NOT NULL,
+  source VARCHAR(32) NOT NULL,
+  generated_local DATETIME NULL,
+  payload LONGTEXT NOT NULL,
+  payload_hash CHAR(64) NOT NULL,
+  PRIMARY KEY (account_key,execution_family,observation_hash),
+  KEY idx_broker_option_fee_latest (account_key,execution_family,financial_revision),
+  CONSTRAINT chk_broker_option_fee_revision CHECK (financial_revision>0 AND native_revision>0)
+) ENGINE=InnoDB;
 -- ATI_OPTIONS_V9_RUNNER_NORMALIZATION_END
 
 -- ATI_OPTIONS_V9_RUNNER_ACTIVITIES_BEGIN
@@ -2738,6 +2753,18 @@ CREATE TABLE IF NOT EXISTS broker_option_flex_day (
     generated_local DATETIME NOT NULL,
     PRIMARY KEY (account_key,trade_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS broker_option_flex_fee (
+  account_key CHAR(64) NOT NULL,
+  observation_id CHAR(64) NOT NULL,
+  receipt_id VARCHAR(128) NOT NULL,
+  file_hash CHAR(64) NOT NULL,
+  generated_local DATETIME NOT NULL,
+  proof_payload LONGTEXT NOT NULL,
+  proof_hash CHAR(64) NOT NULL,
+  published_revision BIGINT NULL,
+  PRIMARY KEY (account_key,observation_id),
+  UNIQUE KEY uq_broker_option_flex_fee_receipt (receipt_id)
+) ENGINE=InnoDB;
 -- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_END
 
 
