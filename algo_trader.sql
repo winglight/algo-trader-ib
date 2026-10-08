@@ -2823,8 +2823,12 @@ CREATE TABLE IF NOT EXISTS option_local_basket (
     status VARCHAR(24) NOT NULL DEFAULT 'DRAFT',
     resource_version BIGINT NOT NULL DEFAULT 1,
     plan_version BIGINT NOT NULL DEFAULT 0,
-    current_plan_id VARCHAR(128) NULL
+    current_plan_id VARCHAR(128) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    INDEX ix_option_local_basket_owner_created (subject,created_at,basket_id)
 );
+ALTER TABLE option_local_basket ADD COLUMN IF NOT EXISTS created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6);
+ALTER TABLE option_local_basket ADD INDEX IF NOT EXISTS ix_option_local_basket_owner_created (subject,created_at,basket_id);
 CREATE TABLE IF NOT EXISTS option_local_plan (
     plan_id VARCHAR(128) NOT NULL PRIMARY KEY,
     basket_id VARCHAR(128) NOT NULL,
