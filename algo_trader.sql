@@ -2393,6 +2393,57 @@ CREATE TABLE IF NOT EXISTS broker_stock_dispatch (
     CHECK ((phase='ACKNOWLEDGED' AND receipt_payload IS NOT NULL AND receipt_hash IS NOT NULL)
         OR (phase<>'ACKNOWLEDGED' AND receipt_payload IS NULL AND receipt_hash IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS broker_cash_cancel (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_payload JSON NOT NULL,
+    authority_payload JSON NOT NULL,
+    authority_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    native_payload MEDIUMBLOB NULL,
+    native_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    phase VARCHAR(16) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (account_key,order_id),
+    CONSTRAINT fk_cash_cancel_account FOREIGN KEY (account_id) REFERENCES option_broker_account_identity(account_id),
+    CHECK (phase IN ('SENDING','REQUESTED','UNKNOWN')),
+    CHECK ((native_payload IS NULL AND native_hash IS NULL) OR (native_payload IS NOT NULL AND native_hash IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS broker_cash_order_evidence (
+    evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    raw_payload MEDIUMBLOB NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    KEY idx_cash_evidence_order (account_key,order_id),
+    CONSTRAINT fk_cash_evidence_account FOREIGN KEY (account_id) REFERENCES option_broker_account_identity(account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS order_cash_control (
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    request_payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    KEY idx_cash_control_order (account_key,order_id),
+    CONSTRAINT fk_cash_control_order FOREIGN KEY (account_key,order_id) REFERENCES order_exposure_dispatch(account_key,order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS order_cash_terminal (
+    evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    evidence_payload JSON NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    KEY idx_cash_terminal_order (account_key,order_id),
+    CONSTRAINT fk_cash_terminal_order FOREIGN KEY (account_key,order_id) REFERENCES order_exposure_dispatch(account_key,order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_NATIVE_DISPATCH_END
 
 -- ATI_OPTIONS_V9_OPTION_DISPATCH_BEGIN
