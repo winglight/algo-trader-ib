@@ -2361,6 +2361,15 @@ CREATE TABLE IF NOT EXISTS option_account_fee_receipt (
     CHECK ((state='PENDING' AND fill_id IS NULL AND fee_revision IS NULL AND allocation_payload IS NULL AND allocation_hash IS NULL AND attributed_at IS NULL)
         OR (state='APPLIED' AND fill_id IS NOT NULL AND fee_revision IS NOT NULL AND allocation_payload IS NOT NULL AND allocation_hash IS NOT NULL AND attributed_at IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS option_account_fee_review (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    receipt JSON NOT NULL,
+    receipt_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    CONSTRAINT fk_option_fee_review_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDERS_CONSUMER_END
 
 
