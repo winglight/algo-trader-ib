@@ -2764,6 +2764,28 @@ CREATE TABLE IF NOT EXISTS option_local_round (
 );
 ALTER TABLE option_local_round ADD COLUMN IF NOT EXISTS resource_version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE option_local_round ADD COLUMN IF NOT EXISTS entry_counted BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE TABLE IF NOT EXISTS option_local_day (
+    basket_id VARCHAR(128) NOT NULL,
+    trade_date DATE NOT NULL,
+    auto_claimed BOOLEAN NOT NULL DEFAULT FALSE,
+    suppressed_by_user BOOLEAN NOT NULL DEFAULT FALSE,
+    active_grant_id VARCHAR(128) NULL,
+    PRIMARY KEY (basket_id,trade_date),
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_grant (
+    grant_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    basket_id VARCHAR(128) NOT NULL,
+    trade_date DATE NOT NULL,
+    plan_id VARCHAR(128) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'AVAILABLE',
+    resource_version BIGINT NOT NULL DEFAULT 1,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id),
+    FOREIGN KEY (plan_id) REFERENCES option_local_plan(plan_id)
+);
 CREATE TABLE IF NOT EXISTS option_local_control (
     control_id CHAR(64) NOT NULL PRIMARY KEY,
     round_id VARCHAR(128) NOT NULL,
