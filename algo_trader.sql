@@ -1210,6 +1210,22 @@ CREATE TABLE IF NOT EXISTS screeners_runs (
 );
 
 -- ATI_OPTIONS_V9_ORDERS_FILLS_BEGIN
+CREATE TABLE IF NOT EXISTS option_fee_component_source (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    fill_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    source_kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source_revision BIGINT UNSIGNED NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    raw_ref VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    projection_revision BIGINT UNSIGNED NULL,
+    projection_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    projection_payload JSON NULL,
+    PRIMARY KEY (account_key,fill_id,source_kind,source_revision),
+    KEY ix_fee_component_projection (account_key,fill_id,projection_revision),
+    CHECK (source_kind IN ('BROKER','ACCOUNT')),
+    CHECK (source_revision BETWEEN 1 AND 9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- Expand the existing fill authority; never recover option precision from DOUBLE.
 ALTER TABLE order_fills
     ADD COLUMN IF NOT EXISTS quantity_decimal DECIMAL(65,12) NULL,
