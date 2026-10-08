@@ -2684,6 +2684,22 @@ CREATE TABLE IF NOT EXISTS option_entry_resolution (
 
 
 -- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_BEGIN
+CREATE TABLE IF NOT EXISTS broker_option_lifecycle_account (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS broker_option_lifecycle_revision (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    activity_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    revision BIGINT UNSIGNED NOT NULL,
+    native_status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    raw_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    received_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    PRIMARY KEY (account_key,activity_key,revision),
+    UNIQUE KEY uq_lifecycle_native_proof (account_key,activity_key,raw_hash),
+    CHECK (revision>=1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS broker_option_flex_trade_cancel (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     cancellation_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
