@@ -2550,6 +2550,34 @@ CREATE TABLE IF NOT EXISTS order_cash_reflection (
     CHECK ((receipt IS NULL AND receipt_hash IS NULL AND completed_at IS NULL)
         OR (receipt IS NOT NULL AND receipt_hash IS NOT NULL AND completed_at IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS order_delivery_close (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    lot_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_payload JSON NOT NULL,
+    order_id BIGINT UNSIGNED NULL,
+    allocation_payload JSON NULL,
+    reduction_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    phase VARCHAR(16) NOT NULL,
+    reserved_quantity BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    consumed_quantity BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    terminal_ref CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (account_key,command_id),
+    UNIQUE KEY uq_delivery_close_request (request_ref),
+    UNIQUE KEY uq_delivery_close_order (order_id),
+    UNIQUE KEY uq_delivery_close_reduction (reduction_ref),
+    KEY idx_delivery_close_lot (account_key,lot_id),
+    CONSTRAINT fk_delivery_close_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    CHECK (phase IN ('PENDING','RESERVED','SETTLED')),
+    CHECK ((phase='PENDING' AND order_id IS NULL AND allocation_payload IS NULL AND reduction_ref IS NULL
+            AND terminal_ref IS NULL AND reserved_quantity=0 AND consumed_quantity=0)
+        OR (phase='RESERVED' AND order_id IS NOT NULL AND allocation_payload IS NOT NULL AND reduction_ref IS NOT NULL
+            AND terminal_ref IS NULL AND reserved_quantity>0 AND consumed_quantity=0)
+        OR (phase='SETTLED' AND order_id IS NOT NULL AND allocation_payload IS NOT NULL AND reduction_ref IS NOT NULL
+            AND terminal_ref IS NOT NULL AND reserved_quantity=0))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS order_cash_reduction (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     order_id BIGINT UNSIGNED NOT NULL,
