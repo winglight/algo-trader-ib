@@ -2651,6 +2651,44 @@ CREATE TABLE IF NOT EXISTS broker_option_lifecycle_evidence (
     received_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
     PRIMARY KEY (account_key, raw_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS broker_option_flex_account (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS broker_option_flex_statement (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    file_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    query_name VARCHAR(255) NOT NULL,
+    from_date DATE NOT NULL,
+    to_date DATE NOT NULL,
+    generated_local DATETIME NOT NULL,
+    complete BOOLEAN NOT NULL,
+    page_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    page_payload JSON NOT NULL,
+    received_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+    PRIMARY KEY (account_key,file_hash),
+    KEY ix_flex_statement_latest (account_key,generated_local)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS broker_option_flex_revision (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    activity_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    revision BIGINT UNSIGNED NOT NULL,
+    file_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    generated_local DATETIME NOT NULL,
+    latest_seen_local DATETIME NULL,
+    effective_date DATE NOT NULL,
+    economics_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    PRIMARY KEY (account_key,activity_key,revision)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE broker_option_flex_revision ADD COLUMN IF NOT EXISTS latest_seen_local DATETIME NULL;
+CREATE TABLE IF NOT EXISTS broker_option_flex_day (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    trade_date DATE NOT NULL,
+    file_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    generated_local DATETIME NOT NULL,
+    PRIMARY KEY (account_key,trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_LIFECYCLE_EVIDENCE_END
 
 
