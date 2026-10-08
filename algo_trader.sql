@@ -2704,3 +2704,49 @@ CREATE TABLE IF NOT EXISTS option_entry_policy_definition (
     UNIQUE KEY uq_option_entry_policy_hash (definition_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_ENTRY_POLICY_END
+
+-- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_BEGIN
+CREATE TABLE IF NOT EXISTS option_local_basket (
+    basket_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    subject VARCHAR(128) NOT NULL,
+    account_key CHAR(64) NOT NULL,
+    context LONGTEXT NOT NULL,
+    context_hash CHAR(64) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'DRAFT',
+    resource_version BIGINT NOT NULL DEFAULT 1,
+    plan_version BIGINT NOT NULL DEFAULT 0,
+    current_plan_id VARCHAR(128) NULL
+);
+CREATE TABLE IF NOT EXISTS option_local_plan (
+    plan_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    basket_id VARCHAR(128) NOT NULL,
+    version BIGINT NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    UNIQUE KEY uq_option_local_plan_version (basket_id,version),
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_operation (
+    operation_id CHAR(64) NOT NULL PRIMARY KEY,
+    basket_id VARCHAR(128) NOT NULL,
+    kind VARCHAR(24) NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    receipt LONGTEXT NOT NULL,
+    receipt_hash CHAR(64) NOT NULL,
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_round (
+    round_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    basket_id VARCHAR(128) NOT NULL,
+    trade_date DATE NOT NULL,
+    round_no BIGINT NOT NULL,
+    active_basket_id VARCHAR(128) NULL,
+    state VARCHAR(24) NOT NULL DEFAULT 'PREPARING',
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    UNIQUE KEY uq_option_local_active_round (active_basket_id),
+    UNIQUE KEY uq_option_local_round_number (basket_id,round_no),
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
+-- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_END
