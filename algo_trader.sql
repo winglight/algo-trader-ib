@@ -2949,4 +2949,61 @@ CREATE TABLE IF NOT EXISTS option_local_exchange_pull_item (
     FOREIGN KEY (scope_hash) REFERENCES option_local_exchange_pull(scope_hash),
     FOREIGN KEY (import_id) REFERENCES option_local_import(import_id)
 );
+CREATE TABLE IF NOT EXISTS option_local_research_consent (
+    scope_hash CHAR(64) NOT NULL PRIMARY KEY,
+    subject VARCHAR(128) NOT NULL,
+    resource_version BIGINT NOT NULL DEFAULT 0,
+    payload LONGTEXT NULL,
+    payload_hash CHAR(64) NULL,
+    ack LONGTEXT NULL,
+    ack_hash CHAR(64) NULL,
+    last_error VARCHAR(128) NULL,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    lease_token VARCHAR(36) NULL,
+    lease_until DATETIME(6) NULL
+);
+CREATE TABLE IF NOT EXISTS option_local_research_consent_version (
+    operation_id CHAR(64) NOT NULL PRIMARY KEY,
+    scope_hash CHAR(64) NOT NULL,
+    revision BIGINT NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    receipt LONGTEXT NOT NULL,
+    receipt_hash CHAR(64) NOT NULL,
+    ack LONGTEXT NULL,
+    ack_hash CHAR(64) NULL,
+    UNIQUE KEY option_local_consent_revision (scope_hash,revision),
+    FOREIGN KEY (scope_hash) REFERENCES option_local_research_consent(scope_hash)
+);
+CREATE TABLE IF NOT EXISTS option_local_research_round (
+    scope_hash CHAR(64) NOT NULL,
+    round_id VARCHAR(128) NOT NULL,
+    revision BIGINT NOT NULL DEFAULT 0,
+    evidence_hash CHAR(64) NULL,
+    last_error VARCHAR(128) NULL,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (scope_hash,round_id),
+    FOREIGN KEY (scope_hash) REFERENCES option_local_research_consent(scope_hash),
+    FOREIGN KEY (round_id) REFERENCES option_local_round(round_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_research_outbox (
+    batch_id CHAR(64) NOT NULL PRIMARY KEY,
+    scope_hash CHAR(64) NOT NULL,
+    round_id VARCHAR(128) NOT NULL,
+    revision BIGINT NOT NULL,
+    consent_revision BIGINT NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    state VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    ack LONGTEXT NULL,
+    ack_hash CHAR(64) NULL,
+    last_error VARCHAR(128) NULL,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    UNIQUE KEY option_local_sample_revision (scope_hash,round_id,revision),
+    KEY option_local_research_pending (scope_hash,state,next_attempt_at),
+    FOREIGN KEY (scope_hash) REFERENCES option_local_research_consent(scope_hash),
+    FOREIGN KEY (round_id) REFERENCES option_local_round(round_id)
+);
 -- ATI_OPTIONS_V9_LOCAL_IMPORTS_END
