@@ -2632,6 +2632,17 @@ CREATE TABLE IF NOT EXISTS option_entry_replacement (
     UNIQUE KEY uq_entry_replacement_previous (account_key,previous_group_id),
     CONSTRAINT fk_entry_replacement_budget FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS option_entry_resolution (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    round_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload JSON NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    PRIMARY KEY (account_key,command_id),
+    UNIQUE KEY uq_entry_resolution_round (account_key,round_id),
+    FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 -- ATI_OPTIONS_V9_PROTECTION_END
 
 
@@ -2742,6 +2753,8 @@ CREATE TABLE IF NOT EXISTS option_local_round (
     round_no BIGINT NOT NULL,
     active_basket_id VARCHAR(128) NULL,
     state VARCHAR(24) NOT NULL DEFAULT 'PREPARING',
+    resource_version BIGINT NOT NULL DEFAULT 1,
+    entry_counted BOOLEAN NOT NULL DEFAULT TRUE,
     payload LONGTEXT NOT NULL,
     payload_hash CHAR(64) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -2749,4 +2762,6 @@ CREATE TABLE IF NOT EXISTS option_local_round (
     UNIQUE KEY uq_option_local_round_number (basket_id,round_no),
     FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
 );
+ALTER TABLE option_local_round ADD COLUMN IF NOT EXISTS resource_version BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE option_local_round ADD COLUMN IF NOT EXISTS entry_counted BOOLEAN NOT NULL DEFAULT TRUE;
 -- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_END
