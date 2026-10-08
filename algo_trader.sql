@@ -2835,9 +2835,13 @@ CREATE TABLE IF NOT EXISTS option_local_plan (
     version BIGINT NOT NULL,
     payload LONGTEXT NOT NULL,
     payload_hash CHAR(64) NOT NULL,
+    reference_snapshot LONGTEXT NULL,
+    reference_snapshot_hash CHAR(64) NULL,
     UNIQUE KEY uq_option_local_plan_version (basket_id,version),
     FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
 );
+ALTER TABLE option_local_plan ADD COLUMN IF NOT EXISTS reference_snapshot LONGTEXT NULL;
+ALTER TABLE option_local_plan ADD COLUMN IF NOT EXISTS reference_snapshot_hash CHAR(64) NULL;
 CREATE TABLE IF NOT EXISTS option_local_operation (
     operation_id CHAR(64) NOT NULL PRIMARY KEY,
     basket_id VARCHAR(128) NOT NULL,
