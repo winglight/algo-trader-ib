@@ -2328,6 +2328,39 @@ CREATE TABLE IF NOT EXISTS option_broker_feed_event (
     CONSTRAINT fk_option_feed_event_account FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
     CONSTRAINT fk_option_feed_event_raw FOREIGN KEY (local_receipt_id) REFERENCES option_order_raw_inbox(receipt_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS option_account_fee_cursor (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    consumed_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    replay_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    CONSTRAINT fk_option_orders_fee_cursor FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CHECK (consumed_sequence<=9007199254740991 AND replay_sequence<=9007199254740991)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS option_account_fee_receipt (
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    fee_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source_cursor BIGINT UNSIGNED NOT NULL,
+    fee_payload JSON NOT NULL,
+    fee_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    account_page JSON NOT NULL,
+    page_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    state VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    reason VARCHAR(128) NULL,
+    fill_id VARCHAR(128) COLLATE utf8mb4_bin NULL,
+    fee_revision BIGINT UNSIGNED NULL,
+    allocation_payload JSON NULL,
+    allocation_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    received_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    attributed_at DATETIME(6) NULL,
+    PRIMARY KEY (account_key,fee_key),
+    UNIQUE KEY uq_option_account_fee_cursor (account_key,source_cursor),
+    UNIQUE KEY uq_option_account_fee_revision (account_key,fill_id,fee_revision),
+    KEY idx_option_account_fee_pending (account_key,state,source_cursor),
+    CONSTRAINT fk_option_orders_fee_receipt FOREIGN KEY (account_key) REFERENCES option_order_account(account_key),
+    CHECK (source_cursor BETWEEN 1 AND 9007199254740991),
+    CHECK ((state='PENDING' AND fill_id IS NULL AND fee_revision IS NULL AND allocation_payload IS NULL AND allocation_hash IS NULL AND attributed_at IS NULL)
+        OR (state='APPLIED' AND fill_id IS NOT NULL AND fee_revision IS NOT NULL AND allocation_payload IS NOT NULL AND allocation_hash IS NOT NULL AND attributed_at IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDERS_CONSUMER_END
 
 
