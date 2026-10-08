@@ -2922,4 +2922,31 @@ CREATE TABLE IF NOT EXISTS option_local_delivery (
     next_attempt_at DATETIME(6) NULL,
     FOREIGN KEY (event_id) REFERENCES option_local_outbox(event_id)
 );
+CREATE TABLE IF NOT EXISTS option_local_exchange_pull (
+    scope_hash CHAR(64) NOT NULL PRIMARY KEY,
+    subject VARCHAR(128) NOT NULL,
+    page_cursor TEXT NULL,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    lease_token VARCHAR(36) NULL,
+    lease_until DATETIME(6) NULL,
+    last_error VARCHAR(128) NULL
+);
+CREATE TABLE IF NOT EXISTS option_local_exchange_pull_item (
+    scope_hash CHAR(64) NOT NULL,
+    bundle_id VARCHAR(128) NOT NULL,
+    bundle_hash CHAR(64) NOT NULL,
+    state VARCHAR(32) NOT NULL DEFAULT 'DISCOVERED',
+    summary LONGTEXT NOT NULL,
+    summary_hash CHAR(64) NOT NULL,
+    envelope LONGTEXT NULL,
+    envelope_hash CHAR(64) NULL,
+    import_id CHAR(64) NULL,
+    last_error VARCHAR(128) NULL,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (scope_hash,bundle_id),
+    KEY option_local_exchange_pending (scope_hash,state,next_attempt_at),
+    FOREIGN KEY (scope_hash) REFERENCES option_local_exchange_pull(scope_hash),
+    FOREIGN KEY (import_id) REFERENCES option_local_import(import_id)
+);
 -- ATI_OPTIONS_V9_LOCAL_IMPORTS_END
