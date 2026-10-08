@@ -2798,6 +2798,19 @@ CREATE TABLE IF NOT EXISTS option_local_control (
     FOREIGN KEY (round_id) REFERENCES option_local_round(round_id),
     FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
 );
+CREATE TABLE IF NOT EXISTS option_local_draft (
+    basket_id VARCHAR(128) NOT NULL PRIMARY KEY,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
+CREATE TABLE IF NOT EXISTS option_local_proposal (
+    proposal_id CHAR(64) NOT NULL PRIMARY KEY,
+    basket_id VARCHAR(128) NOT NULL,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
 -- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_END
 
 -- ATI_OPTIONS_V9_LOCAL_IMPORTS_BEGIN
