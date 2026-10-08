@@ -2764,4 +2764,16 @@ CREATE TABLE IF NOT EXISTS option_local_round (
 );
 ALTER TABLE option_local_round ADD COLUMN IF NOT EXISTS resource_version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE option_local_round ADD COLUMN IF NOT EXISTS entry_counted BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE TABLE IF NOT EXISTS option_local_control (
+    control_id CHAR(64) NOT NULL PRIMARY KEY,
+    round_id VARCHAR(128) NOT NULL,
+    basket_id VARCHAR(128) NOT NULL,
+    phase VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    resource_version BIGINT NOT NULL DEFAULT 1,
+    payload LONGTEXT NOT NULL,
+    payload_hash CHAR(64) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    FOREIGN KEY (round_id) REFERENCES option_local_round(round_id),
+    FOREIGN KEY (basket_id) REFERENCES option_local_basket(basket_id)
+);
 -- ATI_OPTIONS_V9_LOCAL_ORCHESTRATION_END
