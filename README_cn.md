@@ -112,6 +112,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib
 `middle/data`。更新期间本地应用会进入维护停机，Redis/MariaDB 保持运行以完成备份；
 更新完成后服务自动恢复。任何备份失败都会终止更新，现有容器不会被替换。
 
+安装过期权功能后，更新器在停止服务和替换文件前检查旧 schema 降级。目标 SQL
+须保留期权表并声明 `ATI_OPTIONS_SCHEMA_VERSION: 1` 或更高版本；否则由已安装的
+检查器在当前 Orders 容器中只读核对数据库。未完成轮次、委托、预占、原生或归属
+期权持仓、交割持仓及未解决证据都会阻断降级。平仓后也须由 Risk 和 Options 当前
+进程确认新开仓已暂停，并取得新鲜完整的 Account 对账证据。拒绝或无法读取时保留
+现有服务和文件，不自动回滚或清仓；镜像与版本兼容仍按发布验收检查。
+
 无人值守更新必须同时传入 `--non-interactive` 并设置 `ATI_ALLOW_UPDATE=1`。安装器也会
 检测 `unzip`；缺失时使用系统可用的 `apt-get`、`dnf`、`yum` 或 `apk` 自动安装
 （非 root 用户需要 `sudo`）。

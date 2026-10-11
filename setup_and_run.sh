@@ -995,6 +995,9 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 ensure_shared_network "$(read_env_value "$ROOT_CANDIDATE" ATI_NETWORK_NAME)"
+if [ "$UPDATE_MODE" = "1" ]; then
+  bash "${ROOT_DIR}/scripts/options_upgrade_guard.sh" "$ROOT_DIR" "${ROOT_DIR}/algo_trader.sql"
+fi
 backup_database_for_update
 
 BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/.installer-backup.XXXXXX")"

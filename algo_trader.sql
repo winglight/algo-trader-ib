@@ -1,3 +1,4 @@
+-- ATI_OPTIONS_SCHEMA_VERSION: 1
 -- Schema initialization for local algo-trader runtime services.
 --
 -- This script provisions the MariaDB tables required by the local main

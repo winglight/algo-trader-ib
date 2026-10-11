@@ -129,6 +129,17 @@ maintenance downtime while Redis and MariaDB remain online for the backup;
 services are restored automatically when the update completes. A backup failure
 aborts the update before any running container is replaced.
 
+An options installation checks an older schema before stopping services or
+replacing files. The target SQL must retain the option tables and declare
+`ATI_OPTIONS_SCHEMA_VERSION: 1` or later. Otherwise the installed guard reads
+the current database in the current Orders container. Unfinished rounds,
+orders, reservations, native/owned option positions, delivery positions or
+unresolved evidence block the downgrade. Risk and Options must both report
+new entry paused, with fresh reconciled Account evidence, before a flat
+installation can proceed. A rejected or unavailable check preserves the
+running services and files. No automatic rollback or position liquidation is
+performed. Image/version compatibility remains part of release validation.
+
 Unattended updates additionally require `--non-interactive` and
 `ATI_ALLOW_UPDATE=1`. The installer also checks for `unzip` and, when it is
 missing, installs it through the available `apt-get`, `dnf`, `yum`, or `apk`

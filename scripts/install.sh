@@ -292,6 +292,20 @@ download_with_zip() {
     echo "Unable to locate downloaded installer files." >&2
     exit 1
   fi
+  if [ "$UPDATE_MODE" = "1" ]; then
+    # Prefer the installed guard so an older downloaded archive cannot remove
+    # its own downgrade check before the current protection is stopped.
+    guard_dir="${INSTALL_DIR}/scripts"
+    if [ ! -f "${guard_dir}/options_upgrade_guard.sh" ]; then
+      guard_dir="${extracted}/scripts"
+    fi
+    if [ -f "${guard_dir}/options_upgrade_guard.sh" ]; then
+      bash "${guard_dir}/options_upgrade_guard.sh" "$INSTALL_DIR" "${extracted}/algo_trader.sql"
+    else
+      echo "OPTIONS_DOWNGRADE_FACTS_UNAVAILABLE: this update has no compatible downgrade guard; current runtime was preserved." >&2
+      exit 1
+    fi
+  fi
   quiesce_runtime_for_update
   replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest" "$runtime_backup"
   find "$runtime_backup" -depth -type d -empty -delete
