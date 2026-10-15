@@ -2708,8 +2708,13 @@ CREATE TABLE IF NOT EXISTS option_protection_command (
     created_at DATETIME(6) NOT NULL,
     PRIMARY KEY (account_key,command_id),
     CONSTRAINT fk_protection_command_budget FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
-    CHECK (operation IN ('PREPARE','TIGHTEN','REQUEST_CLOSE'))
+    CONSTRAINT ck_protection_command_operation CHECK (operation IN ('PREPARE','TIGHTEN','REQUEST_CLOSE','OVERNIGHT_APPROVE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- Upgrade the original anonymous check without rewriting any retained receipt.
+ALTER TABLE option_protection_command DROP CONSTRAINT IF EXISTS CONSTRAINT_1;
+ALTER TABLE option_protection_command DROP CONSTRAINT IF EXISTS ck_protection_command_operation;
+ALTER TABLE option_protection_command ADD CONSTRAINT ck_protection_command_operation
+    CHECK (operation IN ('PREPARE','TIGHTEN','REQUEST_CLOSE','OVERNIGHT_APPROVE'));
 
 CREATE TABLE IF NOT EXISTS option_entry_replacement (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
