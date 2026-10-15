@@ -1638,6 +1638,8 @@ CREATE TABLE IF NOT EXISTS option_order_raw_inbox (
     processing_state VARCHAR(16) NOT NULL DEFAULT 'RECEIVED',
     normalized JSON NULL,
     normalized_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    native_identity_evidence JSON NULL,
+    native_identity_evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     reason VARCHAR(64) NULL,
     result_ref JSON NULL,
     received_at DATETIME(6) NOT NULL,
@@ -1683,6 +1685,9 @@ CREATE TABLE IF NOT EXISTS option_order_status_fact (
     CONSTRAINT fk_option_status_raw FOREIGN KEY (receipt_id) REFERENCES option_order_raw_inbox(receipt_id),
     CHECK (status IN ('ACKNOWLEDGED','PARTIALLY_FILLED','FILLED','CANCEL_PENDING','CANCELED','REJECTED','EXPIRED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ALTER TABLE option_order_raw_inbox
+    ADD COLUMN IF NOT EXISTS native_identity_evidence JSON NULL,
+    ADD COLUMN IF NOT EXISTS native_identity_evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
 -- ATI_OPTIONS_V9_ORDER_INBOX_END
 
 
