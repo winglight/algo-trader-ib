@@ -1236,14 +1236,19 @@ ALTER TABLE order_fills
 
 CREATE TABLE IF NOT EXISTS option_order_account (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
-    broker VARCHAR(16) NOT NULL,
+    broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     environment VARCHAR(16) NOT NULL,
     account_id VARCHAR(128) NOT NULL,
     account_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
     updated_at DATETIME(6) NOT NULL,
-    CHECK (broker IN ('ALPACA','IBKR')),
+    CONSTRAINT ck_option_order_provider CHECK (broker REGEXP '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'),
     CHECK (environment IN ('PAPER','LIVE'))
 ) ENGINE=InnoDB;
+ALTER TABLE option_order_account
+    DROP CONSTRAINT IF EXISTS CONSTRAINT_1,
+    DROP CONSTRAINT IF EXISTS ck_option_order_provider,
+    MODIFY COLUMN broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    ADD CONSTRAINT ck_option_order_provider CHECK (broker REGEXP '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$');
 
 -- Immutable revisions reference the same existing financial fill, not a second fill ledger.
 CREATE TABLE IF NOT EXISTS option_execution_identity (
@@ -1685,7 +1690,7 @@ CREATE TABLE IF NOT EXISTS option_order_status_fact (
 -- Stable identity is shared by profiles. Generation is durable across restarts.
 CREATE TABLE IF NOT EXISTS option_broker_account_identity (
     account_id VARCHAR(128) NOT NULL PRIMARY KEY,
-    broker VARCHAR(16) NOT NULL,
+    broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     environment VARCHAR(8) NOT NULL,
     native_identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     generation BIGINT NOT NULL DEFAULT 0,
@@ -1696,6 +1701,7 @@ CREATE TABLE IF NOT EXISTS option_broker_account_identity (
     UNIQUE KEY uq_option_active_connection (active_connection_id),
     CONSTRAINT ck_option_identity_generation CHECK (generation >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE option_broker_account_identity MODIFY COLUMN broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL;
 
 CREATE TABLE IF NOT EXISTS option_broker_connection (
     connection_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
@@ -1714,7 +1720,7 @@ CREATE TABLE IF NOT EXISTS option_broker_connection (
 
 CREATE TABLE IF NOT EXISTS broker_account_admission_fence (
     account_id VARCHAR(128) NOT NULL PRIMARY KEY,
-    broker VARCHAR(16) NOT NULL,
+    broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     environment VARCHAR(8) NOT NULL,
     native_identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     profile_identity_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -1725,6 +1731,7 @@ CREATE TABLE IF NOT EXISTS broker_account_admission_fence (
     CONSTRAINT fk_admission_fence_identity FOREIGN KEY (account_id) REFERENCES option_broker_account_identity(account_id),
     CONSTRAINT ck_admission_fence_version CHECK (enforcement_version = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE broker_account_admission_fence MODIFY COLUMN broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL;
 -- ATI_OPTIONS_V9_RUNNER_CONTEXT_END
 
 
@@ -1732,7 +1739,7 @@ CREATE TABLE IF NOT EXISTS broker_account_admission_fence (
 -- A01: Account owns broker evidence; Orders remains the owner of financial lots.
 CREATE TABLE IF NOT EXISTS option_account_cursor (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
-    broker VARCHAR(16) NOT NULL,
+    broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     environment VARCHAR(8) NOT NULL,
     account_id VARCHAR(128) NOT NULL,
     profile_id VARCHAR(128) NULL,
@@ -1742,6 +1749,7 @@ CREATE TABLE IF NOT EXISTS option_account_cursor (
     checkpoint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     UNIQUE KEY uq_option_account_identity (broker,environment,account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE option_account_cursor MODIFY COLUMN broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL;
 
 CREATE TABLE IF NOT EXISTS option_account_broker_observation (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -1828,7 +1836,7 @@ ALTER TABLE option_account_lifecycle MODIFY COLUMN effective_at DATETIME(6) NULL
 -- R01: all coordinated account order writers share these Risk-owned tables.
 CREATE TABLE IF NOT EXISTS account_exposure_budget (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
-    broker VARCHAR(64) NOT NULL,
+    broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     environment VARCHAR(8) NOT NULL,
     account_id VARCHAR(128) NOT NULL,
     profile_id VARCHAR(128) NULL,
@@ -1855,6 +1863,7 @@ CREATE TABLE IF NOT EXISTS account_exposure_budget (
         AND max_open_risk_cash >= 0 AND bp_limit_cash >= 0
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+ALTER TABLE account_exposure_budget MODIFY COLUMN broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL;
 
 CREATE TABLE IF NOT EXISTS account_exposure_limits (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
@@ -2130,19 +2139,24 @@ CREATE TABLE IF NOT EXISTS option_execution_alias_source (
     PRIMARY KEY (alias_key,source),
     CONSTRAINT fk_option_alias_source FOREIGN KEY (alias_key) REFERENCES option_execution_alias(alias_key),
     CONSTRAINT fk_option_alias_receipt FOREIGN KEY (evidence_receipt_id) REFERENCES option_order_raw_inbox(receipt_id),
-    CHECK (source IN ('ALPACA_TRADE_UPDATES','ALPACA_ACTIVITY_FILL'))
+    CONSTRAINT ck_option_alias_source_name CHECK (CHAR_LENGTH(source) BETWEEN 1 AND 128)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ALTER TABLE option_execution_alias_source
+    DROP CONSTRAINT IF EXISTS CONSTRAINT_1,
+    DROP CONSTRAINT IF EXISTS ck_option_alias_source_name,
+    ADD CONSTRAINT ck_option_alias_source_name CHECK (CHAR_LENGTH(source) BETWEEN 1 AND 128);
 -- ATI_OPTIONS_V9_EXECUTION_ALIASES_END
 
 -- ATI_OPTIONS_V9_RUNNER_JOURNAL_BEGIN
 CREATE TABLE IF NOT EXISTS broker_option_journal_account (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
     account_id VARCHAR(128) NOT NULL,
-    broker VARCHAR(16) NOT NULL,
+    broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     environment VARCHAR(8) NOT NULL,
     event_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0,
     CHECK (event_sequence<=9007199254740991)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ALTER TABLE broker_option_journal_account MODIFY COLUMN broker VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL;
 
 CREATE TABLE IF NOT EXISTS broker_option_raw_event (
     receipt_id VARCHAR(128) COLLATE utf8mb4_bin PRIMARY KEY,
