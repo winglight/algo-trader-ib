@@ -994,6 +994,10 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+[ -s "${ROOT_DIR}/algo_trader.sql" ] && [ -s "${ROOT_DIR}/scripts/report_archive_schema_check.sql" ] || {
+  echo "Required installer schema assets are missing; application update aborted." >&2
+  exit 1
+}
 ensure_shared_network "$(read_env_value "$ROOT_CANDIDATE" ATI_NETWORK_NAME)"
 backup_database_for_update
 
@@ -1039,9 +1043,16 @@ docker compose --env-file "${MIDDLE_DIR}/.env" -f "${MIDDLE_DIR}/docker-compose.
   "$INITIAL_ADAPTER" >/dev/null
 echo "Active adapter selection updated to: ${INITIAL_ADAPTER}"
 
-if [ -f "${ROOT_DIR}/algo_trader.sql" ]; then
-  { printf '%s\n' "$MARIADB_PASSWORD"; cat "${ROOT_DIR}/algo_trader.sql"; } | docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c 'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1 algo_trader' >/dev/null
+if ! verify_report_archive_schema; then
+  echo "Report archive schema requires the additive installer upgrade."
 fi
+{ printf '%s\n' "$MARIADB_PASSWORD"; cat "${ROOT_DIR}/algo_trader.sql"; } | docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c 'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1 algo_trader' >/dev/null
+# CREATE IF NOT EXISTS cannot repair an incompatible existing table. Fail closed
+# before recreating applications; never synthesize historical plans or scans.
+verify_report_archive_schema || {
+  echo "Report archive schema upgrade is incomplete; application update aborted." >&2
+  exit 1
+}
 
 echo "Seeding installed Adapter Catalog and importing legacy Broker Profiles..."
 docker compose -f "${ROOT_DIR}/docker-compose.yml" run --rm --no-deps \
