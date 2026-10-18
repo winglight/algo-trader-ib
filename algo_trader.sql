@@ -1351,3 +1351,35 @@ CREATE TABLE IF NOT EXISTS screeners_runtime_state (
     CONSTRAINT fk_screeners_runtime_revision FOREIGN KEY (revision_id)
         REFERENCES screeners_definition_revisions(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
+
+-- Append-only report evidence, independent of mutable candidates and trace retention.
+-- This file provisions schema only. No historical rows or empty scans are backfilled.
+CREATE TABLE IF NOT EXISTS screeners_report_scan_days (
+    day_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    screener_id VARCHAR(191) NOT NULL,
+    definition_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    session_date DATE NOT NULL,
+    plan_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    plan_json LONGTEXT NOT NULL CHECK (JSON_VALID(plan_json)),
+    archived_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (day_key),
+    UNIQUE KEY uq_report_scan_plan (screener_id, definition_hash, session_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS screeners_report_scan_revisions (
+    day_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    logical_scan_id CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    revision INT UNSIGNED NOT NULL CHECK (revision > 0),
+    scheduled_at DATETIME(6) NOT NULL,
+    available_at DATETIME(6) NOT NULL,
+    status ENUM('COMPLETE', 'COMPLETE_EMPTY', 'PARTIAL', 'FAILED') NOT NULL,
+    content_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    event_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    scan_json LONGTEXT NOT NULL CHECK (JSON_VALID(scan_json)),
+    archived_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (day_key, logical_scan_id, revision),
+    UNIQUE KEY uq_report_scan_slot_revision (day_key, scheduled_at, revision),
+    UNIQUE KEY uq_report_scan_event (day_key, logical_scan_id, event_hash),
+    CONSTRAINT fk_report_scan_day FOREIGN KEY (day_key)
+        REFERENCES screeners_report_scan_days(day_key) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

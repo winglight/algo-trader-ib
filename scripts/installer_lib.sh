@@ -281,3 +281,20 @@ configured_existing_or_file() {
     return 1
   fi
 }
+
+# Read only: provisioning remains the explicit curated schema import in setup.
+verify_report_archive_schema() {
+  local missing
+  if ! missing="$({ printf '%s\n' "$MARIADB_PASSWORD"; cat "${ROOT_DIR}/scripts/report_archive_schema_check.sql"; } |
+    docker compose -f "${MIDDLE_DIR}/docker-compose.yml" exec -T mariadb sh -c \
+      'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb -uroot -h 127.0.0.1 --batch --skip-column-names algo_trader')"; then
+    echo "Report archive schema check could not complete." >&2
+    return 1
+  fi
+  if [ -n "$missing" ]; then
+    echo "Report archive schema contracts missing:" >&2
+    printf '%s\n' "$missing" >&2
+    return 1
+  fi
+  echo "Report archive schema verified (no history rows created)."
+}
