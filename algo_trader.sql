@@ -66,23 +66,19 @@ CREATE TABLE IF NOT EXISTS broker_adapter_profiles (
         REFERENCES broker_adapter_types(adapter_type) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS broker_adapter_profile_secrets (
+CREATE TABLE IF NOT EXISTS broker_adapter_profile_credentials (
     profile_id CHAR(36) NOT NULL PRIMARY KEY,
-    ciphertext LONGBLOB NOT NULL,
-    nonce VARBINARY(32) NOT NULL,
-    wrapped_data_key BLOB NOT NULL,
-    kek_version VARCHAR(64) NOT NULL,
-    secret_fields_json JSON NOT NULL,
+    secrets_json JSON NOT NULL,
     updated_by VARCHAR(191) NOT NULL,
     updated_at DATETIME(6) NOT NULL,
-    CONSTRAINT fk_broker_adapter_profile_secrets_profile FOREIGN KEY (profile_id)
+    CONSTRAINT fk_broker_profile_credentials_profile FOREIGN KEY (profile_id)
         REFERENCES broker_adapter_profiles(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS broker_accounts (
     id CHAR(36) NOT NULL PRIMARY KEY,
     profile_id CHAR(36) NOT NULL,
-    broker_account_ref_enc BLOB NULL,
+    broker_account_ref VARCHAR(191) NULL,
     broker_account_ref_hash CHAR(64) NULL,
     broker_account_masked VARCHAR(64) NULL,
     display_name VARCHAR(191) NULL,
