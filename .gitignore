@@ -8,7 +8,7 @@ middle/.env.candidate.*
 .ati-adapter-build/
 .DS_Store
 
-data/
+data/*
 logs/
 middle/data/
 __pycache__/
