@@ -88,8 +88,6 @@ CREATE TABLE IF NOT EXISTS broker_accounts (
     display_name VARCHAR(191) NULL,
     base_currency VARCHAR(16) NULL,
     status VARCHAR(32) NOT NULL,
-    first_verified_at DATETIME(6) NULL,
-    last_verified_at DATETIME(6) NULL,
     last_snapshot_at DATETIME(6) NULL,
     created_at DATETIME(6) NOT NULL,
     updated_at DATETIME(6) NOT NULL,
