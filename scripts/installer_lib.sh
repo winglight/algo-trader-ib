@@ -72,7 +72,18 @@ decode_env_value() {
   fi
   if [ "${#value}" -ge 2 ] && [ "${value:0:1}" = "'" ] && [ "${value: -1}" = "'" ]; then
     value="${value:1:${#value}-2}"
-    value="${value//\\\'/\'}"
+    while [ -n "$value" ]; do
+      char="${value:0:1}"
+      value="${value:1}"
+      if [ "$char" = '\' ] && [ "${value:0:1}" = "'" ]; then
+        output+="'"
+        value="${value:1}"
+      else
+        output+="$char"
+      fi
+    done
+    printf '%s' "$output"
+    return
   fi
   printf '%s' "$value"
 }
@@ -85,6 +96,19 @@ encode_env_value() {
       return 1
       ;;
   esac
+  if [[ "$value" == *'$'* ]]; then
+    # Keep credentials literal for both Compose and dotenv consumers. The
+    # decoder below still accepts double-quoted legacy files with $$ escapes.
+    local char
+    printf "'"
+    while [ -n "$value" ]; do
+      char="${value:0:1}"
+      value="${value:1}"
+      if [ "$char" = "'" ]; then printf '%s' "\\'"; else printf '%s' "$char"; fi
+    done
+    printf "'"
+    return
+  fi
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
   value="${value//\$/\$\$}"
