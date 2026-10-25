@@ -9,12 +9,14 @@ services:
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
       - ./config:/app/config
+      - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}/trading:/app/data/connector:ro
     env_file:
       - path: ./config/screeners_service.env.example
       - path: ./config/screeners_service.env
         required: false
     environment:
       APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=watchdog;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=watchdog;account|http://account-service:8100/healthz|||restart_mode=watchdog;orders|http://orders-service:8101/healthz|||restart_mode=watchdog;market-data|http://market-data-service:8102/healthz|||restart_mode=watchdog;risk|http://risk-service:8103/healthz|||restart_mode=watchdog;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=watchdog;audit|http://audit-service:8109/healthz|||restart_mode=watchdog;screeners|http://screeners-service:8116/healthz|||restart_mode=watchdog"
+      ATI_CONNECTOR_RUNTIME_GRANT: /app/data/connector/runtime-grant.json
       SERVICE_WATCHDOG_URL: http://service-watchdog:8110
       OPTIONAL_DISCOVERY_SERVICES: audit,strategy-spec,screeners
       BROKER_ADAPTER_SWITCH_ENABLED: ${BROKER_ADAPTER_SWITCH_ENABLED:-true}

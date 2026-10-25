@@ -38,6 +38,9 @@ trap finish_install EXIT
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
+export ATI_ENVIRONMENT_DIR="${ATI_ENVIRONMENT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ati/environment}"
+mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
+touch "$ATI_ENVIRONMENT_DIR/trading-enabled"
 APP_URL="${ATI_APP_URL:-}"
 ADAPTERS_REPOSITORY="${ATI_ADAPTERS_REPOSITORY:-winglight/algo-trader-broker-adapters}"
 ADAPTERS_REF="${ATI_ADAPTERS_REF:-main}"
@@ -1083,6 +1086,8 @@ if [ -n "$PLUGIN_BACKUP_DIR" ] && run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
   run_as_root rm -rf "$PLUGIN_BACKUP_DIR"
 fi
 rm -rf "$BACKUP_DIR"
+# Research runs independently and shares this installation's Cloud identity.
+bash "$ROOT_DIR/scripts/install_research.sh" install
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"
 echo "  username: ${CURRENT_ADMIN_USERNAME}"

@@ -12,3 +12,5 @@ data/*
 logs/
 middle/data/
 __pycache__/
+
+.research.env

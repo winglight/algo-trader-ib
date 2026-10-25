@@ -1,0 +1,25 @@
+name: ati-local-research
+services:
+  research-worker:
+    image: ${ATI_RESEARCH_IMAGE:-ghcr.io/winglight/algo-trader/ati-local-research:latest}
+    # Connector alone owns credentials; user strategy subprocesses drop to nobody.
+    user: "0:0"
+    environment:
+      ATI_LOCAL_EXECUTOR_ISOLATION: required
+    command: ["run", "--gateway", "${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}", "--state-dir", "/var/lib/ati-environment", "--component", "RESEARCH"]
+    volumes:
+      - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}:/var/lib/ati-environment
+      - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}/research-tasks:/var/lib/ati-tasks
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /var/lib/ati-task-leases:size=1m,mode=755
+    cpus: ${ATI_RESEARCH_CPUS:-2}
+    mem_limit: ${ATI_RESEARCH_MEMORY:-4g}
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE]
