@@ -258,3 +258,16 @@ installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行
 4. 您须遵守适用法律法规以及 Interactive Brokers、Alpaca 和其他第三方服务各自的协议、费用、行情许可和使用政策；第三方服务的可用性和行为不受本项目控制。
 5. 项目代码的复制、修改和分发同时受仓库所载开源许可证约束；云端服务、会员功能、镜像或其他产品能力可能适用其页面另行公布的产品和订阅条款。
 6. 如果您不同意上述条款，请勿下载、安装、访问或使用本项目，并停止运行已部署的服务。
+
+
+### Component modes / 安装组件模式
+`--components research|trading|all` (new default: all; upgrades preserve prior components).
+- **research**: SDK-native **offline LOCAL_USER** backtesting tools and user-run market-data scripts. No trading services, Cloud login, task claims, or Studio RESEARCH_COMPUTE capability.
+- **trading**: existing trading services plus the signed-grant TRADING connector; it never claims research work.
+- **all**: both above. Strategy/account trading controls are unchanged. Existing full Studio research connectors remain the sole grant writer, are not replaced by these tools, and require their separate runtime upgrade.
+
+`research` 表示本地离线回测工具，不代表完整 Studio 本地研究执行器。安装不下载行情、不收取数据 API key；下载由用户在终端主动执行。已有组件、账户、数据、配置不删除。
+
+[Offline replay / 离线回测](docs/local-user-replay.md) · [Data downloads](docs/local-data-download.md) · [下载中文说明](docs/local-data-download.zh-CN.md)
+
+Public images contain only the necessary SDK (`ati-local-tools`) or connector (`ati-trading-connector`), not Cloud platform/payment/admin source. Normal offline replay mounts input/data read-only and output separately. Studio-dispatched frozen Cloud data chunks are not replaced by downloaded local Parquet; complete Studio local RESEARCH_COMPUTE packaging remains separate. Clean-install videos and real image-release validation have not been completed by these code changes.

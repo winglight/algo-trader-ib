@@ -6,10 +6,35 @@ ARCHIVE_URL="${ATI_PUBLIC_ARCHIVE_URL:-https://github.com/winglight/algo-trader-
 INSTALL_DIR="${ATI_INSTALL_DIR:-$HOME/ati-local-runtime}"
 NON_INTERACTIVE=0
 UPDATE_MODE=0
+REQUESTED_COMPONENTS=""
+expect_component=0
 for arg in "$@"; do
+  if [ "$expect_component" = 1 ]; then REQUESTED_COMPONENTS="$arg"; expect_component=0; continue; fi
+  [ "$arg" != "--components" ] || expect_component=1
   [ "$arg" = "--non-interactive" ] && NON_INTERACTIVE=1
   [ "$arg" = "--update" ] && UPDATE_MODE=1
 done
+[ "$expect_component" = 0 ] || { echo 'Missing --components value.' >&2; exit 2; }
+case "$REQUESTED_COMPONENTS" in ''|research|trading|all) ;; *) echo 'Invalid --components value.' >&2; exit 2 ;; esac
+
+# Decide update scope from installed metadata before replacing any application
+# files. A research-only operation must not stop or query trading services.
+resolve_update_components() {
+  local previous=''
+  if [ -f "$INSTALL_DIR/.components.env" ]; then
+    previous="$(sed -n 's/^ATI_INSTALLED_COMPONENTS=//p' "$INSTALL_DIR/.components.env")"
+    case "$previous" in research|trading|all) ;; *) echo 'Invalid component metadata.' >&2; return 1 ;; esac
+  elif [ -f "$INSTALL_DIR/.research.env" ] || [ -f "$INSTALL_DIR/.local-tools.env" ]; then
+    previous=research
+    [ ! -f "$INSTALL_DIR/.env" ] || previous=all
+  elif [ -f "$INSTALL_DIR/.env" ]; then
+    previous=trading
+  elif [ "$UPDATE_MODE" = 1 ] && [ -f "$INSTALL_DIR/docker-compose.yml" ] && [ -z "$REQUESTED_COMPONENTS" ]; then
+    echo "Installed component scope is unknown; select --components explicitly. No service was stopped." >&2
+    return 1
+  fi
+  UPDATE_COMPONENTS="${REQUESTED_COMPONENTS:-${previous:-all}}"
+}
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
@@ -233,6 +258,7 @@ merge_preserved_strategies() {
 
 quiesce_runtime_for_update() {
   [ "$UPDATE_MODE" = "1" ] || return 0
+  [ "${UPDATE_COMPONENTS:-all}" != research ] || return 0
   if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
     (cd "$INSTALL_DIR" && docker compose -f docker-compose.yml down)
   fi
@@ -313,7 +339,7 @@ download_with_zip() {
     echo "Unable to locate downloaded installer files." >&2
     exit 1
   fi
-  if [ "$UPDATE_MODE" = "1" ]; then
+  if [ "$UPDATE_MODE" = "1" ] && [ "$UPDATE_COMPONENTS" != research ]; then
     # Prefer the installed guard so an older downloaded archive cannot remove
     # its own downgrade check before the current protection is stopped.
     guard_dir="${INSTALL_DIR}/scripts"
@@ -338,6 +364,7 @@ download_with_zip() {
 }
 
 prompt_install_dir
+resolve_update_components
 mkdir -p "$(dirname "$INSTALL_DIR")"
 
 if ! has_cmd curl; then
@@ -350,4 +377,5 @@ download_with_zip
 chmod +x "${INSTALL_DIR}/setup_and_run.sh" "${INSTALL_DIR}/scripts/install_docker.sh" || true
 cd "$INSTALL_DIR"
 exec bash ./setup_and_run.sh "$@"
+
 

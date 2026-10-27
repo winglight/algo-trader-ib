@@ -1,0 +1,8 @@
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY --from=ati_shared_sdk pyproject.toml /app/sdk/pyproject.toml
+COPY --from=ati_shared_sdk src /app/sdk/src
+RUN pip install --no-cache-dir "/app/sdk[local-data]" && python -m ati_shared_sdk.common.historical_runtime.local_cli --help
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "ati_shared_sdk.common.historical_runtime.local_cli"]
