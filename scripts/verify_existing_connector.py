@@ -64,6 +64,8 @@ def verify(root: Path, selected: Path) -> None:
     mounts = [m for m in obj.get('mounts', []) if m.get('Destination') == '/var/lib/ati-environment']
     if (len(mounts) != 1 or mounts[0].get('Type') != 'bind'
             or mounts[0].get('RW') is not True
+            or not isinstance(mounts[0].get('Source'), str)
+            or not Path(mounts[0]['Source']).is_absolute()
             or Path(mounts[0].get('Source', '')).resolve() != selected):
         raise VerificationError('existing connector identity mount differs from selected identity')
 
