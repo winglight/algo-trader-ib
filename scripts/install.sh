@@ -90,21 +90,42 @@ prompt_install_dir() {
   fi
 }
 
-backup_env_files() {
-  local backup_dir="$1" manifest="$2"
-  if [ ! -d "$INSTALL_DIR" ]; then
-    return 0
-  fi
-  (
-    cd "$INSTALL_DIR"
-    find . -type f \( -name '.env' -o -name '*.env' \) -print
-  ) | while IFS= read -r rel_path; do
-    rel_path="${rel_path#./}"
-    mkdir -p "${backup_dir}/$(dirname "$rel_path")"
-    cp "${INSTALL_DIR}/${rel_path}" "${backup_dir}/${rel_path}"
-    printf '%s\n' "$rel_path" >>"$manifest"
+backup_env_files() (
+  local backup_dir="$1" manifest="$2" relative_dir directory source rel_path
+  [ -d "$INSTALL_DIR" ] || return 0
+  # Only the three supported configuration directories, never their subtrees.
+  # Include hidden named env files such as .research.env without recursive find.
+  shopt -s nullglob
+  shopt -u dotglob
+  for relative_dir in . middle config; do
+    directory="$INSTALL_DIR"
+    [ "$relative_dir" = . ] || directory="${INSTALL_DIR}/${relative_dir}"
+    if [ -L "$directory" ]; then
+      echo "Refusing to follow configuration directory symlink: $directory" >&2
+      return 1
+    fi
+    [ -e "$directory" ] || continue
+    if [ ! -d "$directory" ] || [ ! -r "$directory" ] || [ ! -x "$directory" ]; then
+      echo "Cannot read configuration directory: $directory" >&2
+      return 1
+    fi
+    for source in "$directory"/.env "$directory"/*.env "$directory"/.*.env; do
+      if [ -L "$source" ]; then
+        echo "Refusing to follow configuration symlink: $source" >&2
+        return 1
+      fi
+      [ -e "$source" ] || continue
+      if [ ! -f "$source" ]; then
+        echo "Expected a configuration file: $source" >&2
+        return 1
+      fi
+      rel_path="${source#"${INSTALL_DIR}/"}"
+      mkdir -p "${backup_dir}/$(dirname "$rel_path")" || return 1
+      cp "$source" "${backup_dir}/${rel_path}" || return 1
+      printf '%s\n' "$rel_path" >>"$manifest" || return 1
+    done
   done
-}
+)
 
 restore_env_files() {
   local backup_dir="$1" manifest="$2" rel_path
@@ -329,3 +350,4 @@ download_with_zip
 chmod +x "${INSTALL_DIR}/setup_and_run.sh" "${INSTALL_DIR}/scripts/install_docker.sh" || true
 cd "$INSTALL_DIR"
 exec bash ./setup_and_run.sh "$@"
+
