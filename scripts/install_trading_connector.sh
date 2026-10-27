@@ -52,9 +52,8 @@ if [[ "$ACTION" == stop ]]; then
   exit
 fi
 if [[ -f "$ROOT_DIR/.research.env" ]]; then
-  echo 'Existing Studio connector configuration found; its writer health is unverified.' >&2
-  echo 'No second writer started. Verify/upgrade that existing connector separately before continuing.' >&2
-  exit 3
+  python3 "$ROOT_DIR/scripts/verify_existing_connector.py" "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR"
+  exit $?
 fi
 mkdir -p "$ATI_ENVIRONMENT_DIR" "$ATI_MARKET_DATA_DIR"
 mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
