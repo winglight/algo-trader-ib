@@ -320,3 +320,18 @@ agree that:
    subscription terms published with those services.
 6. If you do not agree to these terms, do not download, install, access, or use
    the project, and stop any deployed services.
+
+
+## Local runtime components
+
+### Component modes / 安装组件模式
+`--components research|trading|all` (new default: all; upgrades preserve prior components).
+- **research**: SDK-native **offline LOCAL_USER** backtesting tools and user-run market-data scripts. No trading services, Cloud login, task claims, or Studio RESEARCH_COMPUTE capability.
+- **trading**: existing trading services plus the signed-grant TRADING connector; it never claims research work.
+- **all**: both above. Strategy/account trading controls are unchanged. Existing full Studio research connectors remain the sole grant writer, are not replaced by these tools, and require their separate runtime upgrade.
+
+`research` 表示本地离线回测工具，不代表完整 Studio 本地研究执行器。安装不下载行情、不收取数据 API key；下载由用户在终端主动执行。已有组件、账户、数据、配置不删除。
+
+[Offline replay / 离线回测](docs/local-user-replay.md) · [Data downloads](docs/local-data-download.md) · [下载中文说明](docs/local-data-download.zh-CN.md)
+
+Public images contain only the necessary SDK (`ati-local-tools`) or connector (`ati-trading-connector`), not Cloud platform/payment/admin source. Normal offline replay mounts input/data read-only and output separately. Studio-dispatched frozen Cloud data chunks are not replaced by downloaded local Parquet; complete Studio local RESEARCH_COMPUTE packaging remains separate. Clean-install videos and real image-release validation have not been completed by these code changes.

@@ -1,0 +1,12 @@
+name: ati-local-tools
+services:
+  local-tools:
+    image: ${ATI_LOCAL_TOOLS_IMAGE:-ghcr.io/winglight/algo-trader/ati-local-tools:latest}
+    profiles: [tools]
+    entrypoint: [python, -m, ati_shared_sdk.common.historical_runtime.local_cli]
+    command: [--help]
+    user: "${ATI_LOCAL_UID:-1000}:${ATI_LOCAL_GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=128m,mode=1777]

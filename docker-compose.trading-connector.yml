@@ -1,0 +1,15 @@
+name: ati-trading-connector
+services:
+  trading-connector:
+    image: ${ATI_TRADING_CONNECTOR_IMAGE:-ghcr.io/winglight/algo-trader/ati-trading-connector:latest}
+    user: "${ATI_LOCAL_UID:-1000}:${ATI_LOCAL_GID:-1000}"
+    command: ["run", "--gateway", "${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}", "--state-dir", "/var/lib/ati-environment", "--component", "TRADING"]
+    volumes:
+      - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}:/var/lib/ati-environment
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp:size=128m,mode=1777]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128

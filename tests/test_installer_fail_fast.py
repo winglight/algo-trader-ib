@@ -40,6 +40,9 @@ def test_update_checks_options_before_stopping_or_replacing(tmp_path, compatible
     for name in ("options_upgrade_guard.sh", "options_upgrade_guard.py"):
         shutil.copy(root / "scripts" / name, installed / "scripts" / name)
     (installed / "docker-compose.yml").write_text("services: {}\n")
+    # An installed trading scope, not merely a downloaded compose template.
+    # Keep the downgrade guard assertions below reachable under explicit scopes.
+    (installed / ".env").write_text("APP_ENV=test\n")
     (installed / "algo_trader.sql").write_text((root / "algo_trader.sql").read_text())
     (installed / "current-runtime").write_text("preserve protection")
     archive = tmp_path / "candidate.zip"

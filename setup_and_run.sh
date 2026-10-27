@@ -39,8 +39,6 @@ trap finish_install EXIT
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
 export ATI_ENVIRONMENT_DIR="${ATI_ENVIRONMENT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ati/environment}"
-mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
-touch "$ATI_ENVIRONMENT_DIR/trading-enabled"
 APP_URL="${ATI_APP_URL:-}"
 ADAPTERS_REPOSITORY="${ATI_ADAPTERS_REPOSITORY:-winglight/algo-trader-broker-adapters}"
 ADAPTERS_REF="${ATI_ADAPTERS_REF:-main}"
@@ -49,6 +47,9 @@ ADAPTERS_ARCHIVE_SHA256="${ATI_ADAPTERS_ARCHIVE_SHA256:-}"
 # shellcheck source=scripts/installer_lib.sh
 source "${ROOT_DIR}/scripts/installer_lib.sh"
 
+source "${ROOT_DIR}/scripts/component_modes.sh"
+COMPONENTS=""
+PREVIOUS_COMPONENTS="$(ati_detect_components "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR")"
 NON_INTERACTIVE=0
 DRY_RUN=0
 UPDATE_MODE=0
@@ -80,6 +81,7 @@ usage() {
   cat <<'EOF'
 Usage: setup_and_run.sh [options]
 
+  --components research|trading|all  New install default: all; updates preserve existing components.
   --non-interactive
   --update
   --enabled-adapters sim[,ibkr_paper][,alpaca_paper][,ccxt_crypto][,projectx_topstep]
@@ -109,6 +111,7 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --components) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; COMPONENTS="$2"; shift 2 ;;
     --non-interactive) NON_INTERACTIVE=1; shift ;;
     --update) UPDATE_MODE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -626,7 +629,31 @@ backup_database_for_update() {
   echo "Database backup completed: ${dump_file}"
 }
 
+if [ -z "$COMPONENTS" ]; then
+  COMPONENTS="${PREVIOUS_COMPONENTS:-all}"
+  if [ "$NON_INTERACTIVE" = 0 ] && [ -z "$PREVIOUS_COMPONENTS" ]; then
+    printf 'Install components / 安装组件: 1) research / 本地离线回测工具  2) trading / 仅交易  3) all / 全部 [3]: '
+    read -r choice
+    case "${choice:-3}" in 1|research) COMPONENTS=research ;; 2|trading) COMPONENTS=trading ;; 3|all) COMPONENTS=all ;; *) echo 'Invalid component selection.' >&2; exit 2 ;; esac
+  fi
+fi
+case "$COMPONENTS" in research|trading|all) ;; *) echo 'Invalid --components; use research, trading or all.' >&2; exit 2 ;; esac
+echo "Selected components: $COMPONENTS (previous: ${PREVIOUS_COMPONENTS:-none}). Existing other components are retained, not stopped or removed."
+if [ "$DRY_RUN" = 1 ]; then
+  echo 'Component plan only: no configuration, credentials, image downloads or containers changed.'
+  exit 0
+fi
+if [ "$UPDATE_MODE" = 1 ] && [ "$NON_INTERACTIVE" = 1 ] && [ "${ATI_ALLOW_UPDATE:-0}" != 1 ]; then
+  echo 'Non-interactive update requires ATI_ALLOW_UPDATE=1.' >&2; exit 1
+fi
 ensure_docker
+if [ "$COMPONENTS" = research ]; then
+  bash "$ROOT_DIR/scripts/install_local_tools.sh" install
+  ati_record_component "$ROOT_DIR" research "$PREVIOUS_COMPONENTS"
+  exit 0
+fi
+mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
+touch "$ATI_ENVIRONMENT_DIR/trading-enabled"
 has_cmd curl || { echo "curl is required." >&2; exit 1; }
 has_cmd tar || { echo "tar is required." >&2; exit 1; }
 
@@ -1086,8 +1113,16 @@ if [ -n "$PLUGIN_BACKUP_DIR" ] && run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
   run_as_root rm -rf "$PLUGIN_BACKUP_DIR"
 fi
 rm -rf "$BACKUP_DIR"
-# Research runs independently and shares this installation's Cloud identity.
-bash "$ROOT_DIR/scripts/install_research.sh" install
+ati_record_component "$ROOT_DIR" trading "$PREVIOUS_COMPONENTS"
+# Complete independent offline tools even when an old Cloud connector needs review.
+if [ "$COMPONENTS" = all ]; then
+  bash "$ROOT_DIR/scripts/install_local_tools.sh" install
+  ati_record_component "$ROOT_DIR" research trading
+fi
+# Trading entitlement remains the existing signed-grant protocol. A failure is
+# not swallowed; installed components do not imply connected/authorized readiness.
+bash "$ROOT_DIR/scripts/install_trading_connector.sh" install
+
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"
 echo "  username: ${CURRENT_ADMIN_USERNAME}"

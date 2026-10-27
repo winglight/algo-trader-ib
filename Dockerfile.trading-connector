@@ -1,0 +1,8 @@
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY --from=ati_worker_orchestrator pyproject.toml /app/orchestrator/pyproject.toml
+COPY --from=ati_worker_orchestrator src /app/orchestrator/src
+RUN pip install --no-cache-dir /app/orchestrator && python -m worker_orchestrator.local_connector --help
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "worker_orchestrator.local_connector"]
