@@ -42,12 +42,19 @@ def verify(root: Path, selected: Path) -> None:
         raise VerificationError('expected exactly one existing research-worker container')
     # Select only necessary fields, never container environment/credentials.
     template = ('{"id":{{json .Id}},"state":{{json .State.Status}},'
-                '"running":{{json .State.Running}},"labels":{{json .Config.Labels}},'
+                '''"running":{{json .State.Running}},"labels":{
+"com.docker.compose.project":{{json (index .Config.Labels "com.docker.compose.project")}},
+"com.docker.compose.service":{{json (index .Config.Labels "com.docker.compose.service")}},
+"com.docker.compose.oneoff":{{json (index .Config.Labels "com.docker.compose.oneoff")}}},'''
                 '"mounts":{{json .Mounts}}}')
     result = subprocess.run(['docker', 'inspect', '--format', template, ids[0]],
                             capture_output=True, text=True, check=True, timeout=30)
     obj = json.loads(result.stdout)
-    labels = obj.get('labels') or {}
+    if not isinstance(obj, dict) or not isinstance(obj.get('labels'), dict):
+        raise VerificationError('invalid container metadata shape')
+    labels = obj['labels']
+    if not isinstance(obj.get('mounts'), list) or any(not isinstance(m, dict) for m in obj['mounts']):
+        raise VerificationError('invalid container mount metadata shape')
     if not str(obj.get('id', '')).startswith(ids[0]) or obj.get('state') != 'running' or obj.get('running') is not True:
         raise VerificationError('existing connector is not running; no automatic recovery attempted')
     if (labels.get('com.docker.compose.project') != 'ati-local-research'
@@ -67,7 +74,7 @@ def main() -> int:
     except VerificationError as exc:
         print(f'Existing connector not retained: {exc}. No second writer started.', file=sys.stderr)
         return 3
-    except (OSError, ValueError, subprocess.SubprocessError, IndexError, TypeError):
+    except (OSError, ValueError, subprocess.SubprocessError, IndexError, TypeError, AttributeError):
         # Do not print raw Docker output/configuration, which may contain private paths.
         print('Existing connector could not be verified (configuration, count, state, labels or identity mount). '
               'No second writer started; inspect the existing connector status before upgrading it.', file=sys.stderr)
