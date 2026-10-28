@@ -1,4 +1,6 @@
 import os
+import json
+import sys
 from pathlib import Path
 import shutil
 import subprocess
@@ -37,9 +39,23 @@ def test_replay_mounts_only_explicit_files_no_network_or_credentials(tmp_path):
 def test_existing_writer_is_preserved_without_docker_actions(tmp_path):
     root,log,env=fixture(tmp_path);(root/'.research.env').write_text('ATI_RESEARCH_IMAGE=legacy:1\n')
     env['ATI_ENVIRONMENT_DIR']=str(tmp_path/'identity')
+    cid='a'*64
+    obj={'id':cid,'running':True,'state':'running',
+         'labels':{'com.docker.compose.project':'ati-local-research',
+                   'com.docker.compose.service':'research-worker','com.docker.compose.oneoff':'False'},
+         'mounts':[{'Type':'bind','Source':env['ATI_ENVIRONMENT_DIR'],
+                    'Destination':'/var/lib/ati-environment','RW':True}]}
+    docker=Path(env['PATH'].split(os.pathsep)[0])/'docker'
+    docker.write_text('#!'+sys.executable+'\n'+
+        "import os,sys\nargs=sys.argv[1:]\n"+
+        "with open(os.environ['CALLS'],'a') as f:f.write(' '.join(args)+'\\n')\n"+
+        "if args[0]=='ps' and args[-1].endswith('=research-worker'):print('"+cid+"')\n"+
+        "elif args[0]=='inspect':print("+repr(json.dumps(obj))+")\n")
     r=subprocess.run(['bash',str(root/'scripts/install_trading_connector.sh'),'install'],env=env,capture_output=True,text=True)
-    assert r.returncode==3 and 'No second writer' in r.stderr
-    assert ' ps --all --quiet research-worker' in log.read_text()
+    assert r.returncode==0 and 'writer presence only' in r.stdout, r.stderr
+    calls=log.read_text()
+    assert 'label=com.docker.compose.service=research-worker' in calls
+    assert ' up ' not in calls and ' run ' not in calls and 'stop' not in calls
     assert not (tmp_path/'identity').exists()
     assert (root/'.research.env').read_text()=='ATI_RESEARCH_IMAGE=legacy:1\n'
 

@@ -260,14 +260,14 @@ installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行
 6. 如果您不同意上述条款，请勿下载、安装、访问或使用本项目，并停止运行已部署的服务。
 
 
-### Component modes / 安装组件模式
-`--components research|trading|all` (new default: all; upgrades preserve prior components).
-- **research**: SDK-native **offline LOCAL_USER** backtesting tools and user-run market-data scripts. No trading services, Cloud login, task claims, or Studio RESEARCH_COMPUTE capability.
-- **trading**: existing trading services plus the signed-grant TRADING connector; it never claims research work.
-- **all**: both above. Strategy/account trading controls are unchanged. Existing full Studio research connectors remain the sole grant writer, are not replaced by these tools, and require their separate runtime upgrade.
+### 安装组件模式
+`--components research|trading|all`：首次默认全部安装，升级保留已有组件。
+- **research**：SDK 原生离线 `LOCAL_USER` 回测工具，加上隔离的 Studio 原生研究 connector。不安装交易服务；connector 需要绑定 Cloud 环境，离线工具不需要。
+- **trading**：现有交易服务和只领取交易授权的 TRADING connector，不领取研究任务。
+- **all**：两者都安装。由一个 RESEARCH connector 维护共享安装身份及原有交易授权；只有精确验证旧 TRADING connector 后才交接，不并行运行两个身份 writer。交接不改交易服务、账户设置或历史订单。
 
-`research` 表示本地离线回测工具，不代表完整 Studio 本地研究执行器。安装不下载行情、不收取数据 API key；下载由用户在终端主动执行。已有组件、账户、数据、配置不删除。
+安装流程不下载行情、不索取数据源 API key。LTB 弹窗只显示本地行情覆盖和使用说明；用户在终端提供自己的 key，选择 symbol/timeframe 列表，运行 IB、Alpaca 或 Databento 脚本。无页面的纯回测环境使用相同脚本和 Markdown 说明。
 
-[Offline replay / 离线回测](docs/local-user-replay.md) · [Data downloads](docs/local-data-download.md) · [下载中文说明](docs/local-data-download.zh-CN.md)
+[原生研究环境及升级安全说明](docs/local-research-runtime.md) · [离线回测](docs/local-user-replay.md) · [行情下载说明](docs/local-data-download.zh-CN.md)
 
-Public images contain only the necessary SDK (`ati-local-tools`) or connector (`ati-trading-connector`), not Cloud platform/payment/admin source. Normal offline replay mounts input/data read-only and output separately. Studio-dispatched frozen Cloud data chunks are not replaced by downloaded local Parquet; complete Studio local RESEARCH_COMPUTE packaging remains separate. Clean-install videos and real image-release validation have not been completed by these code changes.
+原生研究镜像仅包含受审核的执行文件和必要依赖，不发行整个 Cloud 管理、支付、后台服务。安装成功不代表研究任务已成功：仍需实际环境绑定、能力、签名任务/数据完整性、执行 manifest 兼容检查。不能用下载的本地 Parquet 偷换 Studio 已冻结 Cloud 数据块。实际镜像发布、洁净安装和中英文录屏仍是独立验收项，不能把本次源码测试当作这些验收已完成。

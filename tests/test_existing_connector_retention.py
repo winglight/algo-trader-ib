@@ -10,7 +10,7 @@ ROOT=Path(__file__).resolve().parents[1]
 CID='a'*64
 
 @pytest.mark.parametrize('scenario,ok',[
-    ('running',True),('stopped',False),('missing',False),('multiple',False),
+    ('running',True),('stopped',False),('multiple',False),
     ('wrongmount',False),('wrongproject',False),('wrongservice',False),
     ('oneoff',False),('unknowninspect',False),('configuredother',False),
     ('malformedshape',False),('malformedmount',False),('missingmountsource',False),
@@ -32,7 +32,8 @@ def test_readonly_retention_verifies_service_and_identity(tmp_path,scenario,ok):
     bins=tmp_path/'bin';bins.mkdir();log=tmp_path/'actions'
     docker=bins/'docker';docker.write_text('''#!/bin/bash
 printf '%s\\n' "$*" >> "$CALLS"
-if [[ "$1" == compose ]]; then
+if [[ "$1" == ps ]]; then
+ [[ "$*" == *"=research-worker" ]] || exit 0
  case "$SCENARIO" in missing) ;; multiple) printf '%s\\n%s\\n' "$CID" "$CID" ;; *) echo "$CID" ;; esac
 elif [[ "$1" == inspect ]]; then
  [[ "$SCENARIO" != unknowninspect ]] || exit 1
@@ -49,6 +50,6 @@ fi
     assert ' up ' not in calls and ' run ' not in calls and 'stop' not in calls and 'restart' not in calls
     if ok:
         assert 'writer presence only' in r.stdout
-        assert '--project-name ati-local-research' in calls
-        assert '--env-file /dev/null' in calls
+        assert 'label=com.docker.compose.service=research-worker' in calls
+        assert 'label=com.docker.compose.service=trading-connector' in calls
         assert '.Config.Env' not in calls and '{{json .Config.Labels}}' not in calls

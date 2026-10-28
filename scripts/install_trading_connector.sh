@@ -34,7 +34,7 @@ trap - EXIT
 export ATI_ENVIRONMENT_DIR="${ATI_ENVIRONMENT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ati/environment}"
 export ATI_CLOUD_GATEWAY_URL="${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}"
 export ATI_MARKET_DATA_DIR="${ATI_MARKET_DATA_DIR:-$ROOT_DIR/data/market-data}"
-COMPOSE=(docker compose)
+COMPOSE=(docker compose --project-name ati-trading-connector --project-directory "$ROOT_DIR")
 [[ ! -f "$ENV_FILE" ]] || COMPOSE+=(--env-file "$ENV_FILE")
 COMPOSE+=(-f "$ROOT_DIR/docker-compose.trading-connector.yml")
 export ATI_CONNECTOR_COMPONENT="${REQUESTED_CONNECTOR_COMPONENT}"
@@ -51,9 +51,30 @@ if [[ "$ACTION" == stop ]]; then
   "${COMPOSE[@]}" stop trading-connector
   exit
 fi
-if [[ -f "$ROOT_DIR/.research.env" ]]; then
-  python3 "$ROOT_DIR/scripts/verify_existing_connector.py" "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR"
-  exit $?
+# Marker files are not runtime state: a previous research start may have failed
+# and safely restored TRADING. Read-only discovery can retain an actual RESEARCH
+# writer without changing the identity directory; mutations recheck under lock.
+if python3 "$ROOT_DIR/scripts/connector_writer_handoff.py" "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR" --inspect-trading; then
+  :
+else
+  preflight_rc=$?
+  if [[ "$preflight_rc" == 10 ]]; then exit 0; fi
+  exit "$preflight_rc"
+fi
+# Serialize all mutating connector installs for this identity; readonly retention
+# above never starts/stops another writer and remains side-effect free.
+if [[ -z "${ATI_CONNECTOR_INSTALL_LOCK_FD:-}" ]]; then
+  exec python3 "$ROOT_DIR/scripts/connector_installer_lock.py" "$ATI_ENVIRONMENT_DIR" bash "${BASH_SOURCE[0]}" "$@"
+fi
+python3 "$ROOT_DIR/scripts/connector_installer_lock.py" "$ATI_ENVIRONMENT_DIR" --check
+# A fresh checkout may have no .research.env while an existing connector owns
+# this shared identity. Discover actual writers before markers, binding or up.
+if python3 "$ROOT_DIR/scripts/connector_writer_handoff.py" "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR" --check-trading; then
+  :
+else
+  preflight_rc=$?
+  if [[ "$preflight_rc" == 10 ]]; then exit 0; fi
+  exit "$preflight_rc"
 fi
 mkdir -p "$ATI_ENVIRONMENT_DIR" "$ATI_MARKET_DATA_DIR"
 mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
@@ -70,7 +91,7 @@ from pathlib import Path
 keys=('ATI_ENVIRONMENT_DIR','ATI_LOCAL_UID','ATI_LOCAL_GID','ATI_CLOUD_GATEWAY_URL','ATI_TRADING_CONNECTOR_IMAGE','ATI_MARKET_DATA_DIR','ATI_CONNECTOR_COMPONENT')
 Path(sys.argv[1]).write_text(''.join(k+'='+shlex.quote(os.environ[k])+'\n' for k in keys if k in os.environ))
 PY
-COMPOSE=(docker compose --env-file "$ROOT_DIR/.trading-connector.env" -f "$ROOT_DIR/docker-compose.trading-connector.yml")
+COMPOSE=(docker compose --project-name ati-trading-connector --project-directory "$ROOT_DIR" --env-file "$ROOT_DIR/.trading-connector.env" -f "$ROOT_DIR/docker-compose.trading-connector.yml")
 # A previous failed connection may have left .trading-connector.env behind. Retry
 # connection whenever credentials are absent; never call an unbound worker ready.
 NEEDS_CONNECT="$(python3 - "$ATI_ENVIRONMENT_DIR/installation.json" <<'PY_CHECK'
@@ -80,7 +101,7 @@ p=Path(sys.argv[1])
 print('0' if p.exists() and json.loads(p.read_text()).get('credential') else '1')
 PY_CHECK
 )"
-if [[ "$ACTION" == install || "$NEEDS_CONNECT" == 1 ]]; then
+if [[ "$NEEDS_CONNECT" == 1 ]]; then
   # Import an existing trading installation once. Capture identity privately;
   # never echo the legacy runtime token or installation secret.
   python3 - "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR" <<'PY'
