@@ -46,10 +46,11 @@ def test_research_dispatch_does_not_enter_trading_setup(tmp_path):
     commands=tmp_path/'bin'; commands.mkdir(); docker=commands/'docker'
     docker.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\n'); docker.chmod(0o755)
     (root/'scripts/install_local_tools.sh').write_text('#!/bin/bash\nprintf "research %s \\n" "$*" >> "$CALLS"\n')
+    (root/'scripts/install_research.sh').write_text('#!/bin/bash\nprintf "connector %s \\n" "$*" >> "$CALLS"\n')
     log=tmp_path/'calls'
     result=subprocess.run(['bash',str(root/'setup_and_run.sh'),'--components','research','--non-interactive'],text=True,capture_output=True,env={**os.environ,'PATH':str(commands)+os.pathsep+os.environ['PATH'],'ATI_ENVIRONMENT_DIR':str(state),'CALLS':str(log)},timeout=15)
     assert result.returncode==0,result.stdout+result.stderr
-    calls=log.read_text(); assert 'research install' in calls
+    calls=log.read_text(); assert 'research install' in calls and 'connector install' in calls
     assert 'compose version' in calls and 'info' in calls
     assert 'pull' not in calls and 'down' not in calls and 'exec' not in calls
     assert not (root/'.env').exists() and not (state/'trading-enabled').exists()

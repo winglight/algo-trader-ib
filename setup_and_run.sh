@@ -16,7 +16,7 @@ stop_on_install_error() {
   INSTALL_ERROR_REPORTED=1
   print_error "Installation stopped immediately."
   print_error "Exit code ${rc} at line ${failed_line}: ${failed_command}"
-  print_error "No automatic rollback was attempted; inspect the failed state before rerunning."
+  print_error "No automatic rollback was attempted by this launcher; any connector-only recovery is reported above. Inspect the failed state before rerunning."
   exit "$rc"
 }
 
@@ -28,7 +28,7 @@ finish_install() {
     cleanup_candidates
   fi
   if [ "$rc" -ne 0 ] && [ "$INSTALL_ERROR_REPORTED" -ne 1 ]; then
-    print_error "Installation stopped with exit code ${rc}. No automatic rollback was attempted."
+    print_error "Installation stopped with exit code ${rc}. No automatic rollback was attempted by this launcher; inspect any connector-only recovery report above."
   fi
   exit "$rc"
 }
@@ -650,6 +650,7 @@ ensure_docker
 if [ "$COMPONENTS" = research ]; then
   bash "$ROOT_DIR/scripts/install_local_tools.sh" install
   ati_record_component "$ROOT_DIR" research "$PREVIOUS_COMPONENTS"
+  bash "$ROOT_DIR/scripts/install_research.sh" install
   exit 0
 fi
 mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
@@ -1122,6 +1123,9 @@ fi
 # Trading entitlement remains the existing signed-grant protocol. A failure is
 # not swallowed; installed components do not imply connected/authorized readiness.
 bash "$ROOT_DIR/scripts/install_trading_connector.sh" install
+if [ "$COMPONENTS" = all ]; then
+  bash "$ROOT_DIR/scripts/install_research.sh" install
+fi
 
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"
