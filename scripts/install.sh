@@ -51,6 +51,12 @@ run_as_root() {
   fi
 }
 
+run_install_fs() {
+  # Renaming an ubuntu-owned installation does not require privilege even if
+  # it contains root-owned files. Escalate only filesystem operations that do.
+  "$@" || run_as_root "$@"
+}
+
 ensure_unzip() {
   has_cmd unzip && return 0
   echo "unzip is not installed; installing it now..."
@@ -79,6 +85,7 @@ dir_has_entries() {
 
 confirm_update_install_dir() {
   local reason="$1" reply
+  validate_install_dir
   echo "$reason"
   echo "Install directory: $INSTALL_DIR"
   if [ "$NON_INTERACTIVE" = "1" ]; then
@@ -98,11 +105,24 @@ confirm_update_install_dir() {
       ;;
   esac
 
-  case "$INSTALL_DIR" in
-    ""|"/"|"$HOME")
-      echo "Refusing to remove unsafe install directory: $INSTALL_DIR" >&2
-      exit 1
-      ;;
+}
+
+validate_install_dir() {
+  local parent canonical home_canonical
+  case "$INSTALL_DIR" in ''|/|"$HOME")
+    echo "Refusing unsafe install directory: $INSTALL_DIR" >&2; return 1 ;;
+  esac
+  [ ! -L "$INSTALL_DIR" ] || { echo "Refusing install directory symlink: $INSTALL_DIR" >&2; return 1; }
+  parent="$(dirname "$INSTALL_DIR")"
+  if [ ! -d "$parent" ]; then
+    case "/$INSTALL_DIR/" in */../*|*/./*) echo "Refusing unresolved install directory: $INSTALL_DIR" >&2; return 1 ;; esac
+    return 0
+  fi
+  canonical="$(cd "$parent" && pwd -P)/$(basename "$INSTALL_DIR")"
+  if [ -d "$INSTALL_DIR" ]; then canonical="$(cd "$INSTALL_DIR" && pwd -P)"; fi
+  home_canonical="$(cd "$HOME" && pwd -P)"
+  case "$canonical" in /|"$home_canonical")
+    echo "Refusing unsafe install directory: $INSTALL_DIR" >&2; return 1 ;;
   esac
 }
 
@@ -158,8 +178,8 @@ restore_env_files() {
     return 0
   fi
   while IFS= read -r rel_path; do
-    mkdir -p "${INSTALL_DIR}/$(dirname "$rel_path")"
-    cp "${backup_dir}/${rel_path}" "${INSTALL_DIR}/${rel_path}"
+    mkdir -p "${INSTALL_DIR}/$(dirname "$rel_path")" || return 1
+    cp -p "${backup_dir}/${rel_path}" "${INSTALL_DIR}/${rel_path}" || return 1
   done <"$manifest"
 }
 
@@ -209,7 +229,8 @@ restore_runtime_paths() {
 }
 
 restore_preserved_strategies_exact() {
-  local backup_dir="$1" preserved_dir="${backup_dir}/strategies"
+  local backup_dir="$1"
+  local preserved_dir="${backup_dir}/strategies"
   [ -e "$preserved_dir" ] || return 0
   run_as_root rm -rf "${INSTALL_DIR:?}/strategies"
   mkdir -p "$INSTALL_DIR"
@@ -218,6 +239,7 @@ restore_preserved_strategies_exact() {
 
 merge_preserved_strategies() {
   local backup_dir="$1"
+  local keep_source="${2:-0}"
   local preserved_dir="${backup_dir}/strategies"
   local release_dir="${INSTALL_DIR}/strategies"
   local backup_stamp conflict_dir source rel_path destination backup_destination
@@ -226,7 +248,7 @@ merge_preserved_strategies() {
 
   backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   conflict_dir="${INSTALL_DIR}/data/strategy-backups/update-${backup_stamp}"
-  mkdir -p "$release_dir"
+  mkdir -p "$release_dir" || return 1
 
   while IFS= read -r -d '' source; do
     rel_path="${source#${preserved_dir}/}"
@@ -236,68 +258,141 @@ merge_preserved_strategies() {
         ;;
     esac
     destination="${release_dir}/${rel_path}"
-    mkdir -p "$(dirname "$destination")"
+    mkdir -p "$(dirname "$destination")" || return 1
     if [ ! -e "$destination" ]; then
-      run_as_root cp -p "$source" "$destination"
+      run_as_root cp -p "$source" "$destination" || return 1
       continue
     fi
     if cmp -s "$source" "$destination"; then
       continue
     fi
     backup_destination="${conflict_dir}/${rel_path}"
-    mkdir -p "$(dirname "$backup_destination")"
-    run_as_root cp -p "$source" "$backup_destination"
+    mkdir -p "$(dirname "$backup_destination")" || return 1
+    run_as_root cp -p "$source" "$backup_destination" || return 1
     conflict_count=$((conflict_count + 1))
   done < <(find "$preserved_dir" -type f -print0)
 
-  run_as_root rm -rf "$preserved_dir"
+  [ "$keep_source" = 1 ] || run_as_root rm -rf "$preserved_dir" || return 1
   if [ "$conflict_count" -gt 0 ]; then
     echo "Refreshed official strategies; preserved ${conflict_count} replaced local file(s) in: ${conflict_dir}"
   fi
 }
 
 quiesce_runtime_for_update() {
+  ATI_UPDATE_PREVIOUS_SERVICES=''
+  ATI_UPDATE_PREVIOUS_IB_SERVICE=''
   [ "$UPDATE_MODE" = "1" ] || return 0
   [ "${UPDATE_COMPONENTS:-all}" != research ] || return 0
   if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
-    (cd "$INSTALL_DIR" && docker compose -f docker-compose.yml down)
+    ATI_UPDATE_PREVIOUS_SERVICES="$(cd "$INSTALL_DIR" && docker compose -f docker-compose.yml ps --status running --services)" || return 1
+    (cd "$INSTALL_DIR" && docker compose -f docker-compose.yml down) || return 1
   fi
   if [ -f "${INSTALL_DIR}/middle/docker-compose.yml" ]; then
     if [ -f "${INSTALL_DIR}/middle/.env" ]; then
+      ATI_UPDATE_PREVIOUS_IB_SERVICE="$(docker compose --env-file "${INSTALL_DIR}/middle/.env" \
+        -f "${INSTALL_DIR}/middle/docker-compose.yml" --profile ib ps -q --status running ib-gateway)" || return 1
       docker compose --env-file "${INSTALL_DIR}/middle/.env" \
         -f "${INSTALL_DIR}/middle/docker-compose.yml" \
-        --profile ib stop ib-gateway
+        --profile ib stop ib-gateway || return 1
     else
+      ATI_UPDATE_PREVIOUS_IB_SERVICE="$(docker compose -f "${INSTALL_DIR}/middle/docker-compose.yml" \
+        --profile ib ps -q --status running ib-gateway)" || return 1
       docker compose \
         -f "${INSTALL_DIR}/middle/docker-compose.yml" \
-        --profile ib stop ib-gateway
+        --profile ib stop ib-gateway || return 1
     fi
   fi
 }
 
 replace_install_dir_contents() {
   local extracted="$1" env_backup="$2" env_manifest="$3" runtime_backup="$4"
-  if [ -d "$INSTALL_DIR" ]; then
-    preserve_runtime_paths "$runtime_backup"
-    if ! find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; then
-      restore_runtime_paths "$runtime_backup"
-      restore_preserved_strategies_exact "$runtime_backup"
-      return 1
-    fi
-  elif [ -e "$INSTALL_DIR" ]; then
-    rm -f "$INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR"
-  else
-    mkdir -p "$INSTALL_DIR"
-  fi
-  if ! cp -R "${extracted}/." "$INSTALL_DIR/"; then
-    restore_runtime_paths "$runtime_backup"
-    restore_preserved_strategies_exact "$runtime_backup"
+  local candidate previous rel_path
+  validate_install_dir || return 1
+  candidate="$(mktemp -d "${INSTALL_DIR}.update-candidate.XXXXXX")" || return 1
+  previous="${runtime_backup}/previous-installation"
+  # Prepare the complete release and configuration before stopping anything.
+  if ! cp -R "${extracted}/." "$candidate/" ||
+      ! (INSTALL_DIR="$candidate"; restore_env_files "$env_backup" "$env_manifest"); then
+    run_install_fs rm -rf "$candidate"
     return 1
   fi
-  restore_runtime_paths "$runtime_backup"
-  merge_preserved_strategies "$runtime_backup"
-  restore_env_files "$env_backup" "$env_manifest"
+  if ! quiesce_runtime_for_update; then
+    run_install_fs rm -rf "$candidate"
+    resume_runtime_after_failed_update
+    return 1
+  fi
+  mkdir -p "$runtime_backup"
+  : >"${runtime_backup}/moved-paths"
+  if [ -e "$INSTALL_DIR" ]; then
+    if ! run_install_fs mv "$INSTALL_DIR" "$previous"; then
+      run_install_fs rm -rf "$candidate"
+      resume_runtime_after_failed_update
+      return 1
+    fi
+  fi
+  if ! run_install_fs mv "$candidate" "$INSTALL_DIR"; then
+    [ ! -e "$previous" ] || run_install_fs mv "$previous" "$INSTALL_DIR"
+    run_install_fs rm -rf "$candidate"
+    resume_runtime_after_failed_update
+    return 1
+  fi
+  for rel_path in data logs middle/data; do
+    [ -e "${previous}/${rel_path}" ] || continue
+    if ! printf '%s\n' "$rel_path" >>"${runtime_backup}/moved-paths"; then
+      rollback_install_dir "$previous" "$runtime_backup"
+      return 1
+    fi
+    if ! run_install_fs rm -rf "${INSTALL_DIR:?}/${rel_path}" ||
+        ! mkdir -p "${INSTALL_DIR}/$(dirname "$rel_path")" ||
+        ! run_install_fs mv "${previous}/${rel_path}" "${INSTALL_DIR}/${rel_path}"; then
+      rollback_install_dir "$previous" "$runtime_backup"
+      return 1
+    fi
+  done
+  if ! merge_preserved_strategies "$previous" 1; then
+    rollback_install_dir "$previous" "$runtime_backup"
+    return 1
+  fi
+  # Only the obsolete tree is removed with privilege. Cleanup failure must not
+  # destroy a complete new installation or prevent the normal startup path.
+  if ! run_install_fs rm -rf "$previous"; then
+    echo "Updated installation prepared; retained old files for manual cleanup: $previous" >&2
+  fi
+  rm -f "${runtime_backup}/moved-paths"
+}
+
+rollback_install_dir() {
+  local previous="$1" runtime_backup="$2" rel_path
+  while IFS= read -r rel_path; do
+    [ ! -e "${previous}/${rel_path}" ] || continue
+    [ -e "${INSTALL_DIR}/${rel_path}" ] || continue
+    mkdir -p "${previous}/$(dirname "$rel_path")" || return 1
+    run_install_fs mv "${INSTALL_DIR}/${rel_path}" "${previous}/${rel_path}" || return 1
+  done <"${runtime_backup}/moved-paths"
+  run_install_fs rm -rf "${INSTALL_DIR:?}" || return 1
+  run_install_fs mv "$previous" "$INSTALL_DIR" || return 1
+  rm -f "${runtime_backup}/moved-paths"
+  resume_runtime_after_failed_update
+}
+
+resume_runtime_after_failed_update() {
+  local service
+  [ "$UPDATE_MODE" = 1 ] || return 0
+  [ "${UPDATE_COMPONENTS:-all}" != research ] || return 0
+  if [ -n "${ATI_UPDATE_PREVIOUS_IB_SERVICE:-}" ]; then
+    if [ -f "${INSTALL_DIR}/middle/.env" ]; then
+      docker compose --env-file "${INSTALL_DIR}/middle/.env" -f "${INSTALL_DIR}/middle/docker-compose.yml" \
+        --profile ib up -d --no-build --pull never ib-gateway || echo 'Could not restore the previous IB Gateway service.' >&2
+    else
+      docker compose -f "${INSTALL_DIR}/middle/docker-compose.yml" \
+        --profile ib up -d --no-build --pull never ib-gateway || echo 'Could not restore the previous IB Gateway service.' >&2
+    fi
+  fi
+  if [ -n "${ATI_UPDATE_PREVIOUS_SERVICES:-}" ]; then
+    local -a services=()
+    while IFS= read -r service; do [ -z "$service" ] || services+=("$service"); done <<<"$ATI_UPDATE_PREVIOUS_SERVICES"
+    (cd "$INSTALL_DIR" && docker compose -f docker-compose.yml up -d --no-build --pull never "${services[@]}") || echo 'Could not restore all previous runtime services.' >&2
+  fi
 }
 
 download_with_zip() {
@@ -353,17 +448,16 @@ download_with_zip() {
       exit 1
     fi
   fi
-  quiesce_runtime_for_update
   replace_install_dir_contents "$extracted" "$env_backup" "$env_manifest" "$runtime_backup"
-  find "$runtime_backup" -depth -type d -empty -delete
+  run_install_fs find "$runtime_backup" -depth -type d -empty -delete || echo "Retained update backup: $runtime_backup" >&2
   if [ -e "$runtime_backup" ]; then
-    echo "Runtime preservation directory is unexpectedly non-empty: $runtime_backup" >&2
-    exit 1
+    echo "Retained previous installation files: $runtime_backup" >&2
   fi
   rm -rf "$tmp"
 }
 
 prompt_install_dir
+validate_install_dir
 resolve_update_components
 mkdir -p "$(dirname "$INSTALL_DIR")"
 
