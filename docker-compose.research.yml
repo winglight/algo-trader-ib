@@ -22,4 +22,6 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE]
+    # The root Connector must terminate/reap its different-UID executor when
+    # cancellation, lease loss or shutdown fences the task.
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, KILL]
