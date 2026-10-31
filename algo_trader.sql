@@ -1928,6 +1928,7 @@ ALTER TABLE account_exposure_claims
     ADD COLUMN IF NOT EXISTS source_claim JSON NULL,
     ADD COLUMN IF NOT EXISTS claim_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
 
+-- RECONCILE remains readable for historical receipts. Its executable API is retired.
 CREATE TABLE IF NOT EXISTS risk_exposure_command (
     account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     command_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
@@ -1938,14 +1939,14 @@ CREATE TABLE IF NOT EXISTS risk_exposure_command (
     created_at DATETIME(6) NOT NULL,
     PRIMARY KEY (account_key,command_id),
     CONSTRAINT fk_exposure_command_account FOREIGN KEY (account_key) REFERENCES account_exposure_budget(account_key),
-    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST','LIMITS'))
+    CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST','LIMITS','RECONCILE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 
 ALTER TABLE risk_exposure_command
     DROP CONSTRAINT IF EXISTS CONSTRAINT_1,
     DROP CONSTRAINT IF EXISTS ck_exposure_command_operation,
-    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST','LIMITS'));
+    ADD CONSTRAINT ck_exposure_command_operation CHECK (operation IN ('RESERVE','CLAIM','RELEASE','ACTIVATE','REFLECT','ADJUST','LIMITS','RECONCILE'));
 
 CREATE TABLE IF NOT EXISTS risk_exposure_outbox (
     sequence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
