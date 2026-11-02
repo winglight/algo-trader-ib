@@ -27,7 +27,7 @@ def test_broker_profile_bootstrap_has_app_on_pythonpath() -> None:
     installer = INSTALLER.read_text(encoding="utf-8")
     compose = (INSTALLER.parent / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "python scripts/maintenance/bootstrap_broker_profiles.py" in installer
+    assert "python scripts/adapters/bootstrap_broker_profiles.py" in installer
     assert "PYTHONPATH: /app:" in compose
 
 

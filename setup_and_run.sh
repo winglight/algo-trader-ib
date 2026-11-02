@@ -1085,7 +1085,7 @@ verify_report_archive_schema || {
 
 echo "Seeding installed Adapter Catalog and importing legacy Broker Profiles..."
 docker compose -f "${ROOT_DIR}/docker-compose.yml" run --rm --no-deps \
-  broker-runner-service python scripts/maintenance/bootstrap_broker_profiles.py \
+  broker-runner-service python scripts/adapters/bootstrap_broker_profiles.py \
   --enabled-adapters "$ENABLED_ADAPTERS" --app-version "$backend_app_version"
 
 pull_application_images
