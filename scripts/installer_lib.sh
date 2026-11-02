@@ -1,5 +1,33 @@
 #!/usr/bin/env bash
 
+# Check both filesystems before an update stops services or downloads images.
+# This is a safety floor, not an estimate of the compressed database size.
+check_update_storage() {
+  local install_dir="$1" minimum_mb="${ATI_UPDATE_MIN_FREE_MB:-1024}"
+  local path existing available_kb
+  [[ "$minimum_mb" =~ ^[1-9][0-9]{0,6}$ ]] || {
+    echo 'ATI_UPDATE_MIN_FREE_MB must be a positive integer (MiB).' >&2
+    return 1
+  }
+  command -v gzip >/dev/null 2>&1 || {
+    echo 'gzip is required for compressed update backups; no services were stopped.' >&2
+    return 1
+  }
+  for path in "$install_dir" "${ATI_BACKUP_DIR:-${install_dir%/}-backups}"; do
+    existing="$path"
+    while [ ! -d "$existing" ]; do existing="$(dirname "$existing")"; done
+    available_kb="$(df -Pk "$existing" | awk 'NR == 2 { print $4 }')" || return 1
+    [[ "$available_kb" =~ ^[0-9]+$ ]] || {
+      echo "Cannot determine available disk space for $path; update aborted." >&2
+      return 1
+    }
+    if [ "$available_kb" -lt "$((minimum_mb * 1024))" ]; then
+      echo "Insufficient disk space for $path: $((available_kb / 1024)) MiB available; at least ${minimum_mb} MiB required. Compress or move historical backups before retrying; no services were stopped by this check." >&2
+      return 1
+    fi
+  done
+}
+
 # Retry only image transfers, never the installer or database migrations.
 retry_image_transfer() {
   local attempt=1 rc delay="${ATI_RELEASE_RETRY_DELAY_SECONDS:-10}"

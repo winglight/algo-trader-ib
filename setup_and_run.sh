@@ -589,7 +589,7 @@ pull_application_images() {
 }
 
 backup_database_for_update() {
-  local backup_root backup_dir dump_tmp dump_file compose_file middle_env container_id
+  local backup_root backup_dir dump_tmp dump_file compose_file middle_env container_id dump_bytes
   [ "$UPDATE_MODE" = "1" ] || return 0
   compose_file="${MIDDLE_DIR}/docker-compose.yml"
   middle_env="${MIDDLE_DIR}/.env"
@@ -606,20 +606,22 @@ backup_database_for_update() {
   backup_dir="${backup_root}/update-$(date -u +%Y%m%dT%H%M%SZ)"
   mkdir -p "$backup_dir"
   chmod 700 "$backup_root" "$backup_dir"
-  dump_tmp="${backup_dir}/all-databases.sql.partial"
-  dump_file="${backup_dir}/all-databases.sql"
-  echo "Backing up MariaDB before the container update..."
-  if ! { printf '%s\n' "$MARIADB_PASSWORD" | docker compose --env-file "$middle_env" -f "$compose_file" exec -T mariadb sh -c \
-    'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb-dump -uroot -h 127.0.0.1 --all-databases --single-transaction --routines --events --triggers'; } >"$dump_tmp"; then
+  dump_tmp="${backup_dir}/all-databases.sql.gz.partial"
+  dump_file="${backup_dir}/all-databases.sql.gz"
+  echo "Backing up MariaDB with gzip compression before the container update..."
+  # Keep pipefail active even when called in a conditional: a truncated dump
+  # can be a valid gzip stream and must never receive BACKUP_COMPLETE.
+  if ! (set -o pipefail; printf '%s\n' "$MARIADB_PASSWORD" | docker compose --env-file "$middle_env" -f "$compose_file" exec -T mariadb sh -c \
+    'IFS= read -r MYSQL_PWD; export MYSQL_PWD; exec mariadb-dump -uroot -h 127.0.0.1 --all-databases --single-transaction --routines --events --triggers' | gzip -1 >"$dump_tmp"); then
     rm -f "$dump_tmp"
-    echo "MariaDB backup failed; no containers were updated." >&2
+    echo "MariaDB backup failed; application startup aborted. Check available disk space and the dump error above." >&2
     return 1
   fi
-  [ -s "$dump_tmp" ] || {
+  if ! dump_bytes="$(set -o pipefail; gzip -dc "$dump_tmp" | wc -c)" || [ "$dump_bytes" -eq 0 ]; then
     rm -f "$dump_tmp"
-    echo "MariaDB backup was empty; no containers were updated." >&2
+    echo "MariaDB backup was empty or invalid; application startup aborted." >&2
     return 1
-  }
+  fi
   mv "$dump_tmp" "$dump_file"
   chmod 600 "$dump_file"
   docker compose --env-file "$middle_env" -f "$compose_file" config >"${backup_dir}/compose-config.yml"
@@ -653,6 +655,7 @@ if [ "$COMPONENTS" = research ]; then
   bash "$ROOT_DIR/scripts/install_research.sh" install
   exit 0
 fi
+if [ "$UPDATE_MODE" = 1 ]; then check_update_storage "$ROOT_DIR"; fi
 mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
 touch "$ATI_ENVIRONMENT_DIR/trading-enabled"
 has_cmd curl || { echo "curl is required." >&2; exit 1; }

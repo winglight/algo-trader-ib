@@ -117,17 +117,24 @@ terminals.
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update
 ```
 
-Both update confirmations default to yes, so pressing Enter continues. After
-confirmation, the updater writes a complete logical MariaDB backup to the sibling
-directory `ati-local-runtime-backups/update-<UTC timestamp>/`, downloads the
-latest installer files, pins the image channel to `latest`, pulls current images
-from GHCR, updates adapter plugins, and recreates the local containers.
+Both update confirmations default to yes, so pressing Enter continues. The
+updater downloads the latest installer files, pins the image channel to `latest`,
+pulls current images from GHCR, and updates adapter plugins. Before starting the
+updated application, it writes a complete logical MariaDB backup to the sibling
+directory `ati-local-runtime-backups/update-<UTC timestamp>/` as
+`all-databases.sql.gz`.
 
 The updater preserves `.env`, `middle/.env`, `data`, `logs`, `strategies`, and
 `middle/data` while replacing installer files. The local application enters
 maintenance downtime while Redis and MariaDB remain online for the backup;
 services are restored automatically when the update completes. A backup failure
-aborts the update before any running container is replaced.
+aborts application startup; the application may already be stopped for file
+replacement. The updater checks the installation and backup filesystems before
+stopping services (at least 1024 MiB free by default; `ATI_UPDATE_MIN_FREE_MB`
+sets this safety floor, not a database size estimate). Backups are streamed
+through gzip and verified before `BACKUP_COMPLETE` is written. Historical
+backups are retained; compress or move them when space is low. To restore SQL,
+decompress with `gzip -dc all-databases.sql.gz` before feeding it to MariaDB.
 
 An options installation checks an older schema before stopping services or
 replacing files. The target SQL must retain the option tables and declare

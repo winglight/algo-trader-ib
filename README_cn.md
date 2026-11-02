@@ -104,13 +104,19 @@ ati-local-user
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib/main/scripts/install.sh)" installer --update
 ```
 
-两个更新确认都默认继续，直接按回车即可。确认后，更新器会先把 MariaDB 完整逻辑备份
-写入安装目录同级的 `ati-local-runtime-backups/update-<UTC时间>/`，再下载最新安装文件，
-将镜像通道设为 `latest`，从 GHCR 拉取最新镜像、更新 adapter 插件并重建本地容器。
+两个更新确认都默认继续，直接按回车即可。更新器下载最新安装文件，将镜像通道设为
+`latest`，从 GHCR 拉取最新镜像并更新 adapter 插件。启动新版应用前，会把 MariaDB
+完整逻辑备份以 `all-databases.sql.gz` 写入安装目录同级的
+`ati-local-runtime-backups/update-<UTC时间>/`。
 
 更新安装器文件时会保留 `.env`、`middle/.env`、`data`、`logs`、`strategies` 和
 `middle/data`。更新期间本地应用会进入维护停机，Redis/MariaDB 保持运行以完成备份；
-更新完成后服务自动恢复。任何备份失败都会终止更新，现有容器不会被替换。
+更新完成后服务自动恢复。备份失败会终止应用启动，此时应用可能已因文件替换而停机。
+更新器在停服前检查安装目录和备份目录所在磁盘，默认至少保留 1024 MiB 可用空间；
+可用 `ATI_UPDATE_MIN_FREE_MB` 配置此最低余量，它不代表数据库备份大小估计。
+备份直接经过 gzip 压缩，完整性校验通过后才写入 `BACKUP_COMPLETE`。
+历史备份全部保留；空间不足时请压缩或迁移旧备份。恢复时用
+`gzip -dc all-databases.sql.gz` 解压 SQL，再导入 MariaDB。
 
 安装过期权功能后，更新器在停止服务和替换文件前检查旧 schema 降级。目标 SQL
 须保留期权表并声明 `ATI_OPTIONS_SCHEMA_VERSION: 1` 或更高版本；否则由已安装的
