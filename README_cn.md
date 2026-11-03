@@ -137,6 +137,12 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib
 
 选择 `ibkr_paper` 或 `alpaca_paper` 后，安装器会从固定来源下载、校验并安装对应插件到持久化的 `data/broker-plugins/`；不会修改官方镜像，也不会在用户机器上构建业务镜像。`ibkr_paper` 还会启动 `middle/docker-compose.yml` 中的 `ib-gateway` profile。
 
+插件准备、激活、清理和共享网络标记使用当前用户权限，不调用 sudo。历史安装若
+存在当前用户无法操作的管理员所有文件，安装器会说明失败操作并停止，由目录所有者
+或管理员确认访问权限后再重试。IB Gateway 容器可能另需将设置目录所有者设为
+`1000:1000`；该操作会先说明范围并请求确认，再由 sudo 进行本机管理员认证。
+非交互运行需要此权限时会明确报错，不等待输入密码。
+
 `ibkr_paper`、`alpaca_paper` 与 `ccxt_crypto` 的公开源代码、能力边界和开发说明见
 [Broker adapters 仓库](https://github.com/winglight/algo-trader-broker-adapters)。
 ProjectX 是 [ATI Local Runtime 主源码仓库](https://github.com/winglight/algo-trader)中的内置受控 profile，不是需要从 adapter 仓库另行安装的独立 package。
