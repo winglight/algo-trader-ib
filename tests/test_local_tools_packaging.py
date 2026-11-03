@@ -8,7 +8,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 
 def fixture(tmp_path):
-    root=tmp_path/'runtime';shutil.copytree(ROOT,root)
+    root=tmp_path/'runtime';shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'))
     bins=tmp_path/'bin';bins.mkdir();log=tmp_path/'calls'
     docker=bins/'docker';docker.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\ncase "$*" in *"config --images") echo fixture:1 ;; esac\n');docker.chmod(0o755)
     env={**os.environ,'PATH':str(bins)+os.pathsep+os.environ['PATH'],'CALLS':str(log)}
@@ -125,3 +125,16 @@ def test_installer_update_scope_does_not_infer_installation_from_template(tmp_pa
         if trading:(tmp_path/'.env').touch()
         r=subprocess.run(['bash','-c',function+'\nresolve_update_components; echo "$UPDATE_COMPONENTS"'],env={**os.environ,'INSTALL_DIR':str(tmp_path),'UPDATE_MODE':'1','REQUESTED_COMPONENTS':''},capture_output=True,text=True)
         assert r.returncode==0 and r.stdout.strip()==expected
+
+
+def test_historical_simulation_wrapper_keeps_offline_sandbox_and_fixed_mode(tmp_path):
+    root, log, env = fixture(tmp_path)
+    (root/'.local-tools.env').touch()
+    result = subprocess.run(['bash', str(root/'scripts/run_local_simulation.sh'), '--help'], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    call = log.read_text()
+    assert '--network none' in call and '--read-only' in call
+    assert '--mode simulation --help' in call
+    log.unlink()
+    result = subprocess.run(['bash', str(root/'scripts/run_local_simulation.sh'), '--mode', 'backtest'], env=env, capture_output=True, text=True)
+    assert result.returncode == 2 and not log.exists()

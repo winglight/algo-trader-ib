@@ -51,3 +51,20 @@ A synthetic 30,000 scored-bar + 500 unscored-prefix run at batch size 2,048 comp
 
 ## Public container wrapper / 公共安装入口
 Use `bash scripts/run_local_backtest.sh` with the same CLI arguments above, using host paths. It maps each input JSON and the data directory read-only, and only the output parent directory writable. Network is disabled. No identity credentials, keys, trading sockets, Cloud grant or account directory are mounted. The image is SDK-only; this is not a Studio research worker.
+
+## Historical simulation / 历史模拟
+
+Use the same explicit inputs, costs, Risk/EE and frozen data origin with:
+
+```sh
+bash scripts/run_local_simulation.sh \
+  --workflow ./workflow.json --execution ./execution.json --instrument ./instrument.json \
+  --symbol QQQ --timeframe 5m \
+  --start 2025-01-02T14:30:00Z --end 2025-01-02T21:00:00Z \
+  --context-start 2024-12-31T20:50:00Z \
+  --data-root ./data/market-data --output ./output/local-simulation.json
+```
+
+The SDK CLI also accepts `--mode simulation`. Results record `taskType: simulation`, a separate execution identity, `status: completed`, and `origin: LOCAL_USER`. The native fill/fee/Risk/EE rules remain shared with backtesting. This is historical simulation only, not a real-time Paper broker, ML training, or a platform-certified Audit. Unsupported workflow types fail explicitly. No Cloud binding or membership is needed; the container uses `--network none` and cannot place orders.
+
+历史模拟复用相同执行核心与限制，使用单独任务身份及输出文件，不连接券商、不下单。无需绑定或会员，不消耗 ATI credits；第三方行情与模型费用由用户自行承担。旧版 local-tools 镜像需更新后才能使用新增 `--mode` 参数。

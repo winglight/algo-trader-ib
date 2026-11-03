@@ -24,7 +24,7 @@ while (( $# )); do
           [[ -f "$host" && -r "$host" ]] || { echo "Readable input required: $key" >&2; exit 2; }
           target="/inputs/${key#--}.json"; mounts+=(--mount "type=bind,src=$host,dst=$target,readonly"); args+=("$key" "$target") ;;
       esac ;;
-    --symbol|--timeframe|--start|--end|--context-start|--batch-size)
+    --symbol|--timeframe|--start|--end|--context-start|--batch-size|--mode)
       (( $# )) || { echo "Missing value for $key" >&2; exit 2; }; args+=("$key" "$1"); shift ;;
     --help) args+=(--help) ;;
     *) echo "Unknown option: $key" >&2; exit 2 ;;
@@ -34,4 +34,4 @@ IMAGE="$(docker compose --env-file "$ENV_FILE" -f "$ROOT_DIR/docker-compose.loca
 [[ -n "$IMAGE" && "$IMAGE" != *$'\n'* ]] || { echo 'Expected one local-tools image.' >&2; exit 1; }
 exec docker run --rm --network none --user "$(id -u):$(id -g)" --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,size=128m \
-  "${mounts[@]}" "$IMAGE" "${args[@]}"
+  ${mounts[@]+"${mounts[@]}"} "$IMAGE" "${args[@]}"

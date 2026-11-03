@@ -11,7 +11,7 @@ def sh(script, env=None):
 
 @pytest.mark.parametrize('previous,requested,expected', [(None,None,'all'),('research',None,'research'),('trading',None,'trading'),('all',None,'all'),('all','research','research'),('research','trading','trading')])
 def test_plan_before_any_configuration_or_docker(tmp_path, previous, requested, expected):
-    root=tmp_path/'runtime'; shutil.copytree(ROOT,root)
+    root=tmp_path/'runtime'; shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'))
     state=tmp_path/'state'
     if previous: (root/'.components.env').write_text(f'ATI_INSTALLED_COMPONENTS={previous}\n')
     args=['bash',str(root/'setup_and_run.sh'),'--non-interactive','--dry-run']
@@ -42,7 +42,7 @@ def test_metadata_is_not_executed(tmp_path):
     assert result.returncode!=0 and not sentinel.exists()
 
 def test_research_dispatch_does_not_enter_trading_setup(tmp_path):
-    root=tmp_path/'runtime'; shutil.copytree(ROOT,root); state=tmp_path/'state'
+    root=tmp_path/'runtime'; shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs')); state=tmp_path/'state'
     commands=tmp_path/'bin'; commands.mkdir(); docker=commands/'docker'
     docker.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\n'); docker.chmod(0o755)
     (root/'scripts/install_local_tools.sh').write_text('#!/bin/bash\nprintf "research %s \\n" "$*" >> "$CALLS"\n')
@@ -69,7 +69,7 @@ def test_local_tools_has_no_claim_or_identity():
     assert '"TRADING"' in source and 'RESEARCH' not in source
 
 def test_download_launcher_does_not_mount_identity_or_start_services(tmp_path):
-    root=tmp_path/'runtime';shutil.copytree(ROOT,root);data=root/'data/market-data';data.mkdir(parents=True)
+    root=tmp_path/'runtime';shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'));data=root/'data/market-data';data.mkdir(parents=True)
     (root/'.local-tools.env').write_text(f"ATI_MARKET_DATA_DIR='{data}'\n")
     commands=tmp_path/'bin';commands.mkdir();log=tmp_path/'calls';docker=commands/'docker'
     docker.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\ncase "$*" in *"config --images") echo ghcr.io/winglight/algo-trader/ati-local-tools:fixture ;; esac\n');docker.chmod(0o755)
