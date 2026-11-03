@@ -162,6 +162,14 @@ IBKR remains a deployment-managed singleton: the web UI cannot add a second IB a
 
 After `ibkr_paper` or `alpaca_paper` is selected, the installer downloads, verifies, and installs that plugin into the persistent `data/broker-plugins/` directory. It neither modifies the official image nor builds a business-service image on the user's machine. `ibkr_paper` also starts the `ib-gateway` profile from `middle/docker-compose.yml`.
 
+Plugin preparation, activation, cleanup, and the shared-network marker use the
+current user's filesystem permissions, without sudo. If an older installation
+has inaccessible administrator-owned files, installation stops with the failing
+operation; its owner/administrator must resolve access before retrying. IB Gateway
+can separately require settings ownership `1000:1000` for its container. This
+operation explains its scope and asks for confirmation before local administrator
+authentication; non-interactive runs fail clearly when that privilege is needed.
+
 The public source code, capability boundaries, and development documentation for
 `ibkr_paper`, `alpaca_paper`, and `ccxt_crypto` are available in the
 [Broker adapters repository](https://github.com/winglight/algo-trader-broker-adapters).

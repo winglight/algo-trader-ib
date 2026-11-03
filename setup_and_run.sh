@@ -21,11 +21,12 @@ stop_on_install_error() {
 }
 
 finish_install() {
-  local rc=$?
+  local rc=$? cleanup_rc=0
   trap - EXIT
   set +e
   if declare -F cleanup_candidates >/dev/null 2>&1; then
-    cleanup_candidates
+    cleanup_candidates || cleanup_rc=$?
+    if [ "$rc" -eq 0 ] && [ "$cleanup_rc" -ne 0 ]; then rc=$cleanup_rc; fi
   fi
   if [ "$rc" -ne 0 ] && [ "$INSTALL_ERROR_REPORTED" -ne 1 ]; then
     print_error "Installation stopped with exit code ${rc}. No automatic rollback was attempted by this launcher; inspect any connector-only recovery report above."
@@ -146,14 +147,32 @@ done
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 run_as_root() {
+  local purpose="$1" answer
+  shift
   if [ "$(id -u)" = "0" ]; then
     "$@"
-  elif has_cmd sudo; then
-    sudo "$@"
   else
-    echo "This installer operation requires root privileges or sudo." >&2
-    return 1
+    printf 'Administrator permission required: %s\n' "$purpose" >&2
+    if [ "$NON_INTERACTIVE" = 1 ] || [ ! -t 0 ]; then
+      echo "Cannot request administrator authentication in non-interactive mode. Ask the administrator to perform the operation above before retrying." >&2
+      return 1
+    fi
+    has_cmd sudo || { echo "sudo is unavailable; ask the administrator to perform the operation above." >&2; return 1; }
+    echo "sudo will request your local computer administrator/login password (not an ATI or broker password). Typed characters are not displayed." >&2
+    printf 'Allow this operation / 允许此操作? [y/N]: ' >&2
+    IFS= read -r answer || return 1
+    case "$answer" in y|Y) sudo -p 'ATI system operation — local administrator password: ' "$@" ;; *) echo "Administrator operation cancelled." >&2; return 1 ;; esac
   fi
+}
+
+# Installation files belong to the invoking user. Never retry a failed file
+# operation with sudo: an I/O error is not evidence that elevation is needed.
+run_install_operation() {
+  local purpose="$1" rc
+  shift
+  if "$@"; then return 0; else rc=$?; fi
+  printf 'Cannot %s (exit %s). Check the filesystem error above and installation directory permissions. If an older installation is administrator-owned, ask its owner/administrator to resolve access before retrying; no automatic sudo or permission changes were attempted.\n' "$purpose" "$rc" >&2
+  return "$rc"
 }
 
 ensure_docker() {
@@ -201,25 +220,20 @@ migrate_legacy_compose_owned_shared_network() {
 }
 
 mark_shared_network_migrated() {
-  run_as_root mkdir -p "${ROOT_DIR}/data"
-  run_as_root touch "${ROOT_DIR}/data/.shared-network-external-v1"
+  run_install_operation "create installation data directory ${ROOT_DIR}/data" mkdir -p "${ROOT_DIR}/data" || return $?
+  run_install_operation "write shared-network migration marker" touch "${ROOT_DIR}/data/.shared-network-external-v1"
 }
 
 ensure_ib_gateway_settings_permissions() {
   local settings_dir="${MIDDLE_DIR}/data/ib-gateway/tws_settings"
   mkdir -p "$settings_dir"
-  if [ "$(stat -c '%u:%g' "$settings_dir")" = "1000:1000" ]; then
+  local owner
+  owner="$(stat -c '%u:%g' "$settings_dir" 2>/dev/null || stat -f '%u:%g' "$settings_dir")" || return $?
+  if [ "$owner" = "1000:1000" ]; then
     return 0
   fi
   echo "Setting IB Gateway settings ownership to 1000:1000 ..."
-  if [ "$(id -u)" = "0" ]; then
-    chown -R 1000:1000 "$settings_dir"
-  elif has_cmd sudo; then
-    sudo chown -R 1000:1000 "$settings_dir"
-  else
-    echo "IB Gateway settings require ownership 1000:1000; rerun as root or install sudo." >&2
-    return 1
-  fi
+  run_as_root "Set IB Gateway container settings ownership to UID:GID 1000:1000 in ${settings_dir}" chown -R 1000:1000 "$settings_dir"
 }
 
 current_or_example() {
@@ -436,7 +450,10 @@ sha256_file() {
 prepare_selected_adapter_plugins() {
   local broker_runner_image="$1" archive archive_url separator extract_root wheelhouse lock_file runtime_arch
   local line_arch package version filename checksum url target actual selected_count
-  PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/.broker-plugins.candidate.XXXXXX")"
+  run_install_operation "create installation data directory ${ROOT_DIR}/data" mkdir -p "${ROOT_DIR}/data" || return $?
+  # Stage on the destination filesystem so activation uses directory renames,
+  # never a cross-filesystem copy into the live plugin directory.
+  PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/data/.broker-plugins.candidate.XXXXXX")" || return $?
   if ! contains_profile "$ENABLED_ADAPTERS" ibkr_paper && ! contains_profile "$ENABLED_ADAPTERS" alpaca_paper; then
     return 0
   fi
@@ -532,15 +549,33 @@ validate_candidates() {
 }
 
 activate_prepared_plugins() {
-  local plugin_dir="${ROOT_DIR}/data/broker-plugins"
-  PLUGIN_BACKUP_DIR="${ROOT_DIR}/data/.broker-plugins.previous.$$"
-  run_as_root mkdir -p "${ROOT_DIR}/data"
-  if [ -e "$plugin_dir" ]; then
-    run_as_root mv "$plugin_dir" "$PLUGIN_BACKUP_DIR"
+  local plugin_dir="${ROOT_DIR}/data/broker-plugins" rc
+  [ -n "$PREPARED_PLUGIN_DIR" ] && [ -d "$PREPARED_PLUGIN_DIR" ] && [ ! -L "$PREPARED_PLUGIN_DIR" ] || {
+    echo "Prepared Adapter plugin directory is missing or unsafe; activation aborted." >&2; return 1;
+  }
+  if [ -L "$plugin_dir" ] || { [ -e "$plugin_dir" ] && [ ! -d "$plugin_dir" ]; }; then
+    echo "Existing Adapter plugin path is not a regular directory; activation aborted without replacing it." >&2
+    return 1
   fi
-  PLUGIN_ACTIVATED=1
-  run_as_root mv "$PREPARED_PLUGIN_DIR" "$plugin_dir"
-  PREPARED_PLUGIN_DIR=""
+  run_install_operation "create installation data directory ${ROOT_DIR}/data" mkdir -p "${ROOT_DIR}/data" || return $?
+  PLUGIN_BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/data/.broker-plugins.previous.XXXXXX")" || return $?
+  if [ -d "$plugin_dir" ]; then
+    run_install_operation "back up existing Adapter plugins" mv "$plugin_dir" "${PLUGIN_BACKUP_DIR}/plugins" || return $?
+  fi
+  if run_install_operation "activate prepared Adapter plugins" mv "$PREPARED_PLUGIN_DIR" "$plugin_dir"; then
+    PLUGIN_ACTIVATED=1
+    PREPARED_PLUGIN_DIR=""
+  else
+    rc=$?
+    if [ -d "${PLUGIN_BACKUP_DIR}/plugins" ]; then
+      if [ ! -e "$plugin_dir" ] && [ ! -L "$plugin_dir" ] && run_install_operation "restore previous Adapter plugins" mv "${PLUGIN_BACKUP_DIR}/plugins" "$plugin_dir"; then
+        echo "Previous Adapter plugins restored after activation failure." >&2
+      else
+        printf 'Previous Adapter plugins retained at %s; inspect the failed activation before retrying.\n' "${PLUGIN_BACKUP_DIR}/plugins" >&2
+      fi
+    fi
+    return "$rc"
+  fi
 }
 
 validate_public_image_reference() {
@@ -842,13 +877,15 @@ if [ "$UPDATE_MODE" = "1" ]; then
   env_set "$ROOT_CANDIDATE" ATI_IMAGE_TAG "${ATI_UPDATE_IMAGE_TAG:-latest}"
 fi
 cleanup_candidates() {
-  rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}" "${SCREENERS_CANDIDATE:-}"
+  local rc=0
+  run_install_operation "remove temporary environment candidates" rm -f "${ROOT_CANDIDATE:-}" "${MIDDLE_CANDIDATE:-}" "${SCREENERS_CANDIDATE:-}" || rc=$?
   if [ -n "${PREPARED_PLUGIN_DIR:-}" ] && [ -e "$PREPARED_PLUGIN_DIR" ]; then
-    run_as_root rm -rf "$PREPARED_PLUGIN_DIR"
+    run_install_operation "remove temporary Adapter plugins at ${PREPARED_PLUGIN_DIR}" rm -rf "$PREPARED_PLUGIN_DIR" || rc=$?
   fi
   if [ -n "${PREPARED_PLUGIN_BUILD_DIR:-}" ] && [ -e "$PREPARED_PLUGIN_BUILD_DIR" ]; then
-    run_as_root rm -rf "$PREPARED_PLUGIN_BUILD_DIR"
+    run_install_operation "remove temporary Adapter build at ${PREPARED_PLUGIN_BUILD_DIR}" rm -rf "$PREPARED_PLUGIN_BUILD_DIR" || rc=$?
   fi
+  return "$rc"
 }
 
 JWT_SECRET="$(read_env_value "$ROOT_CANDIDATE" JWT_SECRET)"
@@ -1036,11 +1073,11 @@ BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/.installer-backup.XXXXXX")"
 [ -f "$SCREENERS_ENV" ] && cp "$SCREENERS_ENV" "${BACKUP_DIR}/screeners_service.env"
 chmod 700 "$BACKUP_DIR"
 chmod 600 "${BACKUP_DIR}"/*.env 2>/dev/null || true
+activate_prepared_plugins
 mv "$ROOT_CANDIDATE" "${ROOT_DIR}/.env"
 mv "$MIDDLE_CANDIDATE" "${MIDDLE_DIR}/.env"
 mv "$SCREENERS_CANDIDATE" "$SCREENERS_ENV"
 chmod 600 "${ROOT_DIR}/.env" "${MIDDLE_DIR}/.env" "$SCREENERS_ENV"
-activate_prepared_plugins
 
 migrate_legacy_compose_owned_shared_network "$(read_env_value "${ROOT_DIR}/.env" ATI_NETWORK_NAME)"
 
@@ -1113,8 +1150,8 @@ validate_active_adapter_contract() {
 }
 validate_active_adapter_contract
 
-if [ -n "$PLUGIN_BACKUP_DIR" ] && run_as_root test -e "$PLUGIN_BACKUP_DIR"; then
-  run_as_root rm -rf "$PLUGIN_BACKUP_DIR"
+if [ -n "$PLUGIN_BACKUP_DIR" ] && [ -e "$PLUGIN_BACKUP_DIR" ]; then
+  run_install_operation "remove previous Adapter plugin backup at ${PLUGIN_BACKUP_DIR}" rm -rf "$PLUGIN_BACKUP_DIR"
 fi
 rm -rf "$BACKUP_DIR"
 ati_record_component "$ROOT_DIR" trading "$PREVIOUS_COMPONENTS"
