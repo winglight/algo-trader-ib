@@ -169,6 +169,9 @@ operation; its owner/administrator must resolve access before retrying. IB Gatew
 can separately require settings ownership `1000:1000` for its container. This
 operation explains its scope and asks for confirmation before local administrator
 authentication; non-interactive runs fail clearly when that privilege is needed.
+The installer also creates `data/connector/` as the nested Docker bind-mount
+target before starting application containers. Connector files remain in
+`ATI_ENVIRONMENT_DIR/trading` and are mounted read-only at `/app/data/connector`.
 
 The public source code, capability boundaries, and development documentation for
 `ibkr_paper`, `alpaca_paper`, and `ccxt_crypto` are available in the
