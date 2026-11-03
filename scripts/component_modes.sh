@@ -23,3 +23,27 @@ ati_record_component() {
   printf 'ATI_INSTALLED_COMPONENTS=%s\n' "$installed" > "$temp"
   mv "$temp" "$root/.components.env"
 }
+
+# Saved connector configuration expresses installation intent, not readiness or
+# authority. Existing connector installers still verify identity under their lock.
+ati_install_studio_connectors() {
+  local root="$1" components="$2" mode="$3" connect=0
+  case "$mode" in
+    1) connect=1 ;;
+    0) connect=0 ;;
+    auto) if [ -f "$root/.research.env" ] || [ -f "$root/.trading-connector.env" ]; then connect=1; fi ;;
+    *) echo 'Invalid Studio connection mode; use auto, 0 or 1.' >&2; return 2 ;;
+  esac
+  if [ "$connect" = 0 ]; then
+    echo 'Studio linking is optional. Eligible accounts receive a 14-day free membership trial; credits are not included.'
+    echo '绑定 Studio 为可选操作；符合条件的账户首次绑定可获 14 天免费会员试用，不附赠 credits。本地功能可继续使用。'
+    if [ "$components" = research ]; then
+      echo 'To link later / 稍后连接：bash scripts/install_research.sh install'
+    else
+      echo 'Use Link Studio in the local console, or rerun with --studio-connect. Existing connectors are retained.'
+    fi
+    return 0
+  fi
+  if [ "$components" != research ]; then bash "$root/scripts/install_trading_connector.sh" install || return $?; fi
+  if [ "$components" != trading ]; then bash "$root/scripts/install_research.sh" install || return $?; fi
+}

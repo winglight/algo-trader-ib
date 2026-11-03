@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 def fixture(tmp_path):
-    root=tmp_path/'runtime';shutil.copytree(ROOT,root)
+    root=tmp_path/'runtime';shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'))
     state=tmp_path/'identity'; bins=tmp_path/'bin';bins.mkdir()
     log=tmp_path/'actions'
     docker=bins/'docker'
@@ -67,7 +67,7 @@ def test_offline_install_record_survives_binding_failure(tmp_path):
     (root/'scripts/install_local_tools.sh').write_text('#!/bin/bash\ntouch "$ROOT_FIXTURE/offline-installed"\n')
     (root/'scripts/install_research.sh').write_text('#!/bin/bash\nexit 3\n')
     env['ROOT_FIXTURE']=str(root)
-    r=subprocess.run(['bash',str(root/'setup_and_run.sh'),'--components','research','--non-interactive'],env=env,capture_output=True,text=True,timeout=15)
+    r=subprocess.run(['bash',str(root/'setup_and_run.sh'),'--components','research','--non-interactive','--studio-connect'],env=env,capture_output=True,text=True,timeout=15)
     assert r.returncode==3
     assert (root/'offline-installed').exists()
     assert (root/'.components.env').read_text()=='ATI_INSTALLED_COMPONENTS=research\n'
@@ -83,7 +83,7 @@ def test_malformed_env_stops_before_docker(tmp_path,value):
 
 # Permanent shell regressions from the independent writer-isolation review.
 def run_with_known_writer(tmp_path, service, old_marker):
- root=tmp_path/'runtime';shutil.copytree(ROOT,root)
+ root=tmp_path/'runtime';shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'))
  identity=tmp_path/'identity';(identity/'trading').mkdir(parents=True)
  (identity/'installation.json').write_text(json.dumps({'credential':'fixture'}));(identity/'trading/runtime-grant.json').write_text('{}')
  if old_marker:(root/'.research.env').write_text('ATI_ENVIRONMENT_DIR='+str(identity)+'\n')

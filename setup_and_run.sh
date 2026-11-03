@@ -51,6 +51,7 @@ source "${ROOT_DIR}/scripts/installer_lib.sh"
 source "${ROOT_DIR}/scripts/component_modes.sh"
 COMPONENTS=""
 PREVIOUS_COMPONENTS="$(ati_detect_components "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR")"
+STUDIO_CONNECT="${ATI_STUDIO_CONNECT:-auto}"
 NON_INTERACTIVE=0
 DRY_RUN=0
 UPDATE_MODE=0
@@ -83,6 +84,8 @@ usage() {
 Usage: setup_and_run.sh [options]
 
   --components research|trading|all  New install default: all; updates preserve existing components.
+  --studio-connect                 Explicitly connect Studio after local installation.
+  --no-studio-connect              Skip connector changes; retain any installed connector.
   --non-interactive
   --update
   --enabled-adapters sim[,ibkr_paper][,alpaca_paper][,ccxt_crypto][,projectx_topstep]
@@ -113,6 +116,8 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --components) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; COMPONENTS="$2"; shift 2 ;;
+    --studio-connect) STUDIO_CONNECT=1; shift ;;
+    --no-studio-connect) STUDIO_CONNECT=0; shift ;;
     --non-interactive) NON_INTERACTIVE=1; shift ;;
     --update) UPDATE_MODE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -143,6 +148,8 @@ while [ "$#" -gt 0 ]; do
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+case "$STUDIO_CONNECT" in auto|0|1) ;; *) echo "Invalid ATI_STUDIO_CONNECT; use auto, 0 or 1." >&2; exit 2 ;; esac
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
@@ -704,7 +711,7 @@ ensure_docker
 if [ "$COMPONENTS" = research ]; then
   bash "$ROOT_DIR/scripts/install_local_tools.sh" install
   ati_record_component "$ROOT_DIR" research "$PREVIOUS_COMPONENTS"
-  bash "$ROOT_DIR/scripts/install_research.sh" install
+  ati_install_studio_connectors "$ROOT_DIR" research "$STUDIO_CONNECT"
   exit 0
 fi
 if [ "$UPDATE_MODE" = 1 ]; then check_update_storage "$ROOT_DIR"; fi
@@ -1177,12 +1184,9 @@ if [ "$COMPONENTS" = all ]; then
   bash "$ROOT_DIR/scripts/install_local_tools.sh" install
   ati_record_component "$ROOT_DIR" research trading
 fi
-# Trading entitlement remains the existing signed-grant protocol. A failure is
-# not swallowed; installed components do not imply connected/authorized readiness.
-bash "$ROOT_DIR/scripts/install_trading_connector.sh" install
-if [ "$COMPONENTS" = all ]; then
-  bash "$ROOT_DIR/scripts/install_research.sh" install
-fi
+# Fresh local use completes without binding. Explicitly requested or previously
+# configured connectors retain their strict signed-grant/identity update protocol.
+ati_install_studio_connectors "$ROOT_DIR" "$COMPONENTS" "$STUDIO_CONNECT"
 
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"

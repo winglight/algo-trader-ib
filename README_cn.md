@@ -13,7 +13,7 @@ ATI Local Runtime 是 Algo Trading Intelligence 的本地运行版。它把交�
 
 本地版用于运行和验证自己的交易环境；云端 Studio 用于托管式 workflow 设计、云端试用和后续订阅能力。
 
-首次安装后，本地环境在未绑定云平台用户前可试用 24 小时。绑定云平台用户后，本地服务会按云平台订阅等级下发的能力启用或禁用。
+P1/P2 源码支持本地独立使用，无需绑定 Studio 或购买会员；符合条件的账户首次绑定可获 **14 天免费会员试用，不附赠 credits**。需使用包含这些改动的已审查镜像，旧镜像可能仍有原门禁。
 
 ![ATI Local Runtime](images/screenshot.png)
 
@@ -232,7 +232,7 @@ docker compose --profile ib logs -f ib-gateway
 
 Redis 使用固定命名的持久卷保存本地安装身份、云端授权和运行租约，并启用每秒同步的 AOF。
 installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行 `docker compose down -v`
-或手工删除该卷，否则系统会按新安装生成新的指纹并要求重新绑定。
+或手工删除该卷，否则系统会按新安装生成新的指纹；仅在需要 Studio 交互时重新绑定。
 
 ## 安全边界
 
@@ -240,11 +240,11 @@ installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行
 - 默认发布前端 `127.0.0.1:5173` 和本机 watchdog 管理端口 `127.0.0.1:8110`；watchdog 不得绑定公网地址。
 - 默认不发布 Redis、MariaDB、后端 API 服务端口。
 - 默认不启用云平台、云端 Studio、Agents、AI Model Ops 或 News 服务。
-- public 安装器会安装 Screeners 容器，为有对应云端授权的平台管理员启用该功能，
+- public 安装器会安装 Screeners 容器，按本地管理员权限启用该功能，
   并在 `config/screeners_service.env` 中自动生成或保留非空的
   `SCREENERS_GATEWAY_SHARED_SECRET`。backend 和 Screeners 都从这一份服务配置读取开关和密钥。
 - 默认不把 Docker socket 挂载给业务容器；Docker socket 只挂载给 watchdog 容器，用于按配置重启业务容器，并在 `ib` 模式下控制 `ib-gateway`。
-- 未绑定云平台用户时，本地环境只提供 24 小时试用；绑定后按云平台订阅等级控制本地服务能力。
+- P1/P2 源码的本地能力不受 Studio 绑定、会员到期或断网限制；本地账户认证、权限和原生风控仍保留。
 - `.env`、`middle/.env`、`data/`、`logs/` 不应提交到公开仓库。
 
 ## 目录说明
@@ -285,3 +285,15 @@ installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行
 [原生研究环境及升级安全说明](docs/local-research-runtime.md) · [离线回测](docs/local-user-replay.md) · [行情下载说明](docs/local-data-download.zh-CN.md)
 
 原生研究镜像仅包含受审核的执行文件和必要依赖，不发行整个 Cloud 管理、支付、后台服务。安装成功不代表研究任务已成功：仍需实际环境绑定、能力、签名任务/数据完整性、执行 manifest 兼容检查。不能用下载的本地 Parquet 偷换 Studio 已冻结 Cloud 数据块。实际镜像发布、洁净安装和中英文录屏仍是独立验收项，不能把本次源码测试当作这些验收已完成。
+
+
+## AI / MCP（P2 源码 / P2 source）
+
+Use **AI / MCP** in the local console to configure your own provider, connect an Agent, review tool scopes and revoke clients. Start with read/research permissions; trading and broker configuration require separate consent. The stdio bridge uses scoped credential files, with no automatic administrator login. See [setup, permissions and recovery / 配置、权限及恢复](docs/local-ai-mcp.md). These features require a reviewed P2 image; no new version is published by this documentation change.
+
+本地控制台顶部 **AI / MCP** 统一提供自有模型配置、Agent 连接、权限目录与授权撤销。研究不能越权交易，原生风控仍生效。绑定可选，符合条件的账户首次绑定有 14 天免费会员试用，不附赠 credits。
+
+
+New installations complete local setup without opening Studio binding or starting a Cloud connector. The installer prints the optional **14-day free membership trial** invitation (eligible first link, no credits). Use `--studio-connect` to connect explicitly, or `--no-studio-connect` to retain existing connectors without changing them. By default, existing connector configuration preserves its original strict update path; a marker does not prove authorization or readiness.
+
+新安装默认不打开 Studio 绑定、不启动云连接器，先完成本地使用，并提示符合条件的账户首次绑定可获 **14 天免费会员试用，不附赠 credits**。需要连接时显式加 `--studio-connect`；`--no-studio-connect` 保留已有连接器且不修改。已有连接配置默认沿用原有严格更新流程，配置文件存在不代表授权或运行就绪。

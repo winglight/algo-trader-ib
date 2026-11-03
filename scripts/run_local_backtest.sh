@@ -24,7 +24,7 @@ while (( $# )); do
           [[ -f "$host" && -r "$host" ]] || { echo "Readable input required: $key" >&2; exit 2; }
           target="/inputs/${key#--}.json"; mounts+=(--mount "type=bind,src=$host,dst=$target,readonly"); args+=("$key" "$target") ;;
       esac ;;
-    --symbol|--timeframe|--start|--end|--context-start|--batch-size|--mode)
+    --symbol|--timeframe|--start|--end|--context-start|--batch-size|--max-source-bytes|--mode)
       (( $# )) || { echo "Missing value for $key" >&2; exit 2; }; args+=("$key" "$1"); shift ;;
     --help) args+=(--help) ;;
     *) echo "Unknown option: $key" >&2; exit 2 ;;

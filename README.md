@@ -13,7 +13,7 @@ Open-source Broker adapters: [winglight/algo-trader-broker-adapters](https://git
 
 Use the local runtime for your own trading environment and local validation. Use Cloud Strategy Studio for hosted workflow design, trial access, and future subscription features.
 
-After the first installation, the local environment can run for 24 hours before it is bound to a cloud account. After binding, local services are enabled or disabled according to the capabilities attached to the cloud subscription tier.
+P1/P2 source supports independent local use without Studio binding or membership. Eligible accounts receive a **14-day free membership trial on first linking, with no credits included**. Use a reviewed image containing these changes; older images may retain the former gate.
 
 ![ATI Local Runtime](images/screenshot_en.png)
 
@@ -269,7 +269,7 @@ Redis stores the local installation identity, cloud authorization, and runtime
 lease in a stable named volume with AOF synchronized every second. Updates reuse
 the volume mounted by the existing Redis container. Do not run
 `docker compose down -v` or manually delete that volume; doing so intentionally
-creates a new installation fingerprint and requires binding again.
+creates a new installation fingerprint; link Studio again only if you want its integration.
 
 ## Security Boundary
 
@@ -277,13 +277,13 @@ creates a new installation fingerprint and requires binding again.
 - The frontend `127.0.0.1:5173` and local watchdog management port `127.0.0.1:8110` are published by default; watchdog must never bind to a public interface.
 - Redis, MariaDB, and backend API service ports are not published by default.
 - Cloud platform, Cloud Studio, Agents, AI Model Ops, and News services are not started by default.
-- The public installer installs the Screeners container, enables it for platform
-  administrators with the corresponding cloud entitlement, and generates or
+- The public installer installs the Screeners container, enables it for local
+  administrators, and generates or
   preserves a non-empty `SCREENERS_GATEWAY_SHARED_SECRET` in
   `config/screeners_service.env`. Backend and Screeners read the flag and secret
   from that single service env file.
 - Application containers do not mount the Docker socket by default. The Docker socket is mounted only into the watchdog container, which restarts configured application containers and controls `ib-gateway` when `ib` mode is selected.
-- Before cloud account binding, the local environment has a 24-hour trial window. After binding, local runtime capabilities follow the cloud subscription tier.
+- P1/P2 source keeps local capabilities independent of Studio binding, membership expiry and connectivity; local authentication, permissions and native Risk controls remain required.
 - Do not commit `.env`, `middle/.env`, `data/`, or `logs/`.
 
 ## Files
@@ -353,3 +353,15 @@ Installation never downloads market data or asks for provider API keys. The LTB 
 [Native research runtime and upgrade safety](docs/local-research-runtime.md) · [Offline replay](docs/local-user-replay.md) · [Data downloads](docs/local-data-download.md) · [下载中文说明](docs/local-data-download.zh-CN.md)
 
 The native runtime image includes only reviewed execution files and dependencies, not Cloud management, payment or admin services. A successful installation is not a successful research task: binding, advertised capability, signed task/data integrity and execution-manifest compatibility still have to pass. Studio frozen Cloud chunks are never silently replaced by locally downloaded Parquet. Actual image-release/clean-install verification and English/Chinese recordings are separate acceptance items, not claimed completed by these source changes.
+
+
+## AI / MCP（P2 源码 / P2 source）
+
+Use **AI / MCP** in the local console to configure your own provider, connect an Agent, review tool scopes and revoke clients. Start with read/research permissions; trading and broker configuration require separate consent. The stdio bridge uses scoped credential files, with no automatic administrator login. See [setup, permissions and recovery / 配置、权限及恢复](docs/local-ai-mcp.md). These features require a reviewed P2 image; no new version is published by this documentation change.
+
+本地控制台顶部 **AI / MCP** 统一提供自有模型配置、Agent 连接、权限目录与授权撤销。研究不能越权交易，原生风控仍生效。绑定可选，符合条件的账户首次绑定有 14 天免费会员试用，不附赠 credits。
+
+
+New installations complete local setup without opening Studio binding or starting a Cloud connector. The installer prints the optional **14-day free membership trial** invitation (eligible first link, no credits). Use `--studio-connect` to connect explicitly, or `--no-studio-connect` to retain existing connectors without changing them. By default, existing connector configuration preserves its original strict update path; a marker does not prove authorization or readiness.
+
+新安装默认不打开 Studio 绑定、不启动云连接器，先完成本地使用，并提示符合条件的账户首次绑定可获 **14 天免费会员试用，不附赠 credits**。需要连接时显式加 `--studio-connect`；`--no-studio-connect` 保留已有连接器且不修改。已有连接配置默认沿用原有严格更新流程，配置文件存在不代表授权或运行就绪。

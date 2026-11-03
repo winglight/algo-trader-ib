@@ -33,7 +33,7 @@ class ScreenersPublicServiceTests(unittest.TestCase):
         self.assertIn("screeners-service:", content)
         self.assertIn("algo-trader/screeners-service:", content)
         self.assertIn("screeners|http://screeners-service:8116/healthz", content)
-        self.assertIn("OPTIONAL_DISCOVERY_SERVICES: audit,simulation,strategy-spec,screeners", content)
+        self.assertIn("OPTIONAL_DISCOVERY_SERVICES: audit,strategy-spec,screeners", content)
 
     def test_screeners_waits_for_runtime_dependencies_to_be_healthy(self) -> None:
         compose_path = ROOT / "docker-compose.yml"

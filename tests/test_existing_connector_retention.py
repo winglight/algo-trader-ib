@@ -16,7 +16,7 @@ CID='a'*64
     ('malformedshape',False),('malformedmount',False),('missingmountsource',False),
 ])
 def test_readonly_retention_verifies_service_and_identity(tmp_path,scenario,ok):
-    root=tmp_path/'runtime';shutil.copytree(ROOT,root)
+    root=tmp_path/'runtime';shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'))
     selected=tmp_path/'identity';sentinel=tmp_path/'injected'
     configured=selected if scenario!='configuredother' else tmp_path/'other'
     (root/'.research.env').write_text(f"ATI_ENVIRONMENT_DIR='{configured}'\nUNRELATED=$(touch {sentinel})\n")

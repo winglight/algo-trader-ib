@@ -41,16 +41,19 @@ def test_metadata_is_not_executed(tmp_path):
     result=sh(f'source "{ROOT}/scripts/component_modes.sh"; ati_detect_components "$TARGET"',{'TARGET':str(tmp_path)})
     assert result.returncode!=0 and not sentinel.exists()
 
-def test_research_dispatch_does_not_enter_trading_setup(tmp_path):
+@pytest.mark.parametrize("connect", [False, True])
+def test_research_dispatch_does_not_enter_trading_setup(tmp_path, connect):
     root=tmp_path/'runtime'; shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs')); state=tmp_path/'state'
     commands=tmp_path/'bin'; commands.mkdir(); docker=commands/'docker'
     docker.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\n'); docker.chmod(0o755)
     (root/'scripts/install_local_tools.sh').write_text('#!/bin/bash\nprintf "research %s \\n" "$*" >> "$CALLS"\n')
     (root/'scripts/install_research.sh').write_text('#!/bin/bash\nprintf "connector %s \\n" "$*" >> "$CALLS"\n')
     log=tmp_path/'calls'
-    result=subprocess.run(['bash',str(root/'setup_and_run.sh'),'--components','research','--non-interactive'],text=True,capture_output=True,env={**os.environ,'PATH':str(commands)+os.pathsep+os.environ['PATH'],'ATI_ENVIRONMENT_DIR':str(state),'CALLS':str(log)},timeout=15)
+    result=subprocess.run(['bash',str(root/'setup_and_run.sh'),'--components','research','--non-interactive']+(['--studio-connect'] if connect else []),text=True,capture_output=True,env={**os.environ,'PATH':str(commands)+os.pathsep+os.environ['PATH'],'ATI_ENVIRONMENT_DIR':str(state),'CALLS':str(log)},timeout=15)
     assert result.returncode==0,result.stdout+result.stderr
-    calls=log.read_text(); assert 'research install' in calls and 'connector install' in calls
+    calls=log.read_text(); assert 'research install' in calls
+    assert ('connector install' in calls) is connect
+    if not connect: assert '14-day free membership trial' in result.stdout and 'credits are not included' in result.stdout
     assert 'compose version' in calls and 'info' in calls
     assert 'pull' not in calls and 'down' not in calls and 'exec' not in calls
     assert not (root/'.env').exists() and not (state/'trading-enabled').exists()
@@ -82,3 +85,26 @@ def test_download_launcher_does_not_mount_identity_or_start_services(tmp_path):
     assert 'runtime-grant' not in calls and '/var/lib/ati-environment' not in calls
     assert ' up ' not in calls and ' restart ' not in calls and '--execute' not in calls
     assert '--ib-host host.docker.internal' in calls
+
+
+@pytest.mark.parametrize('mode,existing,connected',[('auto',False,False),('auto',True,True),('0',True,False),('1',False,True)])
+def test_studio_install_is_optional_and_saved_intent_is_not_executed(tmp_path,mode,existing,connected):
+    scripts=tmp_path/'scripts';scripts.mkdir();log=tmp_path/'calls';sentinel=tmp_path/'must-not-exist'
+    for kind in ('trading_connector','research'):
+        (scripts/f'install_{kind}.sh').write_text('#!/bin/bash\nprintf "%s\\n" "'+kind+'" >> "$CALLS"\n')
+    if existing:(tmp_path/'.research.env').write_text(f'UNKNOWN=$(touch {sentinel})\n')
+    result=sh(f'source "{ROOT}/scripts/component_modes.sh"; ati_install_studio_connectors "$TARGET" all "$MODE"',{'TARGET':str(tmp_path),'MODE':mode,'CALLS':str(log)})
+    assert result.returncode==0,result.stderr
+    assert log.exists() is connected
+    if connected:assert log.read_text().splitlines()==['trading_connector','research']
+    else:assert '14-day free membership trial' in result.stdout
+    assert not sentinel.exists()
+    if existing:assert (tmp_path/'.research.env').read_text().startswith('UNKNOWN=')
+
+
+def test_explicit_connector_failure_is_not_hidden_or_followed_by_another_writer(tmp_path):
+    scripts=tmp_path/'scripts';scripts.mkdir();log=tmp_path/'calls'
+    (scripts/'install_trading_connector.sh').write_text('#!/bin/bash\necho trading >> "$CALLS"\nexit 17\n')
+    (scripts/'install_research.sh').write_text('#!/bin/bash\necho research >> "$CALLS"\n')
+    result=sh(f'source "{ROOT}/scripts/component_modes.sh"; ati_install_studio_connectors "$TARGET" all 1',{'TARGET':str(tmp_path),'CALLS':str(log)})
+    assert result.returncode==17 and log.read_text().splitlines()==['trading']
