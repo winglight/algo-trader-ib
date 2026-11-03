@@ -142,6 +142,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/winglight/algo-trader-ib
 或管理员确认访问权限后再重试。IB Gateway 容器可能另需将设置目录所有者设为
 `1000:1000`；该操作会先说明范围并请求确认，再由 sudo 进行本机管理员认证。
 非交互运行需要此权限时会明确报错，不等待输入密码。
+启动应用容器前还会预建 `data/connector/` 作为 Docker 嵌套挂载目标；connector
+文件仍保存在 `ATI_ENVIRONMENT_DIR/trading`，只读挂载到 `/app/data/connector`。
 
 `ibkr_paper`、`alpaca_paper` 与 `ccxt_crypto` 的公开源代码、能力边界和开发说明见
 [Broker adapters 仓库](https://github.com/winglight/algo-trader-broker-adapters)。

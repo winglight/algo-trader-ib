@@ -175,6 +175,23 @@ run_install_operation() {
   return "$rc"
 }
 
+ensure_install_data_directory() {
+  local data_dir="${ROOT_DIR}/data" connector_dir="${ROOT_DIR}/data/connector"
+  run_install_operation "create installation data directory ${data_dir}" mkdir -p "$data_dir" || return $?
+  if [ ! -w "$data_dir" ] || [ ! -x "$data_dir" ]; then
+    printf 'Installation data directory is not writable/searchable: %s. Ask its owner/administrator to resolve access before retrying; no automatic sudo or permission changes were attempted.\n' "$data_dir" >&2
+    return 1
+  fi
+  if [ -L "$connector_dir" ] || { [ -e "$connector_dir" ] && [ ! -d "$connector_dir" ]; }; then
+    printf 'Connector mount target must be a regular directory: %s; existing path was preserved.\n' "$connector_dir" >&2
+    return 1
+  fi
+  # Compose overlays a read-only connector bind inside the /app/data bind.
+  # Docker Desktop must not have to mkdir this nested target in the parent bind.
+  # This is only a mountpoint; credentials remain in ATI_ENVIRONMENT_DIR/trading.
+  run_install_operation "prepare nested connector mount target ${connector_dir}" mkdir -p "$connector_dir"
+}
+
 ensure_docker() {
   if has_cmd docker && docker compose version >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     return 0
@@ -220,7 +237,7 @@ migrate_legacy_compose_owned_shared_network() {
 }
 
 mark_shared_network_migrated() {
-  run_install_operation "create installation data directory ${ROOT_DIR}/data" mkdir -p "${ROOT_DIR}/data" || return $?
+  ensure_install_data_directory || return $?
   run_install_operation "write shared-network migration marker" touch "${ROOT_DIR}/data/.shared-network-external-v1"
 }
 
@@ -450,7 +467,7 @@ sha256_file() {
 prepare_selected_adapter_plugins() {
   local broker_runner_image="$1" archive archive_url separator extract_root wheelhouse lock_file runtime_arch
   local line_arch package version filename checksum url target actual selected_count
-  run_install_operation "create installation data directory ${ROOT_DIR}/data" mkdir -p "${ROOT_DIR}/data" || return $?
+  ensure_install_data_directory || return $?
   # Stage on the destination filesystem so activation uses directory renames,
   # never a cross-filesystem copy into the live plugin directory.
   PREPARED_PLUGIN_DIR="$(mktemp -d "${ROOT_DIR}/data/.broker-plugins.candidate.XXXXXX")" || return $?
@@ -557,7 +574,7 @@ activate_prepared_plugins() {
     echo "Existing Adapter plugin path is not a regular directory; activation aborted without replacing it." >&2
     return 1
   fi
-  run_install_operation "create installation data directory ${ROOT_DIR}/data" mkdir -p "${ROOT_DIR}/data" || return $?
+  ensure_install_data_directory || return $?
   PLUGIN_BACKUP_DIR="$(mktemp -d "${ROOT_DIR}/data/.broker-plugins.previous.XXXXXX")" || return $?
   if [ -d "$plugin_dir" ]; then
     run_install_operation "back up existing Adapter plugins" mv "$plugin_dir" "${PLUGIN_BACKUP_DIR}/plugins" || return $?

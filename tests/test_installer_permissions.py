@@ -85,6 +85,7 @@ cleanup_candidates
     assert result.returncode == 0, result.stderr
     assert (root / "data/broker-plugins/new-plugin").read_text() == "new"
     assert (root / "data/.shared-network-external-v1").exists()
+    assert (root / "data/connector").is_dir()
     if existing:
         assert next((root / "data").glob(".broker-plugins.previous.*/plugins/old-plugin")).read_text() == "old"
     assert (root / ".env").read_text() == "unchanged configuration"
@@ -279,3 +280,87 @@ exit {original_rc}
     assert "remove temporary Adapter plugins" in result.stderr
     assert "fixture removal failed" in result.stderr
     no_system_calls(log)
+
+
+def test_fresh_user_owned_data_prepares_nested_mountpoint_without_sudo(fixture):
+    root, log, run = fixture
+    (root / "data/.candidate").rename(root / ".saved-candidate")
+    (root / "data").rmdir()
+    result = run("ensure_install_data_directory")
+    assert result.returncode == 0, result.stderr
+    target = root / "data/connector"
+    assert target.is_dir() and not list(target.iterdir())
+    assert target.stat().st_uid == os.getuid()
+    assert (root / "data").stat().st_uid == os.getuid()
+    no_system_calls(log)
+
+
+def test_nested_mountpoint_preserves_existing_files_and_external_connector(fixture):
+    root, log, run = fixture
+    target = root / "data/connector"
+    target.mkdir()
+    (target / "existing-file").write_text("preserve mount target contents")
+    external = root / "external-environment/trading"
+    external.mkdir(parents=True)
+    (external / "fixture-grant").write_text("fixture source remains outside data")
+    result = run('ATI_ENVIRONMENT_DIR="$ROOT_DIR/external-environment"; ensure_install_data_directory; ensure_install_data_directory')
+    assert result.returncode == 0, result.stderr
+    assert (target / "existing-file").read_text() == "preserve mount target contents"
+    assert not (target / "fixture-grant").exists()
+    assert (external / "fixture-grant").read_text() == "fixture source remains outside data"
+    no_system_calls(log)
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink", "dangling"])
+def test_nested_mountpoint_rejects_unexpected_existing_path(fixture, kind):
+    root, log, run = fixture
+    target = root / "data/connector"
+    if kind == "file":
+        target.write_text("preserve")
+    else:
+        target.symlink_to(root / ("data/.candidate" if kind == "symlink" else "missing"))
+    result = run("prepare_selected_adapter_plugins fixture-image")
+    assert result.returncode == 1
+    assert "Connector mount target must be a regular directory" in result.stderr
+    assert target.is_symlink() if kind != "file" else target.read_text() == "preserve"
+    assert not list((root / "data").glob(".broker-plugins.candidate.*"))
+    no_system_calls(log)
+
+
+def test_unwritable_legacy_data_stops_before_mountpoint_or_plugin_changes(fixture):
+    if os.getuid() == 0:
+        pytest.skip("permission denial requires an unprivileged test runner")
+    root, log, run = fixture
+    (root / "data").chmod(0o555)
+    try:
+        result = run("prepare_selected_adapter_plugins fixture-image")
+        assert result.returncode == 1
+        assert "not writable/searchable" in result.stderr
+        assert "owner/administrator" in result.stderr
+        assert not (root / "data/connector").exists()
+        assert not list((root / "data").glob(".broker-plugins.candidate.*"))
+        no_system_calls(log)
+    finally:
+        (root / "data").chmod(0o700)
+
+
+def test_nested_mountpoint_failure_preserves_exit_code(fixture):
+    root, log, run = fixture
+    result = run('''mkdir() {
+case "${*: -1}" in */data/connector) echo 'fixture mkdir denied' >&2; return 13 ;; esac
+command mkdir "$@"
+}
+prepare_selected_adapter_plugins fixture-image
+''')
+    assert result.returncode == 13
+    assert "prepare nested connector mount target" in result.stderr
+    assert not (root / "data/connector").exists()
+    assert not list((root / "data").glob(".broker-plugins.candidate.*"))
+    no_system_calls(log)
+
+
+def test_compose_nested_bind_contract_precedes_application_startup():
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert "- ./data:/app/data" in compose
+    assert "/trading:/app/data/connector:ro" in compose
+    assert SOURCE.index("prepare_selected_adapter_plugins \"$broker_runner_image\"") < SOURCE.index("pull_application_images\n")
