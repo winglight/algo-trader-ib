@@ -703,7 +703,7 @@ if [ -z "$COMPONENTS" ]; then
     echo 'Choose components / 选择安装组件（可单独安装，也可多选）:'
     echo '  1) ATI交易系统交易端 / Trading console'
     echo '  2) 本地回测环境 / Local backtesting'
-    echo '  3) 本地 Agent (Codex / Claude Code；自动安装、登录引导、连接与后台启动)'
+    echo '  3) 本地 Agent (Codex / Claude Code；自动构建容器、登录引导、连接与启动)'
     printf 'Enter numbers separated by commas / 输入编号，逗号分隔 [%s]: ' "$defaults"
     read -r choice
     choice="${choice:-$defaults}"
@@ -737,6 +737,7 @@ if [ "$STUDIO_CONNECT" = auto ] && [ "$NON_INTERACTIVE" = 0 ] && ati_component_h
 fi
 install_selected_agent() {
   if ati_component_has "$COMPONENTS" agent; then
+    ensure_docker
     local agent_args=(install)
     [ -z "$AGENT_PROVIDER" ] || agent_args+=(--provider "$AGENT_PROVIDER")
     [ "$STUDIO_CONNECT" != 0 ] || agent_args+=(--no-connect)

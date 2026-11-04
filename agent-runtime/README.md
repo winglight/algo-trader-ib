@@ -1,8 +1,10 @@
 # ATI Algotrading System · Local Agent client
 
-The one-click installer installs the bundled, checksummed wheel. Users do not
-need access to the private orchestration repository, Git, trading, research, or
-Docker. Only `httpx` and its public dependencies are resolved by pip.
+The one-click installer installs this checksummed wheel only inside an isolated
+Docker image, alongside the selected Codex or Claude CLI. Docker is required;
+Git, trading, research and access to the private orchestration repository are not.
+Only `httpx` and its public dependencies are resolved by pip inside the image.
+No host Agent virtualenv, model CLI, LaunchAgent or systemd service is installed.
 
 This distribution contains exactly the native outbound `local_connector.py`,
 `codex_agent_adapter.py`, `claude_agent_adapter.py`, and the task lease guard `local_task_process.py`, with

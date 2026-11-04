@@ -1,0 +1,41 @@
+ARG NODE_BASE_IMAGE=node:24.14.1-bookworm-slim
+ARG PYTHON_BASE_IMAGE=python:3.11.18-slim-bookworm@sha256:90d117a7f1ef6535dc75831e1a9184725757fede0d4d424d7977fb5429d50610
+FROM ${NODE_BASE_IMAGE} AS node
+FROM ${PYTHON_BASE_IMAGE} AS base
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    HOME=/var/lib/ati-agent/home CODEX_HOME=/var/lib/ati-agent/codex \
+    CLAUDE_CONFIG_DIR=/var/lib/ati-agent/claude \
+    ATI_ENVIRONMENT_DIR=/var/lib/ati-environment ATI_AGENT_STATUS_FILE=/run/ati-agent/status.json
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libstdc++6 && \
+    rm -rf /var/lib/apt/lists/*
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+# The build context is staged by the installer: only this Dockerfile, this
+# container entrypoint and the verified outbound-client wheel can enter it.
+COPY client.whl /tmp/client.whl
+COPY client-filename /tmp/client-filename
+RUN name="$(cat /tmp/client-filename)" && mv /tmp/client.whl "/tmp/$name" && \
+    pip install --no-cache-dir "/tmp/$name" && rm "/tmp/$name" /tmp/client-filename && \
+    useradd --create-home --uid 10001 ati-agent && \
+    mkdir -p /var/lib/ati-agent /var/lib/ati-environment /run/ati-agent && \
+    chown ati-agent:ati-agent /var/lib/ati-agent /var/lib/ati-environment /run/ati-agent
+COPY agent_container.py /opt/ati/agent_container.py
+WORKDIR /var/lib/ati-agent
+ENTRYPOINT ["python", "/opt/ati/agent_container.py"]
+CMD ["run"]
+
+FROM base AS codex
+ARG CODEX_VERSION=0.160.0
+RUN npm install --global --omit=dev @openai/codex@${CODEX_VERSION} && \
+    codex --version && npm cache clean --force
+ENV ATI_AGENT_PROVIDER=codex
+USER ati-agent
+
+FROM base AS claude
+ARG CLAUDE_VERSION=2.1.318
+RUN npm install --global --omit=dev @anthropic-ai/claude-code@${CLAUDE_VERSION} && \
+    claude --version && npm cache clean --force
+ENV ATI_AGENT_PROVIDER=claude
+USER ati-agent

@@ -538,7 +538,7 @@ if [ "$UPDATE_MODE" = 1 ] && [ "$NON_INTERACTIVE" = 0 ] && [ -z "$REQUESTED_COMP
   echo 'Choose components / 选择安装组件（可单独安装，也可多选；未选的已有组件予以保留）:'
   echo '  1) ATI交易系统交易端 / Trading console'
   echo '  2) 本地回测环境 / Local backtesting'
-  echo '  3) 本地 Agent (Codex / Claude Code；自动安装、登录引导、连接与后台启动)'
+  echo '  3) 本地 Agent (Codex / Claude Code；自动构建容器、登录引导、连接与启动)'
   printf 'Enter numbers separated by commas / 输入编号，逗号分隔 [%s]: ' "$defaults"
   read -r choice
   choice="${choice:-$defaults}"

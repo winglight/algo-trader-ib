@@ -1,12 +1,10 @@
-"""Optional host Agent installer. Saved configuration is data; credentials stay native."""
+"""Transient Docker Agent installer. No host Agent or model runtime is installed."""
 from __future__ import annotations
 import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
-import plistlib
-import secrets
 import shlex
 import shutil
 import stat
@@ -16,12 +14,9 @@ import tempfile
 import time
 from urllib.parse import urlsplit
 
-from agent_service import control
 from connector_installer_lock import acquire
 
 def agent_package(root):
-    if os.environ.get('ATI_AGENT_PACKAGE_URL'):
-        return os.environ['ATI_AGENT_PACKAGE_URL']
     manifest = json.loads((root / 'agent-runtime/manifest.json').read_text())
     filename = manifest['filename']
     if Path(filename).name != filename or not filename.endswith('.whl'):
@@ -36,7 +31,7 @@ def saved(path):
     result = {}
     for line in path.read_text().splitlines() if path.is_file() else []:
         key, sep, value = line.partition('=')
-        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER'}:
+        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER', 'ATI_AGENT_DATA_DIR', 'ATI_AGENT_IMAGE', 'ATI_LOCAL_UID', 'ATI_LOCAL_GID', 'ATI_AGENT_CPUS', 'ATI_AGENT_MEMORY'}:
             continue
         parts = shlex.split(value)
         if len(parts) != 1 or key in result or any(c in parts[0] for c in ('\0', '\n', '\r')):
@@ -138,73 +133,6 @@ def command(args, **kwargs):
     subprocess.run([str(x) for x in args], check=True, **kwargs)
 
 
-def download_script(url, env=None, shell='/bin/sh'):
-    with tempfile.TemporaryDirectory(prefix='ati-agent-download-') as directory:
-        target = Path(directory) / 'install.sh'
-        command(['curl', '-fsSL', url, '-o', target])
-        command([shell, target], env=env)
-
-
-def python_supported(path):
-    if not path:
-        return False
-    result = subprocess.run([str(path), '-c', 'import sys; raise SystemExit(sys.version_info < (3, 11))'],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return result.returncode == 0
-
-
-def prepare_python(home):
-    requested = os.environ.get('ATI_AGENT_PYTHON')
-    if requested:
-        if not python_supported(requested):
-            raise ValueError('ATI_AGENT_PYTHON must point to Python 3.11 or newer')
-        executable = requested
-    else:
-        executable = next((path for path in [sys.executable, *(shutil.which('python3.' + str(v)) for v in (13, 12, 11)), shutil.which('python3')]
-                           if path and python_supported(path)), None)
-    venv = home / 'venv'
-    if executable:
-        if not (venv / 'bin/python').is_file():
-            command([executable, '-m', 'venv', venv])
-    else:
-        uv = shutil.which('uv') or str(home / 'tools/uv')
-        if not Path(uv).is_file():
-            download_script('https://astral.sh/uv/install.sh', {**os.environ, 'UV_UNMANAGED_INSTALL': str(home / 'tools')})
-        command([uv, 'venv', '--python', '3.11', '--seed', venv])
-    python = venv / 'bin/python'
-    if not python_supported(python):
-        raise ValueError('The Agent Python environment is unavailable')
-    return python
-
-
-def prepare_codex(non_interactive, require_login=True, env=None):
-    codex = shutil.which('codex')
-    if not codex:
-        for candidate in (Path.home() / '.local/bin/codex', Path.home() / '.cargo/bin/codex'):
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                codex = str(candidate)
-                break
-    if not codex:
-        print('Installing Codex CLI / 正在安装 Codex CLI…', flush=True)
-        download_script('https://chatgpt.com/codex/install.sh', env=env)
-        codex = shutil.which('codex')
-        if not codex:
-            codex = next((str(p) for p in (Path.home() / '.local/bin/codex', Path.home() / '.cargo/bin/codex')
-                          if p.is_file() and os.access(p, os.X_OK)), None)
-    if not codex:
-        raise ValueError('Codex installation did not provide a runnable CLI')
-    if not require_login:
-        return str(Path(codex).absolute())
-    status = subprocess.run([codex, 'login', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if status.returncode:
-        if non_interactive:
-            raise ValueError('Codex sign-in is required. Rerun the one-click installer interactively; no Agent was started')
-        print('Sign in to Codex in the browser / 请按浏览器提示登录自己的 Codex 账号。', flush=True)
-        command([codex, 'login'], env=env)
-        command([codex, 'login', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return str(Path(codex).absolute())
-
-
 def select_provider(prior, requested=None, non_interactive=False):
     selected = requested or os.environ.get('ATI_AGENT_PROVIDER') or prior.get('ATI_AGENT_PROVIDER', 'codex')
     if selected not in {'codex', 'claude'}:
@@ -217,148 +145,197 @@ def select_provider(prior, requested=None, non_interactive=False):
     return selected
 
 
-def prepare_claude(non_interactive, require_login=True, env=None):
-    env = dict(os.environ if env is None else env)
-    candidate = Path.home() / '.local/bin/claude'
-    claude = shutil.which('claude') or (str(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else None)
-    required = ('--safe-mode', '--tools', '--strict-mcp-config', '--no-session-persistence', '--input-format', '--output-format')
-    def supported(binary):
-        if not binary:
-            return False
-        result = subprocess.run([binary, '--help'], env=env, capture_output=True, text=True)
-        return result.returncode == 0 and all(flag in result.stdout for flag in required)
-    if not supported(claude):
-        print('Installing/updating Claude Code / 正在安装或更新 Claude Code…', flush=True)
-        download_script('https://claude.ai/install.sh', env=env, shell='/bin/bash')
-        claude = str(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else shutil.which('claude')
-    if not supported(claude):
-        raise ValueError('Claude Code installation must support safe-mode and JSON print mode')
-    if require_login:
-        status = subprocess.run([claude, 'auth', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if status.returncode:
-            if non_interactive:
-                raise ValueError('Claude Code sign-in is required. Rerun the one-click installer interactively; no Agent was started')
-            print('Sign in to Claude Code in the browser / 请按浏览器提示登录自己的 Claude 账号。', flush=True)
-            command([claude, 'auth', 'login'], env=env)
-            command([claude, 'auth', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return str(Path(claude).absolute())
+def docker_ready():
+    command(['docker', 'compose', 'version'], stdout=subprocess.DEVNULL)
+    command(['docker', 'info'], stdout=subprocess.DEVNULL)
 
 
-def service_status(config):
-    try:
-        return control(config, 'status')
-    except (OSError, ValueError):
-        return {'online': False, 'running': False}
+def compose(root, settings):
+    key = hashlib.sha256(settings['ATI_ENVIRONMENT_DIR'].encode()).hexdigest()[:12]
+    return ['docker', 'compose', '--project-name', 'ati-local-agent-' + key,
+            '--project-directory', str(root), '--env-file', '/dev/null',
+            '-f', str(root / 'docker-compose.agent.yml')]
 
 
-def stop_service(config):
-    manager = config.get('manager', 'process')
+def invoke(root, settings, arguments, **kwargs):
+    return subprocess.run(compose(root, settings) + list(map(str, arguments)),
+                          env={**os.environ, **settings}, **kwargs)
+
+
+def checked(root, settings, arguments, **kwargs):
+    result = invoke(root, settings, arguments, **kwargs)
+    if result.returncode:
+        raise ValueError('Docker Agent operation failed: ' + str(arguments[0]))
+    return result
+
+
+def image_fingerprint(root):
+    digest = hashlib.sha256()
+    for path in (root / 'Dockerfile.local-agent', root / 'scripts/agent_container.py',
+                 root / 'agent-runtime/manifest.json', Path(agent_package(root))):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def prepare_image(root, selected, prior):
+    requested = os.environ.get('ATI_AGENT_IMAGE')
+    if requested:
+        command(['docker', 'pull', requested])
+        return requested
+    revision = image_fingerprint(root)
+    platform = subprocess.check_output(['docker', 'info', '--format', '{{.Architecture}}'], text=True).strip()
+    architecture = {'aarch64': 'arm64', 'arm64': 'arm64', 'x86_64': 'amd64', 'amd64': 'amd64'}.get(platform)
+    if not architecture:
+        raise ValueError('Agent images require an amd64 or arm64 Docker engine')
+    image = 'ati-local-agent:' + selected + '-' + architecture + '-' + revision
+    exists = subprocess.run(['docker', 'image', 'inspect', image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if exists.returncode == 0:
+        return image
+    print('Building isolated Agent image / 正在构建独立 Agent 容器镜像（运行依赖仅装入镜像）…', flush=True)
+    # Explicit staging prevents .env, credentials, user data, or other products
+    # entering a Docker context or intermediate/cache layer.
+    with tempfile.TemporaryDirectory(prefix='ati-agent-image-') as directory:
+        stage = Path(directory)
+        shutil.copyfile(root / 'Dockerfile.local-agent', stage / 'Dockerfile')
+        shutil.copyfile(root / 'scripts/agent_container.py', stage / 'agent_container.py')
+        wheel = Path(agent_package(root))
+        shutil.copyfile(wheel, stage / 'client.whl')
+        (stage / 'client-filename').write_text(wheel.name)
+        command(['docker', 'buildx', 'build', '--load', '--platform', 'linux/' + architecture, '--target', selected, '--tag', image,
+                 '--label', 'io.ati.agent.content=' + revision, '--file', stage / 'Dockerfile', stage])
+    return image
+
+
+def stop_legacy_host(prior, state):
+    """One-way handoff of this installer's legacy daemon, never global CLIs."""
+    if not prior.get('ATI_AGENT_HOME'):
+        return
+    home = Path(prior['ATI_AGENT_HOME']).expanduser().resolve()
+    path = home / 'service.json'
+    if not path.is_file():
+        return
+    config = json.loads(path.read_text())
+    label = config.get('label', '')
+    if config.get('stateDir') != state or not label.startswith('com.broyustudio.ati-agent.'):
+        raise ValueError('Unverified legacy host Agent; no process changed')
+    manager = config.get('manager')
     if manager == 'launchd':
-        subprocess.run(['launchctl', 'bootout', 'gui/' + str(os.getuid()), config['serviceFile']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['launchctl', 'bootout', 'gui/' + str(os.getuid()) + '/' + label],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        file = Path(config['serviceFile'])
+        if file.is_file():
+            import plistlib
+            if plistlib.loads(file.read_bytes()).get('Label') != label:
+                raise ValueError('Unverified legacy LaunchAgent')
+            file.rename(file.with_suffix('.plist.host-disabled'))
     elif manager == 'systemd':
-        command(['systemctl', '--user', 'stop', config['label'] + '.service'])
+        command(['systemctl', '--user', 'disable', '--now', label + '.service'])
+    elif manager != 'process':
+        raise ValueError('Unverified legacy Agent manager')
+    # Authenticated local shutdown also covers the old detached-process mode.
+    import socket
     try:
-        control(config, 'stop')
-    except OSError:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(3)
+            client.connect(config['socket'])
+            client.sendall((json.dumps({'action': 'stop', 'token': config['controlToken']}) + '\n').encode())
+            response = json.loads(client.recv(8192))
+            if response.get('token') != config['controlToken']:
+                raise ValueError('Legacy Agent ownership mismatch')
+        for _ in range(100):
+            if not Path(config['socket']).exists():
+                break
+            time.sleep(0.1)
+        else:
+            raise ValueError('Legacy Agent did not stop; container not started')
+    except (FileNotFoundError, ConnectionRefusedError):
+        pass
+    path.rename(home / 'service.host-disabled.json')
+
+
+def container_status(root, settings):
+    result = invoke(root, settings, ['exec', '-T', 'agent', 'python', '/opt/ati/agent_container.py', 'status'],
+                    capture_output=True, text=True)
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        return {'state': 'stopped', 'online': False}
+
+
+def authenticate(root, settings, non_interactive):
+    quiet = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
+    if invoke(root, settings, ['run', '--rm', '-T', 'agent', 'auth-status'], **quiet).returncode == 0:
         return
-    for _ in range(100):
-        try:
-            control(config, 'status')
-        except OSError:
+    selected = settings['ATI_AGENT_PROVIDER']
+    source = (Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'auth.json'
+              if selected == 'codex' else Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / '.credentials.json')
+    if source.is_file():
+        # Native file stays opaque to the installer and is mounted read-only only
+        # in the one-off import container. Host HOME/configuration is never mounted.
+        checked(root, settings, ['run', '--rm', '-T', '--volume', str(source) + ':/run/ati-native-auth:ro',
+                                 'agent', 'import-auth'])
+        if invoke(root, settings, ['run', '--rm', '-T', 'agent', 'auth-status'], **quiet).returncode == 0:
             return
-        time.sleep(0.1)
-    raise ValueError('Agent did not finish stopping; its Python environment was not replaced')
+    if non_interactive:
+        raise ValueError('Container Agent sign-in required. Rerun the installer interactively; no Agent was started')
+    print('Sign in inside the Agent container / 按容器中的链接完成所选 Agent 登录，无需宿主机 CLI。', flush=True)
+    args = ['run', '--rm'] + ([] if sys.stdin.isatty() else ['-T']) + ['agent', 'auth-login']
+    checked(root, settings, args)
+    checked(root, settings, ['run', '--rm', '-T', 'agent', 'auth-status'], **quiet)
 
 
-def start_service(config, config_path):
-    if service_status(config).get('pid'):
-        return
-    argv = [config['python'], config['runner'], str(config_path)]
-    env = {**os.environ, **config.get('environment', {}), 'PATH': config['path']}
-    log = Path(config['log'])
-    log.touch(mode=0o600, exist_ok=True)
-    log.chmod(0o600)
-    mode = os.environ.get('ATI_AGENT_SERVICE_MODE', 'auto')
-    if mode not in {'auto', 'process'}:
-        raise ValueError('Invalid Agent service mode')
-    if mode == 'auto' and sys.platform == 'darwin' and shutil.which('launchctl'):
-        service = Path.home() / 'Library/LaunchAgents' / (config['label'] + '.plist')
-        write(service, plistlib.dumps({'Label': config['label'], 'ProgramArguments': argv,
-              'EnvironmentVariables': {**config.get('environment', {}), 'PATH': config['path']}, 'RunAtLoad': True,
-              'WorkingDirectory': str(config_path.parent), 'StandardOutPath': str(log), 'StandardErrorPath': str(log)}).decode())
-        result = subprocess.run(['launchctl', 'bootstrap', 'gui/' + str(os.getuid()), str(service)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if result.returncode == 0:
-            config.update(manager='launchd', serviceFile=str(service))
-    elif mode == 'auto' and shutil.which('systemctl') and subprocess.run(['systemctl', '--user', 'show-environment'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-        service = Path.home() / '.config/systemd/user' / (config['label'] + '.service')
-        # systemd has its own quoting and percent expansion; no shell interpolation.
-        quote = lambda x: '"' + str(x).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('\n', '\\n') + '"'
-        write(service, '[Unit]\nDescription=ATI local Agent\n[Service]\nType=simple\nExecStart=' + ' '.join(quote(x) for x in argv) + '\nEnvironment=' + quote('PATH=' + config['path']) + ''.join('\nEnvironment=' + quote(k + '=' + v) for k, v in config.get('environment', {}).items()) + '\nWorkingDirectory=' + quote(config_path.parent) + '\nUMask=0077\nStandardOutput=' + quote('file:' + str(log)) + '\nStandardError=inherit\nRestart=no\n[Install]\nWantedBy=default.target\n')
-        command(['systemctl', '--user', 'daemon-reload'])
-        command(['systemctl', '--user', 'enable', '--now', service.name])
-        config.update(manager='systemd', serviceFile=str(service))
-    if config.get('manager') not in {'launchd', 'systemd'}:
-        with log.open('ab') as stream:
-            subprocess.Popen(argv, env=env, cwd=config_path.parent, stdin=subprocess.DEVNULL,
-                             stdout=stream, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
-        config['manager'] = 'process'
-    write(config_path, json.dumps(config))
+def start(root, settings):
+    checked(root, settings, ['up', '-d', '--no-deps', '--no-build', '--pull', 'never', 'agent'])
+    deadline = time.monotonic() + float(os.environ.get('ATI_AGENT_START_TIMEOUT', '90'))
+    while time.monotonic() < deadline:
+        status = container_status(root, settings)
+        if status.get('online'):
+            print('Agent container connected / 本地 Agent 容器已上线。回到 Studio → 执行设置选择在线设备。', flush=True)
+            return
+        if status.get('state') == 'blocked':
+            checked(root, settings, ['stop', 'agent'])
+            raise ValueError('Agent connection blocked: ' + status.get('reason', 'unknown'))
+        time.sleep(1)
+    checked(root, settings, ['stop', 'agent'])
+    raise ValueError('Agent container did not report online; inspect Docker logs, then rerun the installer')
 
 
 def install(root, non_interactive=False, no_connect=False, provider=None):
     prior = saved(root / '.agent.env')
+    if no_connect and prior.get('ATI_AGENT_DATA_DIR'):
+        print('Existing container retained; connection/startup changes skipped / 保留现有容器状态。')
+        return
     state = environment(root, os.environ.get('ATI_ENVIRONMENT_DIR', ''))
     gateway = gateway_url(root, os.environ.get('ATI_CLOUD_GATEWAY_URL', ''))
-    key = hashlib.sha256(state.encode()).hexdigest()[:16]
-    base = os.environ.get('ATI_AGENT_HOME') or prior.get('ATI_AGENT_HOME')
-    home = Path(base) if base else Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'ati/agent' / key
-    home = home.expanduser().resolve()
-    home.mkdir(parents=True, exist_ok=True, mode=0o700)
-    config_path = home / 'service.json'
-    if no_connect and config_path.is_file():
-        print('Existing Agent retained; connection and startup changes skipped / 保留已有 Agent，不更改连接或运行状态。')
-        return
     selected = select_provider(prior, provider, non_interactive)
-    previous_config = json.loads(config_path.read_text()) if config_path.is_file() else {}
-    service_env = {key: os.environ.get(key, previous_config.get('environment', {}).get(key))
-                   for key in ('CODEX_HOME', 'CLAUDE_CONFIG_DIR')}
-    service_env = {key: value for key, value in service_env.items() if value is not None}
-    cli = (prepare_claude(non_interactive, require_login=not no_connect, env={**os.environ, **service_env})
-           if selected == 'claude' else prepare_codex(non_interactive, require_login=not no_connect, env={**os.environ, **service_env}))
+    docker_ready()
+    image = prepare_image(root, selected, prior)
+    key = hashlib.sha256(state.encode()).hexdigest()[:16]
+    base = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'ati/agent' / key
+    data = Path(os.environ.get('ATI_AGENT_DATA_DIR') or prior.get('ATI_AGENT_DATA_DIR') or base / 'container').expanduser()
+    if not data.is_absolute():
+        raise ValueError('Agent data directory must be absolute')
+    settings = {'ATI_ENVIRONMENT_DIR': state, 'ATI_CLOUD_GATEWAY_URL': gateway, 'ATI_AGENT_PROVIDER': selected,
+                'ATI_AGENT_IMAGE': image, 'ATI_AGENT_DATA_DIR': str(data.resolve()),
+                'ATI_LOCAL_UID': str(os.getuid()), 'ATI_LOCAL_GID': str(os.getgid()),
+                'ATI_AGENT_CPUS': os.environ.get('ATI_AGENT_CPUS') or prior.get('ATI_AGENT_CPUS', '2'),
+                'ATI_AGENT_MEMORY': os.environ.get('ATI_AGENT_MEMORY') or prior.get('ATI_AGENT_MEMORY', '4g')}
+    data.mkdir(parents=True, exist_ok=True, mode=0o700)
     ensure_identity_access(state, root, non_interactive)
     lock = acquire(Path(state))
     try:
-        if config_path.exists():
-            stop_service(json.loads(config_path.read_text()))
-        python = prepare_python(home)
-        package = agent_package(root)
-        command([python, '-m', 'pip', 'install', '--upgrade', package])
-        config = {'python': str(python), 'runner': str(root / 'scripts/agent_service.py'), 'gateway': gateway, 'provider': selected,
-                  'stateDir': state, 'label': 'com.broyustudio.ati-agent.' + key,
-                  'socket': '/tmp/ati-agent-' + str(os.getuid()) + '-' + key + '.sock',
-                  'controlToken': secrets.token_urlsafe(32), 'log': str(home / 'agent.log'),
-                  'environment': service_env,
-                  'path': str(Path(cli).parent) + os.pathsep + os.environ.get('PATH', '/usr/bin:/bin')}
-        write(config_path, json.dumps(config))
-        write(root / '.agent.env', ''.join(k + '=' + shlex.quote(v) + '\n' for k, v in {
-              'ATI_ENVIRONMENT_DIR': state, 'ATI_CLOUD_GATEWAY_URL': gateway, 'ATI_AGENT_HOME': str(home), 'ATI_AGENT_PROVIDER': selected}.items()))
         if no_connect:
-            print('Agent installed; Studio linking and startup were explicitly skipped / 已安装，按所选选项跳过连接与启动。')
+            write(root / '.agent.env', ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in settings.items()))
+            print('Agent image prepared; linking and startup skipped / 已准备容器镜像，跳过登录、绑定与启动。')
             return
-        print('Connecting ATI environment / 正在连接 ATI 云账号（已有有效绑定会自动复用）…', flush=True)
-        command([python, '-m', 'worker_orchestrator.local_connector', 'connect', '--gateway', gateway, '--state-dir', state, '--component', 'AGENT'], env={**os.environ, 'PATH': config['path']})
-        start_service(config, config_path)
+        authenticate(root, settings, non_interactive)
+        stop_legacy_host(prior, state)
+        checked(root, settings, ['stop', 'agent'], stdout=subprocess.DEVNULL)
+        write(root / '.agent.env', ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in settings.items()))
+        checked(root, settings, ['run', '--rm', '-T', 'agent', 'connect'])
+        start(root, settings)
     finally:
         os.close(lock)
-    deadline = time.monotonic() + float(os.environ.get('ATI_AGENT_START_TIMEOUT', '45'))
-    while time.monotonic() < deadline:
-        if service_status(config).get('online'):
-            print('Agent connected / 本地 Agent 已上线。回到 Studio → 执行设置，选择在线 Agent 设备。')
-            print('Background mode / 后台运行方式: ' + config['manager'])
-            print('Local Agent / 本地 Agent: ' + selected)
-            return
-        time.sleep(0.2)
-    raise ValueError('Agent installed but not online; background diagnostics: ' + config['log'] + '. Rerun the installer/status to recover; no online status was assumed')
 
 
 def main():
@@ -376,30 +353,26 @@ def main():
             if environment(root, args.requested_state) != str(Path(args.requested_state).resolve()):
                 raise ValueError('Unverified environment directory')
             restore_identity_owner(args.requested_state)
-            return 0
-        if args.action == 'environment':
+        elif args.action == 'environment':
             print(environment(root, args.requested_state))
-            return 0
-        if args.action == 'gateway':
+        elif args.action == 'gateway':
             print(gateway_url(root, os.environ.get('ATI_CLOUD_GATEWAY_URL', '')))
-            return 0
-        if args.action in {'install', 'upgrade'}:
+        elif args.action in {'install', 'upgrade'}:
             install(root, args.non_interactive, args.no_connect, args.provider)
-            return 0
-        prior = saved(root / '.agent.env')
-        if not prior.get('ATI_AGENT_HOME'):
-            raise ValueError('Agent is not installed; rerun the one-click installer and select Agent')
-        path = Path(prior['ATI_AGENT_HOME']) / 'service.json'
-        config = json.loads(path.read_text())
-        if args.action == 'stop':
-            stop_service(config)
-            print('Agent stopped / Agent 已停止。')
-        elif args.action == 'start':
-            start_service(config, path)
-            print('Agent started; check status / 已启动，请查看状态。')
         else:
-            value = service_status(config)
-            print('Agent online / Agent 在线' if value.get('online') else 'Agent is not online / Agent 未在线')
+            settings = saved(root / '.agent.env')
+            if not settings.get('ATI_AGENT_DATA_DIR'):
+                raise ValueError('Container Agent is not installed; rerun the installer and select Agent')
+            docker_ready()
+            if args.action == 'start':
+                authenticate(root, settings, True)
+                start(root, settings)
+            elif args.action == 'stop':
+                checked(root, settings, ['stop', 'agent'])
+            else:
+                value = container_status(root, settings)
+                print('Agent container online / Agent 容器在线' if value.get('online') else 'Agent container offline / Agent 容器未在线')
+                return 0 if value.get('online') else 1
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         print('Agent installation: ' + str(exc), file=sys.stderr)

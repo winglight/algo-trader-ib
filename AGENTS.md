@@ -28,4 +28,6 @@ algo-trader-intelligence/
 - 只有用户明确要求时才提交、推送、合并或发布。
 - Docker 与安装入口：`docker/`、`scripts/`
 - 运行配置：`config/`
+- 本地 Agent 的 Connector、Codex/Claude CLI 和运行依赖必须全部在独立 Docker 容器内；不得安装宿主机 Agent 虚拟环境、注册 LaunchAgent/systemd 或创建裸后台代理。安装器只负责配置、镜像构建和 Compose 生命周期。
+- 交易、回测、Agent 为独立可选组件；Agent 容器不得挂载宿主机主目录或 Docker socket。
 - 本地策略运行：`strategy-spec-service`；旧 Python 策略模板已退役。

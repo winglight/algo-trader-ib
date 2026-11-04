@@ -1,0 +1,34 @@
+name: ati-local-agent
+services:
+  agent:
+    image: ${ATI_AGENT_IMAGE:?Agent image is prepared by the installer}
+    user: "${ATI_LOCAL_UID:-10001}:${ATI_LOCAL_GID:-10001}"
+    environment:
+      ATI_AGENT_PROVIDER: ${ATI_AGENT_PROVIDER:-codex}
+      ATI_CLOUD_GATEWAY_URL: ${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}
+      ATI_ENVIRONMENT_DIR: /var/lib/ati-environment
+      ATI_AGENT_STATUS_FILE: /run/ati-agent/status.json
+      HOME: /var/lib/ati-agent/home
+      CODEX_HOME: /var/lib/ati-agent/codex
+      CLAUDE_CONFIG_DIR: /var/lib/ati-agent/claude
+      DISABLE_AUTOUPDATER: "1"
+    volumes:
+      - ${ATI_ENVIRONMENT_DIR:?Existing ATI environment directory}:/var/lib/ati-environment
+      - ${ATI_AGENT_DATA_DIR:?Agent credential and state directory}:/var/lib/ati-agent
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /run/ati-agent:size=1m,mode=0700,uid=${ATI_LOCAL_UID:-10001},gid=${ATI_LOCAL_GID:-10001}
+    cpus: ${ATI_AGENT_CPUS:-2}
+    mem_limit: ${ATI_AGENT_MEMORY:-4g}
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, /opt/ati/agent_container.py, status]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 3

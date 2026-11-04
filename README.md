@@ -348,7 +348,7 @@ agree that:
 `--components research|trading|agent|all` also accepts comma-separated combinations. The new-install default is trading plus research, with Agent unselected; upgrades preserve installed components.
 - **research**: SDK-native offline `LOCAL_USER` replay tools **and** the isolated Studio native research connector. No trading services are installed. The connector requires Cloud environment binding; offline tools do not.
 - **trading**: existing trading services and the signed-grant TRADING connector, which does not claim research work.
-- **agent**: standalone Codex or Claude Code Agent, with automatic dependencies, environment discovery, sign-in guidance, Studio linking, and background startup. Trading, research, and Docker are not prerequisites.
+- **agent**: standalone Codex or Claude Code Agent, with automatic dependencies, environment discovery, sign-in guidance, Studio linking, and background startup. Docker is required; trading and research are not prerequisites.
 - **all**: both. A single RESEARCH connector owns the shared installation identity and existing trading grants; the verified prior TRADING connector is handed off, not run concurrently. Trading services, account settings and order history are not changed by that handoff.
 
 Installation never downloads market data or asks for provider API keys. The LTB dialog only shows local coverage and instructions; run the IB, Alpaca or Databento scripts yourself with your own terminal credentials and chosen symbol/timeframe lists. Headless users use the same scripts and Markdown guide.
@@ -371,9 +371,9 @@ New installations complete local setup without opening Studio binding or startin
 
 ## Optional local Agent in the one-click installer
 
-Choose components at the same prompt: **1 trading**, **2 local backtesting**, **3 Local Agent (Codex / Claude Code)**. Enter `2` for research only, `3` for Agent only, `2,3` for research plus Agent, or `1,2,3` for all three. Research and Agent do not require trading; Agent-only does not require Docker. Agent is unselected by default.
+Choose components at the same prompt: **1 trading**, **2 local backtesting**, **3 Local Agent (Codex / Claude Code)**. Enter `2` for research only, `3` for Agent only, `2,3` for research plus Agent, or `1,2,3` for all three. Research and Agent do not require trading; Agent-only requires Docker. Agent is unselected by default.
 
-After selecting Agent, choose Codex or Claude Code. Upgrades reuse the saved provider; switching providers keeps the ATI device binding. Only the selected CLI is installed or invoked. Agent setup prepares Python and the selected Codex or Claude Code CLI, reuses saved environment and login information, guides first-time browser authorization, and starts the connector in the background. A successful device heartbeat is required before reporting online. macOS uses a user LaunchAgent and supported Linux sessions use a systemd user service; other supported sessions use a managed background process and report that restart recovery uses the same installer.
+After selecting Agent, choose Codex or Claude Code. Upgrades reuse the saved provider; switching providers keeps the ATI device binding. Only the selected CLI is installed or invoked. Agent setup builds a Docker image containing Python and the selected Codex or Claude Code CLI, reuses saved environment and login information, guides first-time browser authorization, and starts the connector in the background. A successful device heartbeat is required before reporting online. Docker Compose manages its lifecycle. No host Agent virtualenv, CLI installation, LaunchAgent, systemd unit, or detached daemon is created.
 
 Existing installations keep their components on update. `--components agent` installs only Agent; combinations such as `research,agent` are accepted. Legacy `all` remains research plus trading; use `all,agent` for all three. `--no-studio-connect` explicitly skips connection and startup. No strategy or trading task is created by installation.
 

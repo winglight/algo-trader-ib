@@ -1,5 +1,4 @@
-"""Exercise only synthetic configuration, fake model login, and a local fixture Gateway."""
-import importlib.util
+"""Only synthetic bindings/model commands are used by host-side regression tests."""
 import json
 import os
 from pathlib import Path
@@ -7,17 +6,121 @@ import shlex
 import shutil
 import subprocess
 import sys
-import threading
-import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scripts'))
+ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'scripts'))
 import agent_installation as agent
-from agent_service import adapter_module
 
+
+@pytest.mark.parametrize('provider',['codex','claude'])
+def test_container_install_imports_only_native_auth_and_never_runs_a_host_cli(tmp_path,monkeypatch,provider):
+    monkeypatch.setenv('HOME',str(tmp_path/'home'))
+    monkeypatch.setenv('ATI_AGENT_DATA_DIR',str(tmp_path/'container-data'))
+    monkeypatch.setenv('ATI_ENVIRONMENT_DIR',str(tmp_path/'identity'))
+    state=tmp_path/'identity';state.mkdir()
+    binding=b'{"installId":"synthetic-install","environmentId":"synthetic-environment","credential":"synthetic-credential"}'
+    (state/'installation.json').write_bytes(binding)
+    (state/'trading').mkdir();(state/'trading/runtime-grant.json').write_text('synthetic-unchanged')
+    auth=Path.home()/('.codex/auth.json' if provider=='codex' else '.claude/.credentials.json')
+    auth.parent.mkdir(parents=True);auth.write_text('{"synthetic":"native-auth"}')
+    monkeypatch.setattr(agent,'docker_ready',lambda:None)
+    monkeypatch.setattr(agent,'prepare_image',lambda root,p,prior:'synthetic-agent:'+p)
+    calls=[];imported=False
+    def invoke(root,settings,args,**kwargs):
+        nonlocal imported
+        calls.append(args)
+        assert settings['ATI_AGENT_PROVIDER']==provider
+        if args[-1]=='auth-status':return SimpleNamespace(returncode=0 if imported else 1,stdout='')
+        if args[-1]=='import-auth':
+            imported=True
+            assert str(auth)+':/run/ati-native-auth:ro' in args
+        output=json.dumps({'state':'online','online':True}) if args[0]=='exec' else ''
+        return SimpleNamespace(returncode=0,stdout=output)
+    monkeypatch.setattr(agent,'invoke',invoke)
+    monkeypatch.setattr(agent,'command',lambda args,**kw:pytest.fail('Unexpected host program: '+str(args[0])))
+    agent.install(tmp_path,non_interactive=True,provider=provider)
+    assert any(args==['up','-d','--no-deps','--no-build','--pull','never','agent'] for args in calls)
+    assert any(args[-1]=='connect' for args in calls)
+    settings=agent.saved(tmp_path/'.agent.env')
+    assert settings['ATI_AGENT_DATA_DIR']==str(tmp_path/'container-data')
+    assert settings['ATI_AGENT_IMAGE']=='synthetic-agent:'+provider
+    assert 'ATI_AGENT_HOME' not in settings
+    assert (state/'installation.json').read_bytes()==binding
+    assert (state/'trading/runtime-grant.json').read_text()=='synthetic-unchanged'
+    assert not any((tmp_path/name).exists() for name in ('.env','.research.env','.local-tools.env'))
+
+
+def test_missing_container_login_does_not_stop_previous_agent_or_silently_switch(tmp_path,monkeypatch):
+    monkeypatch.setenv('HOME',str(tmp_path/'empty-home'))
+    monkeypatch.setenv('ATI_ENVIRONMENT_DIR',str(tmp_path/'identity'))
+    monkeypatch.setenv('ATI_AGENT_DATA_DIR',str(tmp_path/'container-data'))
+    monkeypatch.setattr(agent,'docker_ready',lambda:None)
+    monkeypatch.setattr(agent,'prepare_image',lambda *args:'synthetic-agent:claude')
+    calls=[]
+    monkeypatch.setattr(agent,'invoke',lambda root,settings,args,**kw:(calls.append(args) or SimpleNamespace(returncode=1,stdout='')))
+    monkeypatch.setattr(agent,'stop_legacy_host',lambda *args:pytest.fail('old Agent must survive failed sign-in'))
+    with pytest.raises(ValueError,match='sign-in required'):
+        agent.install(tmp_path,non_interactive=True,provider='claude')
+    assert not any(args[0] in {'stop','up'} for args in calls)
+    assert not (tmp_path/'.agent.env').exists()
+
+
+def test_skip_connection_keeps_existing_container_without_auth_or_lifecycle_changes(tmp_path,monkeypatch):
+    (tmp_path/'.agent.env').write_text('ATI_AGENT_DATA_DIR='+shlex.quote(str(tmp_path/'saved'))+'\n')
+    monkeypatch.setattr(agent,'docker_ready',lambda:pytest.fail('no existing container changes'))
+    agent.install(tmp_path,no_connect=True)
+
+
+def test_build_context_has_only_reviewed_client_and_container_code(tmp_path,monkeypatch):
+    for relative in ('Dockerfile.local-agent','scripts/agent_container.py','agent-runtime/manifest.json'):
+        destination=tmp_path/relative;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/relative,destination)
+    wheel=Path(agent.agent_package(ROOT));shutil.copyfile(wheel,tmp_path/'agent-runtime'/wheel.name)
+    (tmp_path/'.env').write_text('synthetic-private-content-must-not-be-staged')
+    monkeypatch.delenv('ATI_AGENT_IMAGE',raising=False)
+    monkeypatch.setattr(agent.subprocess,'run',lambda *args,**kw:SimpleNamespace(returncode=1))
+    monkeypatch.setattr(agent.subprocess,'check_output',lambda *args,**kw:'aarch64\n')
+    calls=[]
+    def build(args,**kwargs):
+        calls.append(args)
+        context=Path(args[-1])
+        assert {path.name for path in context.iterdir()}=={'Dockerfile','agent_container.py','client.whl','client-filename'}
+        assert (context/'client.whl').read_bytes()==wheel.read_bytes()
+        assert '--load' in args and args[args.index('--platform')+1]=='linux/arm64'
+        assert args[args.index('--target')+1]=='codex'
+    monkeypatch.setattr(agent,'command',build)
+    image=agent.prepare_image(tmp_path,'codex',{})
+    assert image.startswith('ati-local-agent:codex-arm64-')
+    assert len(calls)==1
+
+
+def test_compose_isolated_agent_has_no_host_home_socket_or_service_ports():
+    import yaml
+    config=yaml.safe_load((ROOT/'docker-compose.agent.yml').read_text())
+    assert set(config['services'])=={'agent'}
+    service=config['services']['agent']
+    assert service['read_only'] is True and service['cap_drop']==['ALL']
+    assert service['restart']=='unless-stopped'
+    assert 'ports' not in service and 'privileged' not in service
+    assert not any('docker.sock' in volume or '${HOME}' in volume for volume in service['volumes'])
+    assert len(service['volumes'])==2
+
+
+def test_legacy_host_handoff_retires_only_verified_own_configuration(tmp_path,monkeypatch):
+    home=tmp_path/'legacy-agent';home.mkdir()
+    state=str(tmp_path/'identity')
+    config={'stateDir':state,'label':'com.broyustudio.ati-agent.synthetic','manager':'process',
+            'socket':'/tmp/ati-legacy-'+__import__('uuid').uuid4().hex[:16]+'.sock','controlToken':'synthetic-token'}
+    path=home/'service.json';path.write_text(json.dumps(config))
+    agent.stop_legacy_host({'ATI_AGENT_HOME':str(home)},state)
+    assert not path.exists()
+    assert json.loads((home/'service.host-disabled.json').read_text())==config
+    path.write_text(json.dumps({**config,'stateDir':str(tmp_path/'another-identity')}))
+    with pytest.raises(ValueError,match='Unverified legacy'):
+        agent.stop_legacy_host({'ATI_AGENT_HOME':str(home)},state)
+    assert path.exists()
 
 @pytest.fixture
 def packaged_runtime(tmp_path):
@@ -25,7 +128,6 @@ def packaged_runtime(tmp_path):
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-index', '--no-deps', '--target',
                     str(target), agent.agent_package(ROOT)], check=True, capture_output=True)
     return target
-
 
 def test_environment_reuses_saved_directory_without_reading_credentials(tmp_path):
     state = tmp_path / 'bound research'
@@ -39,7 +141,6 @@ def test_environment_reuses_saved_directory_without_reading_credentials(tmp_path
     with pytest.raises(ValueError):
         agent.environment(tmp_path)
 
-
 def test_saved_configuration_never_executes_or_defaults_over_corruption(tmp_path):
     marker = tmp_path / 'not-created'
     file = tmp_path / '.research.env'
@@ -51,37 +152,6 @@ def test_saved_configuration_never_executes_or_defaults_over_corruption(tmp_path
     with pytest.raises(ValueError):
         agent.environment(tmp_path)
 
-
-def fake_codex(tmp_path, monkeypatch):
-    binary = tmp_path / 'codex'
-    binary.write_text('#!' + sys.executable + '\nimport os,sys\nfrom pathlib import Path\np=Path(os.environ["FAKE_CODEX_LOGIN"])\nif sys.argv[1:]==["login","status"]:raise SystemExit(0 if p.exists() else 1)\nif sys.argv[1:]==["login"]:p.touch();raise SystemExit(0)\nraise SystemExit("Unexpected model call in installer fixture")\n')
-    binary.chmod(0o755)
-    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
-    marker = tmp_path / 'signed-in'
-    monkeypatch.setenv('FAKE_CODEX_LOGIN', str(marker))
-    return binary, marker
-
-
-def fake_claude(tmp_path, monkeypatch):
-    binary = tmp_path / 'claude'
-    binary.write_text('#!' + sys.executable + '\nimport os,sys\nfrom pathlib import Path\nif sys.argv[1:]==["--help"]:print("--safe-mode --tools --strict-mcp-config --no-session-persistence --input-format --output-format");raise SystemExit(0)\np=Path(os.environ["FAKE_CLAUDE_LOGIN"])\nif sys.argv[1:]==["auth","status"]:raise SystemExit(0 if p.exists() else 1)\nif sys.argv[1:]==["auth","login"]:p.touch();raise SystemExit(0)\nraise SystemExit("Unexpected model call in installer fixture")\n')
-    binary.chmod(0o755)
-    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
-    marker = tmp_path / 'claude-signed-in'
-    monkeypatch.setenv('FAKE_CLAUDE_LOGIN', str(marker))
-    return binary, marker
-
-
-def test_reuses_codex_login_and_requires_interaction_only_when_missing(tmp_path, monkeypatch):
-    binary, marker = fake_codex(tmp_path, monkeypatch)
-    with pytest.raises(ValueError, match='sign-in is required'):
-        agent.prepare_codex(True)
-    assert not marker.exists()
-    assert agent.prepare_codex(False) == str(binary)
-    assert marker.exists()
-    assert agent.prepare_codex(True) == str(binary)
-
-
 @pytest.mark.parametrize('scope', ['agent', 'research,agent', 'trading,agent', 'all,agent'])
 def test_agent_is_independently_planned_without_docker_or_binding(tmp_path, scope):
     result = subprocess.run(['bash', str(ROOT / 'setup_and_run.sh'), '--components', scope, '--non-interactive', '--dry-run'],
@@ -89,29 +159,6 @@ def test_agent_is_independently_planned_without_docker_or_binding(tmp_path, scop
     assert result.returncode == 0, result.stderr
     assert 'Selected components: ' + scope in result.stdout
     assert not (tmp_path / 'must-not-exist').exists()
-
-
-def test_agent_only_dispatch_does_not_install_docker_research_or_trading(tmp_path):
-    root = tmp_path / 'installation'
-    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns('.git', '*.env', '__pycache__', '.pytest_cache', 'data', 'logs'))
-    binary = tmp_path / 'bin'
-    binary.mkdir()
-    log = tmp_path / 'calls'
-    for name in ('docker',):
-        path = binary / name
-        path.write_text('#!/bin/sh\necho forbidden-docker >> "$CALLS"\nexit 91\n');path.chmod(0o755)
-    for name in ('install_research.sh', 'install_trading_connector.sh', 'install_local_tools.sh'):
-        (root / 'scripts' / name).write_text('#!/bin/sh\necho forbidden-other-component >> "$CALLS"\nexit 92\n')
-    (root / 'scripts/install_agent.sh').write_text('#!/bin/sh\necho "agent $*" >> "$CALLS"\n')
-    result = subprocess.run(['bash', str(root / 'setup_and_run.sh'), '--components', 'agent', '--non-interactive'],
-                            env={**os.environ, 'PATH': str(binary) + os.pathsep + os.environ['PATH'],
-                                 'CALLS': str(log), 'ATI_ENVIRONMENT_DIR': str(tmp_path / 'identity')}, capture_output=True, text=True, timeout=20)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert log.read_text().splitlines() == ['agent install --non-interactive']
-    assert (root / '.components.env').read_text() == 'ATI_INSTALLED_COMPONENTS=agent\n'
-    assert not (root / '.env').exists()
-    assert not (tmp_path / 'identity/trading-enabled').exists()
-
 
 @pytest.mark.parametrize('selection,expected',[('3','agent'),('2, 3','research,agent')])
 def test_interactive_menu_can_select_only_agent(tmp_path,selection,expected):
@@ -121,93 +168,6 @@ def test_interactive_menu_can_select_only_agent(tmp_path,selection,expected):
     assert 'Choose components' in result.stdout
     assert 'Selected components: '+expected in result.stdout
     assert not (tmp_path / 'identity').exists()
-
-
-@pytest.fixture
-def fixture_gateway():
-    paths = []
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
-            paths.append(self.path)
-            size = int(self.headers.get('Content-Length', '0'))
-            payload = json.loads(self.rfile.read(size))
-            assert self.headers['Authorization'] == 'Bearer synthetic-connector-credential'
-            if self.path.startswith('/reject/'):
-                self.send_error(403);return
-            if self.path.endswith('/heartbeat'):
-                assert list(payload['components']) == ['AGENT']
-                body = {}
-            elif self.path.endswith('/claim'):
-                assert payload['component'] == 'AGENT'
-                body = {'task': None}
-            else:
-                self.send_error(500);return
-            self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(json.dumps(body).encode())
-        def log_message(self, *args):
-            pass
-    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
-    try:
-        yield 'http://127.0.0.1:' + str(server.server_port), paths
-    finally:
-        server.shutdown();server.server_close();thread.join()
-
-
-@pytest.mark.parametrize('provider', ['codex', 'claude'])
-def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_path, monkeypatch, fixture_gateway, packaged_runtime, provider):
-    gateway, paths = fixture_gateway
-    root = tmp_path / 'installation'; (root / 'scripts').mkdir(parents=True)
-    shutil.copy(ROOT / 'scripts/agent_service.py', root / 'scripts/agent_service.py')
-    shutil.copytree(ROOT / 'agent-runtime', root / 'agent-runtime')
-    state = tmp_path / 'shared identity';state.mkdir()
-    original = {'credential':'synthetic-connector-credential','installId':'synthetic-install','proof':'synthetic-proof',
-                'fingerprint':'synthetic-fingerprint','environmentId':'synthetic-environment'}
-    (state / 'installation.json').write_text(json.dumps(original))
-    (root / '.research.env').write_text('ATI_ENVIRONMENT_DIR=' + shlex.quote(str(state)) + '\n')
-    cli, marker = (fake_claude if provider == 'claude' else fake_codex)(tmp_path, monkeypatch);marker.touch()
-    monkeypatch.setenv('ATI_AGENT_HOME', str(tmp_path / 'agent home'))
-    monkeypatch.setenv('ATI_CLOUD_GATEWAY_URL', gateway)
-    monkeypatch.delenv('ATI_ENVIRONMENT_DIR', raising=False)
-    monkeypatch.setenv('ATI_AGENT_SERVICE_MODE', 'process')
-    monkeypatch.setenv('ATI_AGENT_START_TIMEOUT', '8')
-    monkeypatch.setenv('PYTHONPATH', str(packaged_runtime))
-    monkeypatch.setattr(agent, 'prepare_python', lambda home: Path(sys.executable))
-    real = agent.command
-    def command(args, **kwargs):
-        if list(map(str,args))[1:4] == ['-m','pip','install']:
-            return
-        return real(args, **kwargs)
-    monkeypatch.setattr(agent,'command',command)
-    config = None
-    try:
-        agent.install(root, non_interactive=True, provider=provider)
-        config_path = tmp_path / 'agent home/service.json'
-        config = json.loads(config_path.read_text())
-        first = agent.control(config,'status')
-        assert first['online'] is True
-        assert config['provider'] == provider
-        assert agent.saved(root/'.agent.env')['ATI_AGENT_PROVIDER'] == provider
-        assert adapter_module(config).endswith(provider + '_agent_adapter')
-        agent.start_service(config, config_path)
-        assert agent.control(config,'status')['pid'] == first['pid']
-        assert json.loads((state/'installation.json').read_text()) == original
-        assert any(path.endswith('/heartbeat') for path in paths)
-        assert not any('grant' in path or 'bind' in path or 'TRADING' in path for path in paths)
-        assert not (state / 'trading').exists()
-        assert config_path.stat().st_mode & 0o777 == 0o600
-        assert (root/'.agent.env').stat().st_mode & 0o777 == 0o600
-        if provider == 'codex':
-            _, login = fake_claude(tmp_path, monkeypatch);login.touch()
-            agent.install(root, non_interactive=True, provider='claude')
-            config = json.loads(config_path.read_text())
-            assert config['provider'] == 'claude'
-            assert agent.control(config, 'status')['online']
-            assert json.loads((state/'installation.json').read_text()) == original
-    finally:
-        if config:
-            agent.stop_service(config)
-    assert not agent.service_status(config).get('online')
-
 
 def test_gateway_reuse_never_sends_a_saved_credential_to_another_host(tmp_path):
     (tmp_path/'.research.env').write_text('ATI_CLOUD_GATEWAY_URL=https://research.example\n')
@@ -219,23 +179,6 @@ def test_gateway_reuse_never_sends_a_saved_credential_to_another_host(tmp_path):
         (tmp_path/'.research.env').unlink(missing_ok=True)
         with pytest.raises(ValueError):
             agent.gateway_url(tmp_path,value)
-
-
-def test_no_connect_retains_an_existing_agent_without_login_or_stop(tmp_path, monkeypatch):
-    home=tmp_path/'saved agent';home.mkdir()
-    (home/'service.json').write_text('{"fixture":"unchanged"}')
-    (tmp_path/'.agent.env').write_text('ATI_AGENT_HOME='+shlex.quote(str(home))+'\n')
-    monkeypatch.setattr(agent,'prepare_codex',lambda *a,**k:pytest.fail('login must not run'))
-    monkeypatch.setattr(agent,'stop_service',lambda *a:pytest.fail('existing process must not stop'))
-    agent.install(tmp_path,no_connect=True)
-    assert (home/'service.json').read_text()=='{"fixture":"unchanged"}'
-
-
-def test_skip_connection_does_not_prompt_for_codex_sign_in(tmp_path,monkeypatch):
-    binary,marker=fake_codex(tmp_path,monkeypatch)
-    assert agent.prepare_codex(True,require_login=False)==str(binary)
-    assert not marker.exists()
-
 
 @pytest.mark.parametrize('interactive',[False,True])
 def test_agent_only_bootstrap_update_preserves_other_components_without_docker(tmp_path,interactive):
@@ -264,33 +207,6 @@ def test_agent_only_bootstrap_update_preserves_other_components_without_docker(t
     assert (installed/'data/keep').read_text()=='fixture-data'
     assert 'saved agent' in (installed/'.agent.env').read_text()
 
-
-@pytest.mark.parametrize('platform,tool,manager',[('darwin','launchctl','launchd'),('linux','systemctl','systemd')])
-def test_native_user_startup_files_preserve_quoted_paths_and_private_config(tmp_path,monkeypatch,platform,tool,manager):
-    monkeypatch.setenv('HOME',str(tmp_path))
-    monkeypatch.setattr(agent.sys,'platform',platform)
-    monkeypatch.setattr(agent.shutil,'which',lambda name:'/fixture/'+tool if name==tool else None)
-    monkeypatch.setattr(agent.subprocess,'run',lambda *a,**k:type('Result',(),{'returncode':0})())
-    calls=[];monkeypatch.setattr(agent,'command',lambda args,**kw:calls.append(args))
-    config={'python':'/a space/python','runner':'/a space/service.py','socket':str(tmp_path/'not-running.sock'),
-      'controlToken':'synthetic-control-token','label':'com.broyustudio.synthetic-agent','path':'/a space/bin:/usr/bin',
-      'log':str(tmp_path/'agent.log'),'environment':{'CODEX_HOME':'/a space/user Codex'}}
-    path=tmp_path/'service.json';agent.start_service(config,path)
-    assert config['manager']==manager
-    assert Path(config['serviceFile']).stat().st_mode & 0o777==0o600
-    assert (tmp_path/'agent.log').stat().st_mode & 0o777==0o600
-    if manager=='launchd':
-        import plistlib
-        value=plistlib.loads(Path(config['serviceFile']).read_bytes())
-        assert value['ProgramArguments']==['/a space/python','/a space/service.py',str(path)]
-        assert value['EnvironmentVariables']['CODEX_HOME']=='/a space/user Codex'
-    else:
-        unit=Path(config['serviceFile']).read_text()
-        assert '"/a space/python" "/a space/service.py"' in unit
-        assert 'StandardOutput="file:' in unit
-        assert any(args[-2:]==['--now','com.broyustudio.synthetic-agent.service'] for args in calls)
-
-
 def test_setup_stops_before_any_install_when_saved_environment_conflicts(tmp_path):
     root=tmp_path/'installation'
     shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'))
@@ -304,70 +220,6 @@ def test_setup_stops_before_any_install_when_saved_environment_conflicts(tmp_pat
     assert 'should-not-run' not in result.stdout
     assert not (tmp_path/'one').exists()
     assert not (tmp_path/'two').exists()
-
-
-def test_missing_codex_is_installed_automatically_without_model_execution(tmp_path,monkeypatch):
-    monkeypatch.setenv('HOME',str(tmp_path))
-    monkeypatch.setattr(agent.shutil,'which',lambda _:None)
-    downloads=[]
-    def download(url,env=None):
-        downloads.append(url)
-        binary=tmp_path/'.local/bin/codex';binary.parent.mkdir(parents=True)
-        binary.write_text('#!/bin/sh\n[ "$1 $2" = "login status" ]\n');binary.chmod(0o755)
-    monkeypatch.setattr(agent,'download_script',download)
-    assert agent.prepare_codex(True)==str(tmp_path/'.local/bin/codex')
-    assert downloads==['https://chatgpt.com/codex/install.sh']
-
-
-def test_missing_python_is_prepared_automatically_with_private_uv(tmp_path,monkeypatch):
-    monkeypatch.delenv('ATI_AGENT_PYTHON',raising=False)
-    monkeypatch.setattr(agent.shutil,'which',lambda _:None)
-    monkeypatch.setattr(agent,'python_supported',lambda p:p==tmp_path/'venv/bin/python')
-    downloads=[];calls=[]
-    monkeypatch.setattr(agent,'download_script',lambda url,env:downloads.append((url,env)))
-    monkeypatch.setattr(agent,'command',lambda args:calls.append(args))
-    assert agent.prepare_python(tmp_path)==tmp_path/'venv/bin/python'
-    assert downloads[0][0]=='https://astral.sh/uv/install.sh'
-    assert downloads[0][1]['UV_UNMANAGED_INSTALL']==str(tmp_path/'tools')
-    assert calls==[[str(tmp_path/'tools/uv'),'venv','--python','3.11','--seed',tmp_path/'venv']]
-
-
-def test_rejected_agent_stops_without_changing_shared_trading_grants(tmp_path,fixture_gateway,packaged_runtime):
-    gateway,paths=fixture_gateway
-    state=tmp_path/'identity';state.mkdir()
-    (state/'installation.json').write_text(json.dumps({'credential':'synthetic-connector-credential',
-        'installId':'synthetic-install','proof':'synthetic-proof','fingerprint':'synthetic-fingerprint',
-        'environmentId':'synthetic-environment'}))
-    trading=state/'trading';trading.mkdir()
-    grant=trading/'runtime-grant.json';grant.write_text('{"synthetic":"unchanged"}')
-    config={'python':sys.executable,'gateway':gateway+'/reject','stateDir':str(state),
-        'socket':'/tmp/ati-test-'+__import__('hashlib').sha256(str(tmp_path).encode()).hexdigest()[:16]+'.sock','controlToken':'synthetic-control-token'}
-    file=tmp_path/'service.json';file.write_text(json.dumps(config))
-    result=subprocess.run([sys.executable,str(ROOT/'scripts/agent_service.py'),str(file)],
-        capture_output=True,text=True,timeout=10,env={**os.environ,
-        'PYTHONPATH':str(packaged_runtime)})
-    assert result.returncode==1
-    assert grant.read_text()=='{"synthetic":"unchanged"}'
-    assert paths==['/reject/cloud/local-execution/heartbeat'],result.stderr
-    assert not Path(config['socket']).exists()
-
-
-def test_research_and_agent_selection_dispatches_both_without_trading(tmp_path):
-    root=tmp_path/'installation'
-    shutil.copytree(ROOT,root,ignore=shutil.ignore_patterns('.git','*.env','__pycache__','.pytest_cache','data','logs'))
-    binary=tmp_path/'bin';binary.mkdir();log=tmp_path/'calls'
-    docker=binary/'docker';docker.write_text('#!/bin/sh\necho "docker $*" >> "$CALLS"\n');docker.chmod(0o755)
-    for filename,component in [('install_local_tools.sh','tools'),('install_research.sh','research'),('install_agent.sh','agent')]:
-        (root/'scripts'/filename).write_text('#!/bin/sh\necho "'+component+' $*" >> "$CALLS"\n')
-    result=subprocess.run(['bash',str(root/'setup_and_run.sh'),'--components','research,agent','--non-interactive'],
-        capture_output=True,text=True,timeout=15,env={**os.environ,'PATH':str(binary)+os.pathsep+os.environ['PATH'],
-        'CALLS':str(log),'ATI_ENVIRONMENT_DIR':str(tmp_path/'identity')})
-    assert result.returncode==0,result.stdout+result.stderr
-    assert log.read_text().splitlines()==['docker compose version','docker info','tools install','research install','agent install --non-interactive']
-    assert (root/'.components.env').read_text()=='ATI_INSTALLED_COMPONENTS=research,agent\n'
-    assert not (root/'.env').exists()
-    assert not (tmp_path/'identity/trading-enabled').exists()
-
 
 def test_docker_identity_access_never_changes_an_unrelated_directory(tmp_path,monkeypatch):
     monkeypatch.setenv('SUDO_UID',str(os.getuid()))
@@ -383,20 +235,6 @@ def test_docker_identity_access_never_changes_an_unrelated_directory(tmp_path,mo
     (tmp_path/'installation.json').symlink_to(tmp_path/'elsewhere')
     with pytest.raises(ValueError,match='No existing connector identity'):
         agent.restore_identity_owner(tmp_path)
-
-
-def test_shell_can_prepare_python_before_any_python_is_available(tmp_path):
-    binary=tmp_path/'bin';binary.mkdir();log=tmp_path/'uv-calls'
-    missing=binary/'python3';missing.write_text('#!/bin/sh\nexit 1\n');missing.chmod(0o755)
-    uv=binary/'uv'
-    uv.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$UV_CALLS"\nfor target do :; done\nmkdir -p "$target/bin"\nprintf "#!/bin/sh\\nexit 0\\n" > "$target/bin/python3"\nchmod +x "$target/bin/python3"\n');uv.chmod(0o755)
-    result=subprocess.run(['bash','-c','source "$1"\nati_ensure_installer_python\ncommand -v python3','fixture',str(ROOT/'scripts/installer_python.sh')],
-        capture_output=True,text=True,env={**os.environ,'PATH':str(binary)+os.pathsep+os.environ['PATH'],
-        'XDG_DATA_HOME':str(tmp_path/'user data'),'UV_CALLS':str(log)})
-    assert result.returncode==0,result.stderr
-    assert result.stdout.strip()==str(tmp_path/'user data/ati/installer-tools/python/bin/python3')
-    assert log.read_text().startswith('venv --python 3.11 --seed ')
-
 
 def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp_path):
     import hashlib
@@ -414,7 +252,6 @@ def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp
     (tmp_path/'agent-runtime'/wheel.name).write_bytes(b'corrupted synthetic wheel')
     with pytest.raises(ValueError,match='checksum mismatch'):
         agent.agent_package(tmp_path)
-
 
 @pytest.mark.parametrize('provider', ['codex', 'claude'])
 def test_packaged_client_executes_a_synthetic_task_through_lease_guard_and_fake_codex(tmp_path,packaged_runtime,provider):
@@ -444,47 +281,6 @@ asyncio.run(check())
         env={**os.environ,'PYTHONPATH':str(packaged_runtime),'PATH':str(binary)+os.pathsep+os.environ['PATH']})
     assert result.returncode==0,result.stdout+result.stderr
     assert 'PASS synthetic Agent task' in result.stdout
-
-
-def test_claude_login_is_reused_and_missing_login_is_guided(tmp_path, monkeypatch):
-    binary, marker = fake_claude(tmp_path, monkeypatch)
-    with pytest.raises(ValueError, match='Claude Code sign-in is required'):
-        agent.prepare_claude(True)
-    assert not marker.exists()
-    assert agent.prepare_claude(False) == str(binary)
-    assert marker.exists()
-    assert agent.prepare_claude(True) == str(binary)
-
-
-def test_claude_install_is_automatic_and_skip_connection_never_requests_login(tmp_path, monkeypatch):
-    monkeypatch.setenv('HOME', str(tmp_path))
-    monkeypatch.setattr(agent.shutil, 'which', lambda _: None)
-    downloads = []
-    def download(url, env=None, shell=None):
-        downloads.append((url, shell))
-        target = tmp_path/'.local/bin';target.mkdir(parents=True)
-        fake_claude(target, monkeypatch)
-    monkeypatch.setattr(agent, 'download_script', download)
-    assert agent.prepare_claude(True, require_login=False) == str(tmp_path/'.local/bin/claude')
-    assert downloads == [('https://claude.ai/install.sh', '/bin/bash')]
-    assert not (tmp_path/'.local/bin/claude-signed-in').exists()
-
-
-def test_provider_selection_preserves_existing_choice_and_validates_explicit_change(monkeypatch):
-    monkeypatch.delenv('ATI_AGENT_PROVIDER', raising=False)
-    assert agent.select_provider({}, non_interactive=True) == 'codex'
-    assert agent.select_provider({'ATI_AGENT_PROVIDER':'claude'}, non_interactive=True) == 'claude'
-    monkeypatch.setattr('builtins.input', lambda _: '')
-    assert agent.select_provider({'ATI_AGENT_PROVIDER':'claude'}) == 'claude'
-    monkeypatch.setattr('builtins.input', lambda _: '2')
-    assert agent.select_provider({}) == 'claude'
-    assert agent.select_provider({}, 'codex') == 'codex'
-    with pytest.raises(ValueError):
-        agent.select_provider({}, 'unknown')
-    with pytest.raises(ValueError):
-        adapter_module({'provider':'arbitrary.module'})
-    assert adapter_module({}).endswith('codex_agent_adapter')
-
 
 def test_claude_cli_selection_is_planned_without_side_effects_and_rejects_unknown_provider(tmp_path):
     for provider, expected in [('claude',0),('codex',0),('unknown',2)]:
