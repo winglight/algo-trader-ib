@@ -1,4 +1,4 @@
-# Algo Trader IB / Public Agent 说明
+# ATI交易系统 · 公开安装仓库 Agent 说明
 
 本仓库是根项目 `public/` 的真实独立仓库，主要保存公开安装、IB Gateway、运行配置与 SPEC 服务安装配置。
 
