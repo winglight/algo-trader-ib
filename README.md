@@ -345,9 +345,10 @@ agree that:
 ## Local runtime components
 
 ### Component modes
-`--components research|trading|all` (new default: all; upgrades preserve installed components).
+`--components research|trading|agent|all` also accepts comma-separated combinations. The new-install default is trading plus research, with Agent unselected; upgrades preserve installed components.
 - **research**: SDK-native offline `LOCAL_USER` replay tools **and** the isolated Studio native research connector. No trading services are installed. The connector requires Cloud environment binding; offline tools do not.
 - **trading**: existing trading services and the signed-grant TRADING connector, which does not claim research work.
+- **agent**: standalone Codex Agent, with automatic dependencies, environment discovery, sign-in guidance, Studio linking, and background startup. Trading, research, and Docker are not prerequisites.
 - **all**: both. A single RESEARCH connector owns the shared installation identity and existing trading grants; the verified prior TRADING connector is handed off, not run concurrently. Trading services, account settings and order history are not changed by that handoff.
 
 Installation never downloads market data or asks for provider API keys. The LTB dialog only shows local coverage and instructions; run the IB, Alpaca or Databento scripts yourself with your own terminal credentials and chosen symbol/timeframe lists. Headless users use the same scripts and Markdown guide.
@@ -367,3 +368,13 @@ Use **AI / MCP** in the local console to configure your own provider, connect an
 New installations complete local setup without opening Studio binding or starting a Cloud connector. The installer prints the optional **14-day free membership trial** invitation (eligible first link, no credits). Use `--studio-connect` to connect explicitly, or `--no-studio-connect` to retain existing connectors without changing them. By default, existing connector configuration preserves its original strict update path; a marker does not prove authorization or readiness.
 
 新安装默认不打开 Studio 绑定、不启动云连接器，先完成本地使用，并提示符合条件的账户首次绑定可获 **14 天免费会员试用，不附赠 credits**。需要连接时显式加 `--studio-connect`；`--no-studio-connect` 保留已有连接器且不修改。已有连接配置默认沿用原有严格更新流程，配置文件存在不代表授权或运行就绪。
+
+## Optional local Agent in the one-click installer
+
+Choose components at the same prompt: **1 trading**, **2 local backtesting**, **3 Local Agent (Codex)**. Enter `2` for research only, `3` for Agent only, `2,3` for research plus Agent, or `1,2,3` for all three. Research and Agent do not require trading; Agent-only does not require Docker. Agent is unselected by default.
+
+When selected, Agent setup prepares Python/Codex, reuses saved environment and login information, guides first-time browser authorization, and starts the connector in the background. A successful device heartbeat is required before reporting online. macOS uses a user LaunchAgent and supported Linux sessions use a systemd user service; other supported sessions use a managed background process and report that restart recovery uses the same installer.
+
+Existing installations keep their components on update. `--components agent` installs only Agent; combinations such as `research,agent` are accepted. Legacy `all` remains research plus trading; use `all,agent` for all three. `--no-studio-connect` explicitly skips connection and startup. No strategy or trading task is created by installation.
+
+After online confirmation, reopen Studio Execution settings and select Agent and research devices independently. See the [local setup guide](https://ati.broyustudio.com/local-runtime#local-environment-setup).

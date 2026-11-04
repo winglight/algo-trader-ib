@@ -275,9 +275,10 @@ installer 更新时会沿用当前 Redis 容器实际挂载的卷；不要执行
 
 
 ### 安装组件模式
-`--components research|trading|all`：首次默认全部安装，升级保留已有组件。
+`--components research|trading|agent|all`，也支持逗号分隔的组合。首次默认交易加回测、不选 Agent；升级保留已有组件。
 - **research**：SDK 原生离线 `LOCAL_USER` 回测工具，加上隔离的 Studio 原生研究 connector。不安装交易服务；connector 需要绑定 Cloud 环境，离线工具不需要。
 - **trading**：现有交易服务和只领取交易授权的 TRADING connector，不领取研究任务。
+- **agent**：独立安装 Codex Agent，自动准备依赖、识别环境目录、引导登录、连接 Studio 并在后台启动；不要求交易端、回测环境或 Docker。
 - **all**：两者都安装。由一个 RESEARCH connector 维护共享安装身份及原有交易授权；只有精确验证旧 TRADING connector 后才交接，不并行运行两个身份 writer。交接不改交易服务、账户设置或历史订单。
 
 安装流程不下载行情、不索取数据源 API key。LTB 弹窗只显示本地行情覆盖和使用说明；用户在终端提供自己的 key，选择 symbol/timeframe 列表，运行 IB、Alpaca 或 Databento 脚本。无页面的纯回测环境使用相同脚本和 Markdown 说明。
@@ -297,3 +298,15 @@ Use **AI / MCP** in the local console to configure your own provider, connect an
 New installations complete local setup without opening Studio binding or starting a Cloud connector. The installer prints the optional **14-day free membership trial** invitation (eligible first link, no credits). Use `--studio-connect` to connect explicitly, or `--no-studio-connect` to retain existing connectors without changing them. By default, existing connector configuration preserves its original strict update path; a marker does not prove authorization or readiness.
 
 新安装默认不打开 Studio 绑定、不启动云连接器，先完成本地使用，并提示符合条件的账户首次绑定可获 **14 天免费会员试用，不附赠 credits**。需要连接时显式加 `--studio-connect`；`--no-studio-connect` 保留已有连接器且不修改。已有连接配置默认沿用原有严格更新流程，配置文件存在不代表授权或运行就绪。
+
+## 一键安装器中的可选本地 Agent
+
+在同一个组件选择步骤中按需选择：**1 交易端、2 本地回测环境、3 本地 Agent（Codex）**。只装回测输入 `2`，只装 Agent 输入 `3`，回测加 Agent 输入 `2,3`，三项全装输入 `1,2,3`。回测与 Agent 均不依赖交易端；只装 Agent 也不需要 Docker。Agent 默认不选。
+
+选中 Agent 后，安装器自动准备 Python/Codex、识别环境目录、复用已有登录与绑定，并在后台启动。只有首次模型登录或设备绑定需要用户按浏览器提示确认。收到成功心跳后才报告上线，随后在 Studio 的执行设置中分别选择 Agent 和回测设备。
+
+macOS 使用用户 LaunchAgent，支持 systemd 用户服务的 Linux 使用用户服务；其他支持的会话使用后台进程，并明确提示系统重启后重新运行同一安装器恢复。
+
+升级保留原有组件。`--components agent` 仅安装 Agent，也支持 `research,agent` 等组合；旧的 `all` 仍指交易加回测，三项全选使用 `all,agent`。`--no-studio-connect` 显式跳过绑定和启动。安装不创建研究或交易任务。
+
+[完整安装说明](https://ati.broyustudio.com/local-runtime#local-environment-setup)。

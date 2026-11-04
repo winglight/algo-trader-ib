@@ -14,3 +14,8 @@ middle/data/
 __pycache__/
 
 .research.env
+
+.agent.env
+.components.env
+.local-tools.env
+.trading-connector.env

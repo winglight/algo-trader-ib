@@ -7,6 +7,32 @@ INSTALL_DIR="${ATI_INSTALL_DIR:-$HOME/ati-local-runtime}"
 NON_INTERACTIVE=0
 UPDATE_MODE=0
 REQUESTED_COMPONENTS=""
+# all keeps its original research + trading meaning; Agent is always opt-in.
+ati_normalize_components() {
+  local remaining="${1// /}" token research=0 trading=0 agent=0 result=''
+  [ -n "$remaining" ] || return 2
+  while :; do
+    token="${remaining%%,*}"
+    case "$token" in research) research=1 ;; trading) trading=1 ;; agent) agent=1 ;; all) research=1; trading=1 ;; *) echo 'Invalid components; select research, trading, agent, or a comma-separated combination.' >&2; return 2 ;; esac
+    [ "$remaining" != "$token" ] || break
+    remaining="${remaining#*,}"
+  done
+  if [ "$research" = 1 ] && [ "$trading" = 1 ]; then result=all
+  elif [ "$research" = 1 ]; then result=research
+  elif [ "$trading" = 1 ]; then result=trading
+  fi
+  if [ "$agent" = 1 ]; then result="${result:+$result,}agent"; fi
+  printf '%s\n' "$result"
+}
+ati_component_has() {
+  local normalized
+  normalized="$(ati_normalize_components "$1")" || return $?
+  case ",$normalized," in *",$2,"*) return 0 ;; esac
+  [ "$2" = agent ] && return 1
+  case ",$normalized," in *,all,*) return 0 ;; esac
+  return 1
+}
+
 expect_component=0
 for arg in "$@"; do
   if [ "$expect_component" = 1 ]; then REQUESTED_COMPONENTS="$arg"; expect_component=0; continue; fi
@@ -15,7 +41,7 @@ for arg in "$@"; do
   [ "$arg" = "--update" ] && UPDATE_MODE=1
 done
 [ "$expect_component" = 0 ] || { echo 'Missing --components value.' >&2; exit 2; }
-case "$REQUESTED_COMPONENTS" in ''|research|trading|all) ;; *) echo 'Invalid --components value.' >&2; exit 2 ;; esac
+if [ -n "$REQUESTED_COMPONENTS" ]; then REQUESTED_COMPONENTS="$(ati_normalize_components "$REQUESTED_COMPONENTS")" || exit 2; fi
 
 # Decide update scope from installed metadata before replacing any application
 # files. A research-only operation must not stop or query trading services.
@@ -23,16 +49,20 @@ resolve_update_components() {
   local previous=''
   if [ -f "$INSTALL_DIR/.components.env" ]; then
     previous="$(sed -n 's/^ATI_INSTALLED_COMPONENTS=//p' "$INSTALL_DIR/.components.env")"
-    case "$previous" in research|trading|all) ;; *) echo 'Invalid component metadata.' >&2; return 1 ;; esac
+    previous="$(ati_normalize_components "$previous")" || return 1
   elif [ -f "$INSTALL_DIR/.research.env" ] || [ -f "$INSTALL_DIR/.local-tools.env" ]; then
     previous=research
     [ ! -f "$INSTALL_DIR/.env" ] || previous=all
   elif [ -f "$INSTALL_DIR/.env" ]; then
     previous=trading
+  elif [ -f "$INSTALL_DIR/.agent.env" ]; then
+    previous=agent
   elif [ "$UPDATE_MODE" = 1 ] && [ -f "$INSTALL_DIR/docker-compose.yml" ] && [ -z "$REQUESTED_COMPONENTS" ]; then
     echo "Installed component scope is unknown; select --components explicitly. No service was stopped." >&2
     return 1
   fi
+  if [ -f "$INSTALL_DIR/.agent.env" ]; then previous="$(ati_normalize_components "${previous:+$previous,}agent")" || return 1; fi
+  PREVIOUS_COMPONENTS="$previous"
   UPDATE_COMPONENTS="${REQUESTED_COMPONENTS:-${previous:-all}}"
 }
 
@@ -312,7 +342,7 @@ quiesce_runtime_for_update() {
   ATI_UPDATE_PREVIOUS_SERVICES=''
   ATI_UPDATE_PREVIOUS_IB_SERVICE=''
   [ "$UPDATE_MODE" = "1" ] || return 0
-  [ "${UPDATE_COMPONENTS:-all}" != research ] || return 0
+  ati_component_has "${UPDATE_COMPONENTS:-all}" trading || return 0
   if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
     ATI_UPDATE_PREVIOUS_SERVICES="$(cd "$INSTALL_DIR" && docker compose -f docker-compose.yml ps --status running --services)" || return 1
     (cd "$INSTALL_DIR" && docker compose -f docker-compose.yml down) || return 1
@@ -408,7 +438,7 @@ rollback_install_dir() {
 resume_runtime_after_failed_update() {
   local service
   [ "$UPDATE_MODE" = 1 ] || return 0
-  [ "${UPDATE_COMPONENTS:-all}" != research ] || return 0
+  ati_component_has "${UPDATE_COMPONENTS:-all}" trading || return 0
   if [ -n "${ATI_UPDATE_PREVIOUS_IB_SERVICE:-}" ]; then
     if [ -f "${INSTALL_DIR}/middle/.env" ]; then
       docker compose --env-file "${INSTALL_DIR}/middle/.env" -f "${INSTALL_DIR}/middle/docker-compose.yml" \
@@ -464,7 +494,7 @@ download_with_zip() {
     echo "Unable to locate downloaded installer files." >&2
     exit 1
   fi
-  if [ "$UPDATE_MODE" = "1" ] && [ "$UPDATE_COMPONENTS" != research ]; then
+  if [ "$UPDATE_MODE" = "1" ] && ati_component_has "$UPDATE_COMPONENTS" trading; then
     # Prefer the installed guard so an older downloaded archive cannot remove
     # its own downgrade check before the current protection is stopped.
     guard_dir="${INSTALL_DIR}/scripts"
@@ -489,6 +519,27 @@ download_with_zip() {
 prompt_install_dir
 validate_install_dir
 resolve_update_components
+# The same one-click command can add an optional component to a recognized
+# installation. Existing update confirmation remains mandatory before replacement.
+if [ "$UPDATE_MODE" = 0 ] && [ "$NON_INTERACTIVE" = 0 ] && [ -n "$PREVIOUS_COMPONENTS" ] && [ -f "$INSTALL_DIR/setup_and_run.sh" ]; then
+  UPDATE_MODE=1
+  set -- "$@" --update
+fi
+# Resolve selection before any update can stop trading services. The downloaded
+# setup receives this selection and does not ask the same question again.
+if [ "$UPDATE_MODE" = 1 ] && [ "$NON_INTERACTIVE" = 0 ] && [ -z "$REQUESTED_COMPONENTS" ] && [ -n "$PREVIOUS_COMPONENTS" ]; then
+  defaults="$(printf '%s' "$UPDATE_COMPONENTS" | sed -e 's/all/1,2/g' -e 's/trading/1/g' -e 's/research/2/g' -e 's/agent/3/g')"
+  echo 'Choose components / 选择安装组件（可单独安装，也可多选；未选的已有组件予以保留）:'
+  echo '  1) ATI交易系统交易端 / Trading console'
+  echo '  2) 本地回测环境 / Local backtesting'
+  echo '  3) 本地 Agent (Codex；自动安装、登录引导、连接与后台启动)'
+  printf 'Enter numbers separated by commas / 输入编号，逗号分隔 [%s]: ' "$defaults"
+  read -r choice
+  choice="${choice:-$defaults}"
+  choice="${choice//1/trading}"; choice="${choice//2/research}"; choice="${choice//3/agent}"
+  UPDATE_COMPONENTS="$(ati_normalize_components "$choice")" || exit 2
+  set -- "$@" --components "$UPDATE_COMPONENTS"
+fi
 mkdir -p "$(dirname "$INSTALL_DIR")"
 
 if ! has_cmd curl; then
@@ -496,7 +547,7 @@ if ! has_cmd curl; then
   exit 1
 fi
 ensure_unzip
-if [ "$UPDATE_MODE" = 1 ] && [ "$UPDATE_COMPONENTS" != research ]; then
+if [ "$UPDATE_MODE" = 1 ] && ati_component_has "$UPDATE_COMPONENTS" trading; then
   check_update_storage "$INSTALL_DIR"
 fi
 download_with_zip

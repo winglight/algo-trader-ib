@@ -39,6 +39,7 @@ trap finish_install EXIT
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIDDLE_DIR="${ROOT_DIR}/middle"
+ATI_REQUESTED_ENVIRONMENT_DIR="${ATI_ENVIRONMENT_DIR:-}"
 export ATI_ENVIRONMENT_DIR="${ATI_ENVIRONMENT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ati/environment}"
 APP_URL="${ATI_APP_URL:-}"
 ADAPTERS_REPOSITORY="${ATI_ADAPTERS_REPOSITORY:-winglight/algo-trader-broker-adapters}"
@@ -83,7 +84,9 @@ usage() {
   cat <<'EOF'
 Usage: setup_and_run.sh [options]
 
-  --components research|trading|all  New install default: all; updates preserve existing components.
+  --components research|trading|agent|research,agent|trading,agent|all|all,agent
+                                    Agent is optional; all retains research + trading.
+                                    New install default: all; updates preserve components.
   --studio-connect                 Explicitly connect Studio after local installation.
   --no-studio-connect              Skip connector changes; retain any installed connector.
   --non-interactive
@@ -692,13 +695,19 @@ backup_database_for_update() {
 
 if [ -z "$COMPONENTS" ]; then
   COMPONENTS="${PREVIOUS_COMPONENTS:-all}"
-  if [ "$NON_INTERACTIVE" = 0 ] && [ -z "$PREVIOUS_COMPONENTS" ]; then
-    printf 'Install components / 安装组件: 1) research / 本地离线回测工具  2) trading / 仅交易  3) all / 全部 [3]: '
+  if [ "$NON_INTERACTIVE" = 0 ]; then
+    defaults="$(printf '%s' "$COMPONENTS" | sed -e 's/all/1,2/g' -e 's/trading/1/g' -e 's/research/2/g' -e 's/agent/3/g')"
+    echo 'Choose components / 选择安装组件（可单独安装，也可多选）:'
+    echo '  1) ATI交易系统交易端 / Trading console'
+    echo '  2) 本地回测环境 / Local backtesting'
+    echo '  3) 本地 Agent (Codex；自动安装、登录引导、连接与后台启动)'
+    printf 'Enter numbers separated by commas / 输入编号，逗号分隔 [%s]: ' "$defaults"
     read -r choice
-    case "${choice:-3}" in 1|research) COMPONENTS=research ;; 2|trading) COMPONENTS=trading ;; 3|all) COMPONENTS=all ;; *) echo 'Invalid component selection.' >&2; exit 2 ;; esac
+    choice="${choice:-$defaults}"
+    COMPONENTS="${choice//1/trading}"; COMPONENTS="${COMPONENTS//2/research}"; COMPONENTS="${COMPONENTS//3/agent}"
   fi
 fi
-case "$COMPONENTS" in research|trading|all) ;; *) echo 'Invalid --components; use research, trading or all.' >&2; exit 2 ;; esac
+COMPONENTS="$(ati_normalize_components "$COMPONENTS")" || exit 2
 echo "Selected components: $COMPONENTS (previous: ${PREVIOUS_COMPONENTS:-none}). Existing other components are retained, not stopped or removed."
 if [ "$DRY_RUN" = 1 ]; then
   echo 'Component plan only: no configuration, credentials, image downloads or containers changed.'
@@ -707,13 +716,43 @@ fi
 if [ "$UPDATE_MODE" = 1 ] && [ "$NON_INTERACTIVE" = 1 ] && [ "${ATI_ALLOW_UPDATE:-0}" != 1 ]; then
   echo 'Non-interactive update requires ATI_ALLOW_UPDATE=1.' >&2; exit 1
 fi
-ensure_docker
-if [ "$COMPONENTS" = research ]; then
-  bash "$ROOT_DIR/scripts/install_local_tools.sh" install
-  ati_record_component "$ROOT_DIR" research "$PREVIOUS_COMPONENTS"
-  ati_install_studio_connectors "$ROOT_DIR" research "$STUDIO_CONNECT"
+# Resolve an existing shared identity before starting any selected component.
+source "$ROOT_DIR/scripts/installer_python.sh"
+ati_ensure_installer_python
+ATI_ENVIRONMENT_DIR="$(python3 "$ROOT_DIR/scripts/agent_installation.py" environment --root "$ROOT_DIR" --requested-state "$ATI_REQUESTED_ENVIRONMENT_DIR")"
+export ATI_ENVIRONMENT_DIR
+ATI_CLOUD_GATEWAY_URL="$(python3 "$ROOT_DIR/scripts/agent_installation.py" gateway --root "$ROOT_DIR")"
+export ATI_CLOUD_GATEWAY_URL
+# One component selection is enough to request Agent setup and its Studio link.
+if [ "$STUDIO_CONNECT" = auto ] && ati_component_has "$COMPONENTS" agent; then STUDIO_CONNECT=1; fi
+if [ "$STUDIO_CONNECT" = auto ] && [ "$NON_INTERACTIVE" = 0 ] && ati_component_has "$COMPONENTS" research; then
+  printf 'Connect local backtesting to Studio / 连接 Studio 用于网页回测? [y/N]: '
+  read -r connect_choice
+  case "$connect_choice" in y|Y|yes|YES) STUDIO_CONNECT=1 ;; ''|n|N|no|NO) STUDIO_CONNECT=0 ;; *) echo 'Invalid Studio connection selection.' >&2; exit 2 ;; esac
+fi
+install_selected_agent() {
+  if ati_component_has "$COMPONENTS" agent; then
+    local agent_args=(install)
+    [ "$STUDIO_CONNECT" != 0 ] || agent_args+=(--no-connect)
+    [ "$NON_INTERACTIVE" = 0 ] || agent_args+=(--non-interactive)
+    bash "$ROOT_DIR/scripts/install_agent.sh" "${agent_args[@]}"
+    ati_record_component "$ROOT_DIR" agent "$(ati_detect_components "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR")"
+  fi
+}
+if ! ati_component_has "$COMPONENTS" trading; then
+  if ati_component_has "$COMPONENTS" research; then
+    ensure_docker
+    bash "$ROOT_DIR/scripts/install_local_tools.sh" install
+    ati_record_component "$ROOT_DIR" research "$PREVIOUS_COMPONENTS"
+    # Selecting research + Agent makes the shared Studio connection explicit.
+    research_connect="$STUDIO_CONNECT"
+    if [ "$research_connect" = auto ] && ati_component_has "$COMPONENTS" agent; then research_connect=1; fi
+    ati_install_studio_connectors "$ROOT_DIR" research "$research_connect"
+  fi
+  install_selected_agent
   exit 0
 fi
+ensure_docker
 if [ "$UPDATE_MODE" = 1 ]; then check_update_storage "$ROOT_DIR"; fi
 mkdir -p "$ATI_ENVIRONMENT_DIR/trading"
 touch "$ATI_ENVIRONMENT_DIR/trading-enabled"
@@ -1180,13 +1219,14 @@ fi
 rm -rf "$BACKUP_DIR"
 ati_record_component "$ROOT_DIR" trading "$PREVIOUS_COMPONENTS"
 # Complete independent offline tools even when an old Cloud connector needs review.
-if [ "$COMPONENTS" = all ]; then
+if ati_component_has "$COMPONENTS" research; then
   bash "$ROOT_DIR/scripts/install_local_tools.sh" install
-  ati_record_component "$ROOT_DIR" research trading
+  ati_record_component "$ROOT_DIR" research "$(ati_detect_components "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR")"
 fi
 # Fresh local use completes without binding. Explicitly requested or previously
 # configured connectors retain their strict signed-grant/identity update protocol.
 ati_install_studio_connectors "$ROOT_DIR" "$COMPONENTS" "$STUDIO_CONNECT"
+install_selected_agent
 
 if wait_for_http "$APP_URL" 90; then open_browser; fi
 echo "Done. Open ${APP_URL} and log in with:"
