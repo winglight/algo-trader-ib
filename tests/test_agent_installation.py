@@ -16,6 +16,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import agent_installation as agent
+from agent_service import adapter_module
 
 
 @pytest.fixture
@@ -58,6 +59,16 @@ def fake_codex(tmp_path, monkeypatch):
     monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
     marker = tmp_path / 'signed-in'
     monkeypatch.setenv('FAKE_CODEX_LOGIN', str(marker))
+    return binary, marker
+
+
+def fake_claude(tmp_path, monkeypatch):
+    binary = tmp_path / 'claude'
+    binary.write_text('#!' + sys.executable + '\nimport os,sys\nfrom pathlib import Path\nif sys.argv[1:]==["--help"]:print("--safe-mode --tools --strict-mcp-config --no-session-persistence --input-format --output-format");raise SystemExit(0)\np=Path(os.environ["FAKE_CLAUDE_LOGIN"])\nif sys.argv[1:]==["auth","status"]:raise SystemExit(0 if p.exists() else 1)\nif sys.argv[1:]==["auth","login"]:p.touch();raise SystemExit(0)\nraise SystemExit("Unexpected model call in installer fixture")\n')
+    binary.chmod(0o755)
+    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
+    marker = tmp_path / 'claude-signed-in'
+    monkeypatch.setenv('FAKE_CLAUDE_LOGIN', str(marker))
     return binary, marker
 
 
@@ -142,7 +153,8 @@ def fixture_gateway():
         server.shutdown();server.server_close();thread.join()
 
 
-def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_path, monkeypatch, fixture_gateway, packaged_runtime):
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_path, monkeypatch, fixture_gateway, packaged_runtime, provider):
     gateway, paths = fixture_gateway
     root = tmp_path / 'installation'; (root / 'scripts').mkdir(parents=True)
     shutil.copy(ROOT / 'scripts/agent_service.py', root / 'scripts/agent_service.py')
@@ -152,7 +164,7 @@ def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_p
                 'fingerprint':'synthetic-fingerprint','environmentId':'synthetic-environment'}
     (state / 'installation.json').write_text(json.dumps(original))
     (root / '.research.env').write_text('ATI_ENVIRONMENT_DIR=' + shlex.quote(str(state)) + '\n')
-    codex, marker = fake_codex(tmp_path, monkeypatch);marker.touch()
+    cli, marker = (fake_claude if provider == 'claude' else fake_codex)(tmp_path, monkeypatch);marker.touch()
     monkeypatch.setenv('ATI_AGENT_HOME', str(tmp_path / 'agent home'))
     monkeypatch.setenv('ATI_CLOUD_GATEWAY_URL', gateway)
     monkeypatch.delenv('ATI_ENVIRONMENT_DIR', raising=False)
@@ -168,11 +180,14 @@ def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_p
     monkeypatch.setattr(agent,'command',command)
     config = None
     try:
-        agent.install(root, non_interactive=True)
+        agent.install(root, non_interactive=True, provider=provider)
         config_path = tmp_path / 'agent home/service.json'
         config = json.loads(config_path.read_text())
         first = agent.control(config,'status')
         assert first['online'] is True
+        assert config['provider'] == provider
+        assert agent.saved(root/'.agent.env')['ATI_AGENT_PROVIDER'] == provider
+        assert adapter_module(config).endswith(provider + '_agent_adapter')
         agent.start_service(config, config_path)
         assert agent.control(config,'status')['pid'] == first['pid']
         assert json.loads((state/'installation.json').read_text()) == original
@@ -181,6 +196,13 @@ def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_p
         assert not (state / 'trading').exists()
         assert config_path.stat().st_mode & 0o777 == 0o600
         assert (root/'.agent.env').stat().st_mode & 0o777 == 0o600
+        if provider == 'codex':
+            _, login = fake_claude(tmp_path, monkeypatch);login.touch()
+            agent.install(root, non_interactive=True, provider='claude')
+            config = json.loads(config_path.read_text())
+            assert config['provider'] == 'claude'
+            assert agent.control(config, 'status')['online']
+            assert json.loads((state/'installation.json').read_text()) == original
     finally:
         if config:
             agent.stop_service(config)
@@ -383,7 +405,7 @@ def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp
     wheel=Path(agent.agent_package(ROOT))
     with zipfile.ZipFile(wheel) as archive:
         source_names={name for name in archive.namelist() if name.endswith('.py')}
-        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py','worker_orchestrator/local_task_process.py'}
+        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py','worker_orchestrator/claude_agent_adapter.py','worker_orchestrator/local_task_process.py'}
         for source in manifest['sources']:
             name=source['path'].removeprefix('src/')
             assert hashlib.sha256(archive.read(name)).hexdigest()==source['sha256']
@@ -394,26 +416,86 @@ def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp
         agent.agent_package(tmp_path)
 
 
-def test_packaged_client_executes_a_synthetic_task_through_lease_guard_and_fake_codex(tmp_path,packaged_runtime):
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+def test_packaged_client_executes_a_synthetic_task_through_lease_guard_and_fake_codex(tmp_path,packaged_runtime,provider):
     binary=tmp_path/'bin';binary.mkdir()
-    codex=binary/'codex'
-    codex.write_text('#!'+sys.executable+'\nimport sys\nfrom pathlib import Path\nassert sys.argv[1]=="exec"\nassert sys.argv[sys.argv.index("--sandbox")+1]=="read-only"\nassert "synthetic fixture prompt" in sys.stdin.read()\nPath(sys.argv[sys.argv.index("--output-last-message")+1]).write_text(\'{"fixture":"completed"}\')\n')
-    codex.chmod(0o755)
+    cli=binary/provider
+    if provider=='codex':
+        cli.write_text('#!'+sys.executable+'\nimport sys\nfrom pathlib import Path\nassert sys.argv[1]=="exec"\nassert sys.argv[sys.argv.index("--sandbox")+1]=="read-only"\nassert "synthetic fixture prompt" in sys.stdin.read()\nPath(sys.argv[sys.argv.index("--output-last-message")+1]).write_text(\'{"fixture":"completed"}\')\n')
+    else:
+        cli.write_text('#!'+sys.executable+'\nimport sys,json\nassert "--safe-mode" in sys.argv and "--bare" not in sys.argv\nassert sys.argv[sys.argv.index("--tools")+1]==""\nassert "--strict-mcp-config" in sys.argv and "--no-session-persistence" in sys.argv\nmessage=json.load(sys.stdin)\nassert message["type"]=="user"\nassert "synthetic fixture prompt" in message["message"]["content"][0]["text"]\nprint(json.dumps({"type":"result","subtype":"success","is_error":False,"result":\'{"fixture":"completed"}\'}))\n')
+    cli.chmod(0o755)
     script='''import asyncio,hashlib,json,sys,time
 from worker_orchestrator.local_connector import Connector
 async def check():
-    connector=Connector('http://127.0.0.1:1',sys.argv[1],component='AGENT',agent_command=[sys.executable,'-m','worker_orchestrator.codex_agent_adapter'])
+    connector=Connector('http://127.0.0.1:1',sys.argv[1],component='AGENT',agent_command=[sys.executable,'-m','worker_orchestrator.'+sys.argv[2]+'_agent_adapter'])
     packet={'prompt':'synthetic fixture prompt','variables':{}}
     task={'taskId':'synthetic-task','attempt':1,'kind':'AI','leaseExpiresAt':time.time()+30,'packet':packet,'packetHash':hashlib.sha256(json.dumps(packet,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
     try:
         result=await connector.execute(task)
         assert result['json_payload']=={'fixture':'completed'},result
+        assert result['model']=='user-'+sys.argv[2],result
         print('PASS synthetic Agent task: native lease guard → adapter → fake Codex → structured result')
     finally:
         await connector.http.aclose()
 asyncio.run(check())
 '''
-    result=subprocess.run([sys.executable,'-c',script,str(tmp_path/'synthetic-identity')],capture_output=True,text=True,timeout=15,
+    result=subprocess.run([sys.executable,'-c',script,str(tmp_path/'synthetic-identity'),provider],capture_output=True,text=True,timeout=15,
         env={**os.environ,'PYTHONPATH':str(packaged_runtime),'PATH':str(binary)+os.pathsep+os.environ['PATH']})
     assert result.returncode==0,result.stdout+result.stderr
     assert 'PASS synthetic Agent task' in result.stdout
+
+
+def test_claude_login_is_reused_and_missing_login_is_guided(tmp_path, monkeypatch):
+    binary, marker = fake_claude(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match='Claude Code sign-in is required'):
+        agent.prepare_claude(True)
+    assert not marker.exists()
+    assert agent.prepare_claude(False) == str(binary)
+    assert marker.exists()
+    assert agent.prepare_claude(True) == str(binary)
+
+
+def test_claude_install_is_automatic_and_skip_connection_never_requests_login(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setattr(agent.shutil, 'which', lambda _: None)
+    downloads = []
+    def download(url, env=None, shell=None):
+        downloads.append((url, shell))
+        target = tmp_path/'.local/bin';target.mkdir(parents=True)
+        fake_claude(target, monkeypatch)
+    monkeypatch.setattr(agent, 'download_script', download)
+    assert agent.prepare_claude(True, require_login=False) == str(tmp_path/'.local/bin/claude')
+    assert downloads == [('https://claude.ai/install.sh', '/bin/bash')]
+    assert not (tmp_path/'.local/bin/claude-signed-in').exists()
+
+
+def test_provider_selection_preserves_existing_choice_and_validates_explicit_change(monkeypatch):
+    monkeypatch.delenv('ATI_AGENT_PROVIDER', raising=False)
+    assert agent.select_provider({}, non_interactive=True) == 'codex'
+    assert agent.select_provider({'ATI_AGENT_PROVIDER':'claude'}, non_interactive=True) == 'claude'
+    monkeypatch.setattr('builtins.input', lambda _: '')
+    assert agent.select_provider({'ATI_AGENT_PROVIDER':'claude'}) == 'claude'
+    monkeypatch.setattr('builtins.input', lambda _: '2')
+    assert agent.select_provider({}) == 'claude'
+    assert agent.select_provider({}, 'codex') == 'codex'
+    with pytest.raises(ValueError):
+        agent.select_provider({}, 'unknown')
+    with pytest.raises(ValueError):
+        adapter_module({'provider':'arbitrary.module'})
+    assert adapter_module({}).endswith('codex_agent_adapter')
+
+
+def test_claude_cli_selection_is_planned_without_side_effects_and_rejects_unknown_provider(tmp_path):
+    for provider, expected in [('claude',0),('codex',0),('unknown',2)]:
+        result=subprocess.run(['bash',str(ROOT/'setup_and_run.sh'),'--components','agent','--agent-provider',provider,'--non-interactive','--dry-run'],
+            capture_output=True,text=True,env={**os.environ,'ATI_ENVIRONMENT_DIR':str(tmp_path/'not-created')})
+        assert result.returncode==expected,result.stdout+result.stderr
+        if not expected:
+            assert 'Selected Agent provider: '+provider in result.stdout
+        assert not (tmp_path/'not-created').exists()
+    for args in (['--agent-provider','unknown'],['--agent-provider']):
+        result=subprocess.run(['bash',str(ROOT/'scripts/install.sh'),'--non-interactive',*args],
+            capture_output=True,text=True,env={**os.environ,'ATI_INSTALL_DIR':str(tmp_path/'not-created')})
+        assert result.returncode==2
+        assert not (tmp_path/'not-created').exists()

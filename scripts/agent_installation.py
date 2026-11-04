@@ -36,7 +36,7 @@ def saved(path):
     result = {}
     for line in path.read_text().splitlines() if path.is_file() else []:
         key, sep, value = line.partition('=')
-        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME'}:
+        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER'}:
             continue
         parts = shlex.split(value)
         if len(parts) != 1 or key in result or any(c in parts[0] for c in ('\0', '\n', '\r')):
@@ -138,11 +138,11 @@ def command(args, **kwargs):
     subprocess.run([str(x) for x in args], check=True, **kwargs)
 
 
-def download_script(url, env=None):
+def download_script(url, env=None, shell='/bin/sh'):
     with tempfile.TemporaryDirectory(prefix='ati-agent-download-') as directory:
         target = Path(directory) / 'install.sh'
         command(['curl', '-fsSL', url, '-o', target])
-        command(['/bin/sh', target], env=env)
+        command([shell, target], env=env)
 
 
 def python_supported(path):
@@ -177,7 +177,7 @@ def prepare_python(home):
     return python
 
 
-def prepare_codex(non_interactive, require_login=True):
+def prepare_codex(non_interactive, require_login=True, env=None):
     codex = shutil.which('codex')
     if not codex:
         for candidate in (Path.home() / '.local/bin/codex', Path.home() / '.cargo/bin/codex'):
@@ -186,7 +186,7 @@ def prepare_codex(non_interactive, require_login=True):
                 break
     if not codex:
         print('Installing Codex CLI / 正在安装 Codex CLI…', flush=True)
-        download_script('https://chatgpt.com/codex/install.sh')
+        download_script('https://chatgpt.com/codex/install.sh', env=env)
         codex = shutil.which('codex')
         if not codex:
             codex = next((str(p) for p in (Path.home() / '.local/bin/codex', Path.home() / '.cargo/bin/codex')
@@ -195,14 +195,53 @@ def prepare_codex(non_interactive, require_login=True):
         raise ValueError('Codex installation did not provide a runnable CLI')
     if not require_login:
         return str(Path(codex).absolute())
-    status = subprocess.run([codex, 'login', 'status'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    status = subprocess.run([codex, 'login', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if status.returncode:
         if non_interactive:
             raise ValueError('Codex sign-in is required. Rerun the one-click installer interactively; no Agent was started')
         print('Sign in to Codex in the browser / 请按浏览器提示登录自己的 Codex 账号。', flush=True)
-        command([codex, 'login'])
-        command([codex, 'login', 'status'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        command([codex, 'login'], env=env)
+        command([codex, 'login', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return str(Path(codex).absolute())
+
+
+def select_provider(prior, requested=None, non_interactive=False):
+    selected = requested or os.environ.get('ATI_AGENT_PROVIDER') or prior.get('ATI_AGENT_PROVIDER', 'codex')
+    if selected not in {'codex', 'claude'}:
+        raise ValueError('Agent provider must be codex or claude')
+    if not requested and not os.environ.get('ATI_AGENT_PROVIDER') and not non_interactive:
+        answer = input('Local Agent / 选择本地 Agent: 1) Codex  2) Claude Code [' + ('2' if selected == 'claude' else '1') + ']: ').strip()
+        selected = {'1': 'codex', '2': 'claude', 'codex': 'codex', 'claude': 'claude', '': selected}.get(answer)
+        if not selected:
+            raise ValueError('Invalid local Agent selection')
+    return selected
+
+
+def prepare_claude(non_interactive, require_login=True, env=None):
+    env = dict(os.environ if env is None else env)
+    candidate = Path.home() / '.local/bin/claude'
+    claude = shutil.which('claude') or (str(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else None)
+    required = ('--safe-mode', '--tools', '--strict-mcp-config', '--no-session-persistence', '--input-format', '--output-format')
+    def supported(binary):
+        if not binary:
+            return False
+        result = subprocess.run([binary, '--help'], env=env, capture_output=True, text=True)
+        return result.returncode == 0 and all(flag in result.stdout for flag in required)
+    if not supported(claude):
+        print('Installing/updating Claude Code / 正在安装或更新 Claude Code…', flush=True)
+        download_script('https://claude.ai/install.sh', env=env, shell='/bin/bash')
+        claude = str(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else shutil.which('claude')
+    if not supported(claude):
+        raise ValueError('Claude Code installation must support safe-mode and JSON print mode')
+    if require_login:
+        status = subprocess.run([claude, 'auth', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if status.returncode:
+            if non_interactive:
+                raise ValueError('Claude Code sign-in is required. Rerun the one-click installer interactively; no Agent was started')
+            print('Sign in to Claude Code in the browser / 请按浏览器提示登录自己的 Claude 账号。', flush=True)
+            command([claude, 'auth', 'login'], env=env)
+            command([claude, 'auth', 'status'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return str(Path(claude).absolute())
 
 
 def service_status(config):
@@ -266,7 +305,7 @@ def start_service(config, config_path):
     write(config_path, json.dumps(config))
 
 
-def install(root, non_interactive=False, no_connect=False):
+def install(root, non_interactive=False, no_connect=False, provider=None):
     prior = saved(root / '.agent.env')
     state = environment(root, os.environ.get('ATI_ENVIRONMENT_DIR', ''))
     gateway = gateway_url(root, os.environ.get('ATI_CLOUD_GATEWAY_URL', ''))
@@ -279,7 +318,13 @@ def install(root, non_interactive=False, no_connect=False):
     if no_connect and config_path.is_file():
         print('Existing Agent retained; connection and startup changes skipped / 保留已有 Agent，不更改连接或运行状态。')
         return
-    codex = prepare_codex(non_interactive, require_login=not no_connect)
+    selected = select_provider(prior, provider, non_interactive)
+    previous_config = json.loads(config_path.read_text()) if config_path.is_file() else {}
+    service_env = {key: os.environ.get(key, previous_config.get('environment', {}).get(key))
+                   for key in ('CODEX_HOME', 'CLAUDE_CONFIG_DIR')}
+    service_env = {key: value for key, value in service_env.items() if value is not None}
+    cli = (prepare_claude(non_interactive, require_login=not no_connect, env={**os.environ, **service_env})
+           if selected == 'claude' else prepare_codex(non_interactive, require_login=not no_connect, env={**os.environ, **service_env}))
     ensure_identity_access(state, root, non_interactive)
     lock = acquire(Path(state))
     try:
@@ -288,15 +333,15 @@ def install(root, non_interactive=False, no_connect=False):
         python = prepare_python(home)
         package = agent_package(root)
         command([python, '-m', 'pip', 'install', '--upgrade', package])
-        config = {'python': str(python), 'runner': str(root / 'scripts/agent_service.py'), 'gateway': gateway,
+        config = {'python': str(python), 'runner': str(root / 'scripts/agent_service.py'), 'gateway': gateway, 'provider': selected,
                   'stateDir': state, 'label': 'com.broyustudio.ati-agent.' + key,
                   'socket': '/tmp/ati-agent-' + str(os.getuid()) + '-' + key + '.sock',
                   'controlToken': secrets.token_urlsafe(32), 'log': str(home / 'agent.log'),
-                  'environment': {k: os.environ[k] for k in ('CODEX_HOME',) if k in os.environ},
-                  'path': str(Path(codex).parent) + os.pathsep + os.environ.get('PATH', '/usr/bin:/bin')}
+                  'environment': service_env,
+                  'path': str(Path(cli).parent) + os.pathsep + os.environ.get('PATH', '/usr/bin:/bin')}
         write(config_path, json.dumps(config))
         write(root / '.agent.env', ''.join(k + '=' + shlex.quote(v) + '\n' for k, v in {
-              'ATI_ENVIRONMENT_DIR': state, 'ATI_CLOUD_GATEWAY_URL': gateway, 'ATI_AGENT_HOME': str(home)}.items()))
+              'ATI_ENVIRONMENT_DIR': state, 'ATI_CLOUD_GATEWAY_URL': gateway, 'ATI_AGENT_HOME': str(home), 'ATI_AGENT_PROVIDER': selected}.items()))
         if no_connect:
             print('Agent installed; Studio linking and startup were explicitly skipped / 已安装，按所选选项跳过连接与启动。')
             return
@@ -310,6 +355,7 @@ def install(root, non_interactive=False, no_connect=False):
         if service_status(config).get('online'):
             print('Agent connected / 本地 Agent 已上线。回到 Studio → 执行设置，选择在线 Agent 设备。')
             print('Background mode / 后台运行方式: ' + config['manager'])
+            print('Local Agent / 本地 Agent: ' + selected)
             return
         time.sleep(0.2)
     raise ValueError('Agent installed but not online; background diagnostics: ' + config['log'] + '. Rerun the installer/status to recover; no online status was assumed')
@@ -322,6 +368,7 @@ def main():
     parser.add_argument('--requested-state', default='')
     parser.add_argument('--non-interactive', action='store_true')
     parser.add_argument('--no-connect', action='store_true')
+    parser.add_argument('--provider', choices=['codex', 'claude'])
     args = parser.parse_args()
     root = args.root.resolve()
     try:
@@ -337,7 +384,7 @@ def main():
             print(gateway_url(root, os.environ.get('ATI_CLOUD_GATEWAY_URL', '')))
             return 0
         if args.action in {'install', 'upgrade'}:
-            install(root, args.non_interactive, args.no_connect)
+            install(root, args.non_interactive, args.no_connect, args.provider)
             return 0
         prior = saved(root / '.agent.env')
         if not prior.get('ATI_AGENT_HOME'):

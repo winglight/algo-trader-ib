@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 
-FILES = ('local_connector.py', 'codex_agent_adapter.py', 'local_task_process.py')
+FILES = ('local_connector.py', 'codex_agent_adapter.py', 'claude_agent_adapter.py', 'local_task_process.py')
 DENIED = ('cloud_platform', 'cloud_common', 'agents_service', 'strategy_studio_service', 'ati_shared_sdk', 'ati_cloud_llm')
 
 
@@ -19,7 +19,7 @@ def build(source, output):
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     if subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain'], text=True).strip():
         raise ValueError('Agent client source must be committed and clean')
-    version = '0.1.1+' + revision[:12]
+    version = '0.2.0+' + revision[:12]
     dist = 'ati_local_agent_client-' + version + '.dist-info'
     files = {'worker_orchestrator/__init__.py': b'"""ATI outbound local Agent client; no server entrypoint."""\n'}
     inventory = []
@@ -34,7 +34,7 @@ def build(source, output):
                 raise ValueError('Private platform dependency in Agent client')
         files['worker_orchestrator/' + name] = content
         inventory.append({'path': 'src/worker_orchestrator/' + name, 'sha256': hashlib.sha256(content).hexdigest()})
-    files[dist + '/METADATA'] = ('Metadata-Version: 2.1\nName: ati-local-agent-client\nVersion: ' + version + '\nSummary: ATI outbound local Codex Agent client\nRequires-Python: >=3.11\nRequires-Dist: httpx>=0.27,<1\n\n').encode()
+    files[dist + '/METADATA'] = ('Metadata-Version: 2.1\nName: ati-local-agent-client\nVersion: ' + version + '\nSummary: ATI outbound local Codex and Claude Agent client\nRequires-Python: >=3.11\nRequires-Dist: httpx>=0.27,<1\n\n').encode()
     files[dist + '/WHEEL'] = b'Wheel-Version: 1.0\nGenerator: ati-agent-client\nRoot-Is-Purelib: true\nTag: py3-none-any\n'
     record = io.StringIO(newline='')
     writer = csv.writer(record, lineterminator='\n')

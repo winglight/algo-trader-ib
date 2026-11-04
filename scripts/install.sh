@@ -7,6 +7,7 @@ INSTALL_DIR="${ATI_INSTALL_DIR:-$HOME/ati-local-runtime}"
 NON_INTERACTIVE=0
 UPDATE_MODE=0
 REQUESTED_COMPONENTS=""
+REQUESTED_AGENT_PROVIDER=""
 # all keeps its original research + trading meaning; Agent is always opt-in.
 ati_normalize_components() {
   local remaining="${1// /}" token research=0 trading=0 agent=0 result=''
@@ -34,13 +35,18 @@ ati_component_has() {
 }
 
 expect_component=0
+expect_provider=0
 for arg in "$@"; do
   if [ "$expect_component" = 1 ]; then REQUESTED_COMPONENTS="$arg"; expect_component=0; continue; fi
+  if [ "$expect_provider" = 1 ]; then REQUESTED_AGENT_PROVIDER="$arg"; expect_provider=0; continue; fi
   [ "$arg" != "--components" ] || expect_component=1
+  [ "$arg" != "--agent-provider" ] || expect_provider=1
   [ "$arg" = "--non-interactive" ] && NON_INTERACTIVE=1
   [ "$arg" = "--update" ] && UPDATE_MODE=1
 done
 [ "$expect_component" = 0 ] || { echo 'Missing --components value.' >&2; exit 2; }
+[ "$expect_provider" = 0 ] || { echo 'Missing --agent-provider value.' >&2; exit 2; }
+case "$REQUESTED_AGENT_PROVIDER" in ''|codex|claude) ;; *) echo 'Invalid --agent-provider; use codex or claude.' >&2; exit 2 ;; esac
 if [ -n "$REQUESTED_COMPONENTS" ]; then REQUESTED_COMPONENTS="$(ati_normalize_components "$REQUESTED_COMPONENTS")" || exit 2; fi
 
 # Decide update scope from installed metadata before replacing any application
@@ -532,7 +538,7 @@ if [ "$UPDATE_MODE" = 1 ] && [ "$NON_INTERACTIVE" = 0 ] && [ -z "$REQUESTED_COMP
   echo 'Choose components / 选择安装组件（可单独安装，也可多选；未选的已有组件予以保留）:'
   echo '  1) ATI交易系统交易端 / Trading console'
   echo '  2) 本地回测环境 / Local backtesting'
-  echo '  3) 本地 Agent (Codex；自动安装、登录引导、连接与后台启动)'
+  echo '  3) 本地 Agent (Codex / Claude Code；自动安装、登录引导、连接与后台启动)'
   printf 'Enter numbers separated by commas / 输入编号，逗号分隔 [%s]: ' "$defaults"
   read -r choice
   choice="${choice:-$defaults}"

@@ -4,10 +4,18 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import importlib
 import signal
 import stat
 import sys
 import time
+
+
+def adapter_module(config):
+    provider = config.get('provider', 'codex')
+    if provider not in {'codex', 'claude'}:
+        raise ValueError('Invalid saved Agent provider')
+    return 'worker_orchestrator.' + provider + '_agent_adapter'
 
 
 def control(config, action, timeout=2):
@@ -31,7 +39,8 @@ def control(config, action, timeout=2):
 async def serve(config):
     import httpx
     from worker_orchestrator.local_connector import Connector
-    from worker_orchestrator.codex_agent_adapter import main as _adapter_available  # noqa: F401
+    adapter = adapter_module(config)
+    importlib.import_module(adapter)
     state = {'online': False, 'heartbeatAt': 0.0, 'pid': os.getpid()}
     stop = asyncio.Event()
 
@@ -86,7 +95,7 @@ async def serve(config):
     server = await asyncio.start_unix_server(request, path=str(path), limit=8192)
     path.chmod(0o600)
     connector = Agent(config['gateway'], config['stateDir'], component='AGENT',
-                      agent_command=[config['python'], '-m', 'worker_orchestrator.codex_agent_adapter'])
+                      agent_command=[config['python'], '-m', adapter])
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, stop.set)

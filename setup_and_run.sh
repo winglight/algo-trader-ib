@@ -51,6 +51,7 @@ source "${ROOT_DIR}/scripts/installer_lib.sh"
 
 source "${ROOT_DIR}/scripts/component_modes.sh"
 COMPONENTS=""
+AGENT_PROVIDER=""
 PREVIOUS_COMPONENTS="$(ati_detect_components "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR")"
 STUDIO_CONNECT="${ATI_STUDIO_CONNECT:-auto}"
 NON_INTERACTIVE=0
@@ -88,6 +89,7 @@ Usage: setup_and_run.sh [options]
                                     Agent is optional; all retains research + trading.
                                     New install default: all; updates preserve components.
   --studio-connect                 Explicitly connect Studio after local installation.
+  --agent-provider codex|claude     Interactive installs ask; updates reuse saved selection.
   --no-studio-connect              Skip connector changes; retain any installed connector.
   --non-interactive
   --update
@@ -119,6 +121,7 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --components) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; COMPONENTS="$2"; shift 2 ;;
+    --agent-provider) [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 2; }; AGENT_PROVIDER="$2"; shift 2 ;;
     --studio-connect) STUDIO_CONNECT=1; shift ;;
     --no-studio-connect) STUDIO_CONNECT=0; shift ;;
     --non-interactive) NON_INTERACTIVE=1; shift ;;
@@ -700,7 +703,7 @@ if [ -z "$COMPONENTS" ]; then
     echo 'Choose components / 选择安装组件（可单独安装，也可多选）:'
     echo '  1) ATI交易系统交易端 / Trading console'
     echo '  2) 本地回测环境 / Local backtesting'
-    echo '  3) 本地 Agent (Codex；自动安装、登录引导、连接与后台启动)'
+    echo '  3) 本地 Agent (Codex / Claude Code；自动安装、登录引导、连接与后台启动)'
     printf 'Enter numbers separated by commas / 输入编号，逗号分隔 [%s]: ' "$defaults"
     read -r choice
     choice="${choice:-$defaults}"
@@ -708,9 +711,11 @@ if [ -z "$COMPONENTS" ]; then
   fi
 fi
 COMPONENTS="$(ati_normalize_components "$COMPONENTS")" || exit 2
+case "$AGENT_PROVIDER" in ''|codex|claude) ;; *) echo 'Invalid --agent-provider; use codex or claude.' >&2; exit 2 ;; esac
 echo "Selected components: $COMPONENTS (previous: ${PREVIOUS_COMPONENTS:-none}). Existing other components are retained, not stopped or removed."
 if [ "$DRY_RUN" = 1 ]; then
   echo 'Component plan only: no configuration, credentials, image downloads or containers changed.'
+  [ -z "$AGENT_PROVIDER" ] || echo "Selected Agent provider: $AGENT_PROVIDER"
   exit 0
 fi
 if [ "$UPDATE_MODE" = 1 ] && [ "$NON_INTERACTIVE" = 1 ] && [ "${ATI_ALLOW_UPDATE:-0}" != 1 ]; then
@@ -733,6 +738,7 @@ fi
 install_selected_agent() {
   if ati_component_has "$COMPONENTS" agent; then
     local agent_args=(install)
+    [ -z "$AGENT_PROVIDER" ] || agent_args+=(--provider "$AGENT_PROVIDER")
     [ "$STUDIO_CONNECT" != 0 ] || agent_args+=(--no-connect)
     [ "$NON_INTERACTIVE" = 0 ] || agent_args+=(--non-interactive)
     bash "$ROOT_DIR/scripts/install_agent.sh" "${agent_args[@]}"
