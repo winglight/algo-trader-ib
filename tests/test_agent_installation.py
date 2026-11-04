@@ -18,6 +18,14 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import agent_installation as agent
 
 
+@pytest.fixture
+def packaged_runtime(tmp_path):
+    target = tmp_path / 'installed-client'
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-index', '--no-deps', '--target',
+                    str(target), agent.agent_package(ROOT)], check=True, capture_output=True)
+    return target
+
+
 def test_environment_reuses_saved_directory_without_reading_credentials(tmp_path):
     state = tmp_path / 'bound research'
     (tmp_path / '.research.env').write_text('ATI_ENVIRONMENT_DIR=' + shlex.quote(str(state)) + '\n')
@@ -134,10 +142,11 @@ def fixture_gateway():
         server.shutdown();server.server_close();thread.join()
 
 
-def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_path, monkeypatch, fixture_gateway):
+def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_path, monkeypatch, fixture_gateway, packaged_runtime):
     gateway, paths = fixture_gateway
     root = tmp_path / 'installation'; (root / 'scripts').mkdir(parents=True)
     shutil.copy(ROOT / 'scripts/agent_service.py', root / 'scripts/agent_service.py')
+    shutil.copytree(ROOT / 'agent-runtime', root / 'agent-runtime')
     state = tmp_path / 'shared identity';state.mkdir()
     original = {'credential':'synthetic-connector-credential','installId':'synthetic-install','proof':'synthetic-proof',
                 'fingerprint':'synthetic-fingerprint','environmentId':'synthetic-environment'}
@@ -149,7 +158,7 @@ def test_installer_runs_real_agent_connector_in_background_without_trading(tmp_p
     monkeypatch.delenv('ATI_ENVIRONMENT_DIR', raising=False)
     monkeypatch.setenv('ATI_AGENT_SERVICE_MODE', 'process')
     monkeypatch.setenv('ATI_AGENT_START_TIMEOUT', '8')
-    monkeypatch.setenv('PYTHONPATH', str(ROOT.parent / 'ati-worker-orchestrator/src'))
+    monkeypatch.setenv('PYTHONPATH', str(packaged_runtime))
     monkeypatch.setattr(agent, 'prepare_python', lambda home: Path(sys.executable))
     real = agent.command
     def command(args, **kwargs):
@@ -301,7 +310,7 @@ def test_missing_python_is_prepared_automatically_with_private_uv(tmp_path,monke
     assert calls==[[str(tmp_path/'tools/uv'),'venv','--python','3.11','--seed',tmp_path/'venv']]
 
 
-def test_rejected_agent_stops_without_changing_shared_trading_grants(tmp_path,fixture_gateway):
+def test_rejected_agent_stops_without_changing_shared_trading_grants(tmp_path,fixture_gateway,packaged_runtime):
     gateway,paths=fixture_gateway
     state=tmp_path/'identity';state.mkdir()
     (state/'installation.json').write_text(json.dumps({'credential':'synthetic-connector-credential',
@@ -314,7 +323,7 @@ def test_rejected_agent_stops_without_changing_shared_trading_grants(tmp_path,fi
     file=tmp_path/'service.json';file.write_text(json.dumps(config))
     result=subprocess.run([sys.executable,str(ROOT/'scripts/agent_service.py'),str(file)],
         capture_output=True,text=True,timeout=10,env={**os.environ,
-        'PYTHONPATH':str(ROOT.parent/'ati-worker-orchestrator/src')})
+        'PYTHONPATH':str(packaged_runtime)})
     assert result.returncode==1
     assert grant.read_text()=='{"synthetic":"unchanged"}'
     assert paths==['/reject/cloud/local-execution/heartbeat'],result.stderr
@@ -365,3 +374,21 @@ def test_shell_can_prepare_python_before_any_python_is_available(tmp_path):
     assert result.returncode==0,result.stderr
     assert result.stdout.strip()==str(tmp_path/'user data/ati/installer-tools/python/bin/python3')
     assert log.read_text().startswith('venv --python 3.11 --seed ')
+
+
+def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp_path):
+    import hashlib
+    import zipfile
+    manifest=json.loads((ROOT/'agent-runtime/manifest.json').read_text())
+    wheel=Path(agent.agent_package(ROOT))
+    with zipfile.ZipFile(wheel) as archive:
+        source_names={name for name in archive.namelist() if name.endswith('.py')}
+        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py'}
+        for source in manifest['sources']:
+            name=source['path'].removeprefix('src/')
+            assert hashlib.sha256(archive.read(name)).hexdigest()==source['sha256']
+        assert not any('application' in name or 'strategy_studio' in name or '.env' in name for name in archive.namelist())
+    shutil.copytree(ROOT/'agent-runtime',tmp_path/'agent-runtime')
+    (tmp_path/'agent-runtime'/wheel.name).write_bytes(b'corrupted synthetic wheel')
+    with pytest.raises(ValueError,match='checksum mismatch'):
+        agent.agent_package(tmp_path)

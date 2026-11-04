@@ -19,7 +19,17 @@ from urllib.parse import urlsplit
 from agent_service import control
 from connector_installer_lock import acquire
 
-PACKAGE = 'https://github.com/winglight/ati-worker-orchestrator/archive/refs/heads/main.zip'
+def agent_package(root):
+    if os.environ.get('ATI_AGENT_PACKAGE_URL'):
+        return os.environ['ATI_AGENT_PACKAGE_URL']
+    manifest = json.loads((root / 'agent-runtime/manifest.json').read_text())
+    filename = manifest['filename']
+    if Path(filename).name != filename or not filename.endswith('.whl'):
+        raise ValueError('Invalid bundled Agent client filename')
+    wheel = root / 'agent-runtime' / filename
+    if hashlib.sha256(wheel.read_bytes()).hexdigest() != manifest['sha256']:
+        raise ValueError('Bundled Agent client checksum mismatch')
+    return str(wheel)
 
 
 def saved(path):
@@ -276,7 +286,7 @@ def install(root, non_interactive=False, no_connect=False):
         if config_path.exists():
             stop_service(json.loads(config_path.read_text()))
         python = prepare_python(home)
-        package = os.environ.get('ATI_AGENT_PACKAGE_URL', PACKAGE)
+        package = agent_package(root)
         command([python, '-m', 'pip', 'install', '--upgrade', package])
         config = {'python': str(python), 'runner': str(root / 'scripts/agent_service.py'), 'gateway': gateway,
                   'stateDir': state, 'label': 'com.broyustudio.ati-agent.' + key,
