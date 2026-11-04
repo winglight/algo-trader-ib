@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 
-FILES = ('local_connector.py', 'codex_agent_adapter.py')
+FILES = ('local_connector.py', 'codex_agent_adapter.py', 'local_task_process.py')
 DENIED = ('cloud_platform', 'cloud_common', 'agents_service', 'strategy_studio_service', 'ati_shared_sdk', 'ati_cloud_llm')
 
 
@@ -19,7 +19,7 @@ def build(source, output):
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     if subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain'], text=True).strip():
         raise ValueError('Agent client source must be committed and clean')
-    version = '0.1.0+' + revision[:12]
+    version = '0.1.1+' + revision[:12]
     dist = 'ati_local_agent_client-' + version + '.dist-info'
     files = {'worker_orchestrator/__init__.py': b'"""ATI outbound local Agent client; no server entrypoint."""\n'}
     inventory = []

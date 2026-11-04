@@ -383,7 +383,7 @@ def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp
     wheel=Path(agent.agent_package(ROOT))
     with zipfile.ZipFile(wheel) as archive:
         source_names={name for name in archive.namelist() if name.endswith('.py')}
-        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py'}
+        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py','worker_orchestrator/local_task_process.py'}
         for source in manifest['sources']:
             name=source['path'].removeprefix('src/')
             assert hashlib.sha256(archive.read(name)).hexdigest()==source['sha256']
@@ -392,3 +392,28 @@ def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp
     (tmp_path/'agent-runtime'/wheel.name).write_bytes(b'corrupted synthetic wheel')
     with pytest.raises(ValueError,match='checksum mismatch'):
         agent.agent_package(tmp_path)
+
+
+def test_packaged_client_executes_a_synthetic_task_through_lease_guard_and_fake_codex(tmp_path,packaged_runtime):
+    binary=tmp_path/'bin';binary.mkdir()
+    codex=binary/'codex'
+    codex.write_text('#!'+sys.executable+'\nimport sys\nfrom pathlib import Path\nassert sys.argv[1]=="exec"\nassert sys.argv[sys.argv.index("--sandbox")+1]=="read-only"\nassert "synthetic fixture prompt" in sys.stdin.read()\nPath(sys.argv[sys.argv.index("--output-last-message")+1]).write_text(\'{"fixture":"completed"}\')\n')
+    codex.chmod(0o755)
+    script='''import asyncio,hashlib,json,sys,time
+from worker_orchestrator.local_connector import Connector
+async def check():
+    connector=Connector('http://127.0.0.1:1',sys.argv[1],component='AGENT',agent_command=[sys.executable,'-m','worker_orchestrator.codex_agent_adapter'])
+    packet={'prompt':'synthetic fixture prompt','variables':{}}
+    task={'taskId':'synthetic-task','attempt':1,'kind':'AI','leaseExpiresAt':time.time()+30,'packet':packet,'packetHash':hashlib.sha256(json.dumps(packet,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+    try:
+        result=await connector.execute(task)
+        assert result['json_payload']=={'fixture':'completed'},result
+        print('PASS synthetic Agent task: native lease guard → adapter → fake Codex → structured result')
+    finally:
+        await connector.http.aclose()
+asyncio.run(check())
+'''
+    result=subprocess.run([sys.executable,'-c',script,str(tmp_path/'synthetic-identity')],capture_output=True,text=True,timeout=15,
+        env={**os.environ,'PYTHONPATH':str(packaged_runtime),'PATH':str(binary)+os.pathsep+os.environ['PATH']})
+    assert result.returncode==0,result.stdout+result.stderr
+    assert 'PASS synthetic Agent task' in result.stdout

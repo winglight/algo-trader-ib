@@ -10,8 +10,12 @@
     {
       "path": "src/worker_orchestrator/codex_agent_adapter.py",
       "sha256": "e7b250143f3c90c992905164d9948d2d0668be883384c89851083b2bbd78b7e6"
+    },
+    {
+      "path": "src/worker_orchestrator/local_task_process.py",
+      "sha256": "96502cee000ddae6ab9273df8182fc9053065f32593853402122223daaaebc36"
     }
   ],
-  "filename": "ati_local_agent_client-0.1.0+bd1bb94a17d5-py3-none-any.whl",
-  "sha256": "32c37d021446c4280ce49be90603933fff66b754ce5b3e6dbf0330ecdeb711e3"
+  "filename": "ati_local_agent_client-0.1.1+bd1bb94a17d5-py3-none-any.whl",
+  "sha256": "7b1f04dd243e89dba4100312db021d4da4a2f3f3aa0cbf73c5c97c5060226540"
 }
