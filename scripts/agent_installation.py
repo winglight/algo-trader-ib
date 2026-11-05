@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -31,7 +32,7 @@ def saved(path):
     result = {}
     for line in path.read_text().splitlines() if path.is_file() else []:
         key, sep, value = line.partition('=')
-        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER', 'ATI_AGENT_DATA_DIR', 'ATI_AGENT_IMAGE', 'ATI_LOCAL_UID', 'ATI_LOCAL_GID', 'ATI_AGENT_CPUS', 'ATI_AGENT_MEMORY'}:
+        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER', 'ATI_AGENT_DATA_DIR', 'ATI_AGENT_IMAGE', 'ATI_LOCAL_UID', 'ATI_LOCAL_GID', 'ATI_AGENT_CPUS', 'ATI_AGENT_MEMORY', 'ATI_AGENT_CLOUD_ACCOUNT'}:
             continue
         parts = shlex.split(value)
         if len(parts) != 1 or key in result or any(c in parts[0] for c in ('\0', '\n', '\r')):
@@ -43,7 +44,11 @@ def saved(path):
 def environment(root, requested=''):
     values = set()
     for filename in ('.research.env', '.trading-connector.env', '.agent.env'):
-        value = saved(root / filename).get('ATI_ENVIRONMENT_DIR')
+        settings = saved(root / filename)
+        # An explicitly selected Agent account may have its own environment.
+        if filename == '.agent.env' and settings.get('ATI_AGENT_CLOUD_ACCOUNT'):
+            continue
+        value = settings.get('ATI_ENVIRONMENT_DIR')
         if value:
             path = Path(value).expanduser()
             if not path.is_absolute():
@@ -142,6 +147,44 @@ def select_provider(prior, requested=None, non_interactive=False):
         selected = {'1': 'codex', '2': 'claude', 'codex': 'codex', 'claude': 'claude', '': selected}.get(answer)
         if not selected:
             raise ValueError('Invalid local Agent selection')
+    return selected
+
+
+def select_cloud_account(prior, requested=None, non_interactive=False):
+    value = requested or os.environ.get('ATI_AGENT_CLOUD_ACCOUNT', '')
+    if not value and not non_interactive:
+        previous = prior.get('ATI_AGENT_CLOUD_ACCOUNT', '')
+        print('Select the ATI cloud account shown in Studio. Local/public versions can use different accounts. / 请输入 Studio 云端账号；local/public 版可能绑定不同账号。')
+        value = input('ATI cloud account email / 云端账号邮箱' + (' [' + previous + ']' if previous else '') + ': ').strip() or previous
+    value = value.strip().casefold()
+    if len(value) > 254 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', value):
+        raise ValueError('Enter a cloud account email; non-interactive installation requires --cloud-account or ATI_AGENT_CLOUD_ACCOUNT')
+    return value
+
+
+def account_environment(root, settings):
+    def inspect(directory):
+        if not (Path(directory) / 'installation.json').is_file():
+            return {'bound': False, 'fresh': True}
+        result = checked(root, {**settings, 'ATI_ENVIRONMENT_DIR': directory},
+            ['run', '--rm', '-T', 'agent', 'inspect-account'], capture_output=True, text=True)
+        return json.loads(result.stdout)
+    account = settings['ATI_AGENT_CLOUD_ACCOUNT']
+    # First try this installer's explicit Agent selection, then the shared
+    # environment. Never relabel, unbind or overwrite a different installation.
+    prior = saved(root / '.agent.env')
+    candidate = (prior.get('ATI_ENVIRONMENT_DIR') if prior.get('ATI_AGENT_CLOUD_ACCOUNT') == account
+                 else settings['ATI_ENVIRONMENT_DIR'])
+    identity = inspect(candidate)
+    if identity.get('fresh') or identity.get('email', '').casefold() == account:
+        return candidate
+    base = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share')))
+    key = hashlib.sha256((settings['ATI_CLOUD_GATEWAY_URL'] + '\n' + account).encode()).hexdigest()[:24]
+    selected = str(base / 'ati/agent-environments' / key)
+    identity = inspect(selected)
+    if not identity.get('fresh') and identity.get('bound') and identity.get('email', '').casefold() != account:
+        raise ValueError('Agent environment belongs to another cloud account; no binding was changed')
+    print('Using an Agent environment for ' + account + ' / 使用所选账号的独立 Agent 环境，保留其他版本绑定。', flush=True)
     return selected
 
 
@@ -300,7 +343,7 @@ def start(root, settings):
     raise ValueError('Agent container did not report online; inspect Docker logs, then rerun the installer')
 
 
-def install(root, non_interactive=False, no_connect=False, provider=None):
+def install(root, non_interactive=False, no_connect=False, provider=None, cloud_account=None):
     prior = saved(root / '.agent.env')
     if no_connect and prior.get('ATI_AGENT_DATA_DIR'):
         print('Existing container retained; connection/startup changes skipped / 保留现有容器状态。')
@@ -308,6 +351,7 @@ def install(root, non_interactive=False, no_connect=False, provider=None):
     state = environment(root, os.environ.get('ATI_ENVIRONMENT_DIR', ''))
     gateway = gateway_url(root, os.environ.get('ATI_CLOUD_GATEWAY_URL', ''))
     selected = select_provider(prior, provider, non_interactive)
+    account = select_cloud_account(prior, cloud_account, non_interactive)
     docker_ready()
     image = prepare_image(root, selected, prior)
     key = hashlib.sha256(state.encode()).hexdigest()[:16]
@@ -316,11 +360,15 @@ def install(root, non_interactive=False, no_connect=False, provider=None):
     if not data.is_absolute():
         raise ValueError('Agent data directory must be absolute')
     settings = {'ATI_ENVIRONMENT_DIR': state, 'ATI_CLOUD_GATEWAY_URL': gateway, 'ATI_AGENT_PROVIDER': selected,
+                'ATI_AGENT_CLOUD_ACCOUNT': account,
                 'ATI_AGENT_IMAGE': image, 'ATI_AGENT_DATA_DIR': str(data.resolve()),
                 'ATI_LOCAL_UID': str(os.getuid()), 'ATI_LOCAL_GID': str(os.getgid()),
                 'ATI_AGENT_CPUS': os.environ.get('ATI_AGENT_CPUS') or prior.get('ATI_AGENT_CPUS', '2'),
                 'ATI_AGENT_MEMORY': os.environ.get('ATI_AGENT_MEMORY') or prior.get('ATI_AGENT_MEMORY', '4g')}
     data.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not no_connect:
+        state = account_environment(root, settings)
+        settings['ATI_ENVIRONMENT_DIR'] = state
     ensure_identity_access(state, root, non_interactive)
     lock = acquire(Path(state))
     try:
@@ -330,9 +378,10 @@ def install(root, non_interactive=False, no_connect=False, provider=None):
             return
         authenticate(root, settings, non_interactive)
         stop_legacy_host(prior, state)
-        checked(root, settings, ['stop', 'agent'], stdout=subprocess.DEVNULL)
-        write(root / '.agent.env', ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in settings.items()))
         checked(root, settings, ['run', '--rm', '-T', 'agent', 'connect'])
+        if prior.get('ATI_AGENT_DATA_DIR'):
+            checked(root, {**prior, 'ATI_AGENT_CLOUD_ACCOUNT': account}, ['stop', 'agent'], stdout=subprocess.DEVNULL)
+        write(root / '.agent.env', ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in settings.items()))
         start(root, settings)
     finally:
         os.close(lock)
@@ -346,6 +395,7 @@ def main():
     parser.add_argument('--non-interactive', action='store_true')
     parser.add_argument('--no-connect', action='store_true')
     parser.add_argument('--provider', choices=['codex', 'claude'])
+    parser.add_argument('--cloud-account', help='ATI cloud account email; browser sign-in confirms ownership')
     args = parser.parse_args()
     root = args.root.resolve()
     try:
@@ -358,13 +408,15 @@ def main():
         elif args.action == 'gateway':
             print(gateway_url(root, os.environ.get('ATI_CLOUD_GATEWAY_URL', '')))
         elif args.action in {'install', 'upgrade'}:
-            install(root, args.non_interactive, args.no_connect, args.provider)
+            install(root, args.non_interactive, args.no_connect, args.provider, args.cloud_account)
         else:
             settings = saved(root / '.agent.env')
             if not settings.get('ATI_AGENT_DATA_DIR'):
                 raise ValueError('Container Agent is not installed; rerun the installer and select Agent')
             docker_ready()
             if args.action == 'start':
+                if not settings.get('ATI_AGENT_CLOUD_ACCOUNT'):
+                    raise ValueError('Rerun Agent installation and enter the cloud account before starting this legacy installation')
                 authenticate(root, settings, True)
                 start(root, settings)
             elif args.action == 'stop':

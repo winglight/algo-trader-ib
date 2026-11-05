@@ -49,6 +49,11 @@ print(json.dumps({'type':'result','subtype':'success','result':'{"fixture":"comp
                 'packetHash':hashlib.sha256(json.dumps(packet,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
         completed=threading.Event();paths=[];results=[];claimed=False
         class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                assert self.path=='/cloud/local-execution/identity'
+                assert self.headers['Authorization']=='Bearer synthetic-credential'
+                self.send_response(200);self.end_headers()
+                self.wfile.write(json.dumps({'email':'selected@example.test','environmentId':'synthetic-environment'}).encode())
             def do_POST(self):
                 nonlocal claimed
                 paths.append(self.path)
@@ -70,6 +75,7 @@ print(json.dumps({'type':'result','subtype':'success','result':'{"fixture":"comp
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         status=root/'status.json'
         env={**os.environ,'HOME':str(root/'home'),'ATI_ENVIRONMENT_DIR':str(identity),
+             'ATI_AGENT_CLOUD_ACCOUNT':'selected@example.test',
              'ATI_AGENT_STATUS_FILE':str(status),'ATI_AGENT_PROVIDER':provider,
              'ATI_CLOUD_GATEWAY_URL':'http://127.0.0.1:'+str(server.server_port),
              'PATH':str(binary)+os.pathsep+os.environ['PATH']}

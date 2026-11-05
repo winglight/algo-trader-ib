@@ -11,6 +11,24 @@ import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import parse_qs, urlsplit
+
+
+async def cloud_identity(directory, gateway):
+    import httpx
+    path = Path(directory) / 'installation.json'
+    value = json.loads(path.read_text()) if path.is_file() else {}
+    if not value.get('credential'):
+        return {'bound': False}
+    async with httpx.AsyncClient(base_url=gateway, timeout=30) as client:
+        response = await client.get('/cloud/local-execution/identity',
+            headers={'Authorization': 'Bearer ' + value['credential']})
+        if response.status_code != 200:
+            raise ValueError('AGENT_CLOUD_ACCOUNT_VERIFICATION_FAILED: HTTP ' + str(response.status_code))
+    result = response.json()
+    if result.get('environmentId') != value.get('environmentId') or not result.get('email'):
+        raise ValueError('AGENT_CLOUD_IDENTITY_INVALID')
+    return {'bound': True, **result}
 
 
 def provider():
@@ -83,6 +101,38 @@ async def run(connect_only=False):
         loop.add_signal_handler(sig, stop.set)
 
     class Agent(Connector):
+        async def connect(self, *, open_browser=False):
+            from worker_orchestrator.local_connector import atomic_json
+            account = os.environ.get('ATI_AGENT_CLOUD_ACCOUNT', '').strip().casefold()
+            if not account:
+                raise ValueError('AGENT_CLOUD_ACCOUNT_REQUIRED')
+            if not self.identity.get('credential'):
+                if self.identity.get('migrationRuntimeToken'):
+                    raise ValueError('AGENT_ACCOUNT_CONFIRMATION_REQUIRED')
+                if self.identity.get('accountEmail') not in {None, account}:
+                    raise ValueError('AGENT_CLOUD_ACCOUNT_MISMATCH')
+                if self.identity.get('bindToken') and self.identity.get('accountEmail') != account:
+                    raise ValueError('AGENT_ACCOUNT_CONFIRMATION_REQUIRED')
+                if not self.identity.get('bindToken'):
+                    import hashlib
+                    response = await self.http.post('/cloud/local-bind-requests', json={
+                        'installId': self.identity['installId'], 'fingerprint': self.identity['fingerprint'],
+                        'name': 'ATI Agent ' + os.uname().nodename,
+                        'metadata': {'delivery': 'daemon', 'accountEmail': account,
+                            'proofHash': hashlib.sha256(self.identity['proof'].encode()).hexdigest()}})
+                    response.raise_for_status()
+                    result = response.json()
+                    self.identity.update(accountEmail=account, bindingUrl=result['studioUrl'],
+                        bindToken=parse_qs(urlsplit(result['studioUrl']).query)['bindRequest'][0],
+                        bindExpiresAt=result['expiresAt'])
+                    atomic_json(self.directory / 'installation.json', self.identity)
+            await super().connect(open_browser=False)
+            identity = await cloud_identity(self.directory, self.gateway)
+            if identity.get('email', '').casefold() != account:
+                raise ValueError('AGENT_CLOUD_ACCOUNT_MISMATCH')
+            print('ATI cloud account / 云端账号: ' + identity['email'], flush=True)
+            return self.identity
+
         async def trading_grant(self):
             return None
 
@@ -133,10 +183,13 @@ async def run(connect_only=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['run', 'connect', 'auth-status', 'auth-login', 'import-auth', 'status', 'version'])
+    parser.add_argument('action', choices=['run', 'connect', 'inspect-account', 'auth-status', 'auth-login', 'import-auth', 'status', 'version'])
     args = parser.parse_args()
     os.umask(0o077)
     Path(os.environ['HOME']).mkdir(parents=True, exist_ok=True, mode=0o700)
+    if args.action == 'inspect-account':
+        print(json.dumps(asyncio.run(cloud_identity(os.environ['ATI_ENVIRONMENT_DIR'], os.environ['ATI_CLOUD_GATEWAY_URL']))))
+        return 0
     if args.action == 'status':
         value = status()
         print(json.dumps(value))

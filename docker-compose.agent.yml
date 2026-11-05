@@ -5,6 +5,7 @@ services:
     user: "${ATI_LOCAL_UID:-10001}:${ATI_LOCAL_GID:-10001}"
     environment:
       ATI_AGENT_PROVIDER: ${ATI_AGENT_PROVIDER:-codex}
+      ATI_AGENT_CLOUD_ACCOUNT: ${ATI_AGENT_CLOUD_ACCOUNT:-}
       ATI_CLOUD_GATEWAY_URL: ${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}
       ATI_ENVIRONMENT_DIR: /var/lib/ati-environment
       ATI_AGENT_STATUS_FILE: /run/ati-agent/status.json

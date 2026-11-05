@@ -20,6 +20,7 @@ def test_container_install_imports_only_native_auth_and_never_runs_a_host_cli(tm
     monkeypatch.setenv('HOME',str(tmp_path/'home'))
     monkeypatch.setenv('ATI_AGENT_DATA_DIR',str(tmp_path/'container-data'))
     monkeypatch.setenv('ATI_ENVIRONMENT_DIR',str(tmp_path/'identity'))
+    monkeypatch.setenv('ATI_AGENT_CLOUD_ACCOUNT','selected@example.test')
     state=tmp_path/'identity';state.mkdir()
     binding=b'{"installId":"synthetic-install","environmentId":"synthetic-environment","credential":"synthetic-credential"}'
     (state/'installation.json').write_bytes(binding)
@@ -33,6 +34,8 @@ def test_container_install_imports_only_native_auth_and_never_runs_a_host_cli(tm
         nonlocal imported
         calls.append(args)
         assert settings['ATI_AGENT_PROVIDER']==provider
+        if args[-1]=='inspect-account':
+            return SimpleNamespace(returncode=0,stdout=json.dumps({'bound':True,'email':'selected@example.test'}))
         if args[-1]=='auth-status':return SimpleNamespace(returncode=0 if imported else 1,stdout='')
         if args[-1]=='import-auth':
             imported=True
@@ -54,6 +57,7 @@ def test_container_install_imports_only_native_auth_and_never_runs_a_host_cli(tm
 
 
 def test_missing_container_login_does_not_stop_previous_agent_or_silently_switch(tmp_path,monkeypatch):
+    monkeypatch.setenv('ATI_AGENT_CLOUD_ACCOUNT','selected@example.test')
     monkeypatch.setenv('HOME',str(tmp_path/'empty-home'))
     monkeypatch.setenv('ATI_ENVIRONMENT_DIR',str(tmp_path/'identity'))
     monkeypatch.setenv('ATI_AGENT_DATA_DIR',str(tmp_path/'container-data'))
@@ -66,6 +70,33 @@ def test_missing_container_login_does_not_stop_previous_agent_or_silently_switch
         agent.install(tmp_path,non_interactive=True,provider='claude')
     assert not any(args[0] in {'stop','up'} for args in calls)
     assert not (tmp_path/'.agent.env').exists()
+
+
+def test_account_prompt_requires_user_input_even_with_a_legacy_binding(tmp_path,monkeypatch):
+    monkeypatch.delenv('ATI_AGENT_CLOUD_ACCOUNT',raising=False)
+    monkeypatch.setattr('builtins.input',lambda prompt:'Admin@Example.test')
+    assert agent.select_cloud_account({},non_interactive=False)=='admin@example.test'
+    with pytest.raises(ValueError,match='cloud account email'):
+        agent.select_cloud_account({},non_interactive=True)
+    with pytest.raises(ValueError):
+        agent.select_cloud_account({},requested='not-an-email')
+
+
+def test_different_account_uses_its_own_environment_without_touching_legacy_identity(tmp_path,monkeypatch):
+    monkeypatch.setenv('XDG_DATA_HOME',str(tmp_path/'data'))
+    old=tmp_path/'public-environment';old.mkdir()
+    binding=b'{"credential":"synthetic-old-credential","environmentId":"synthetic-demo"}'
+    (old/'installation.json').write_bytes(binding)
+    settings={'ATI_ENVIRONMENT_DIR':str(old),'ATI_AGENT_CLOUD_ACCOUNT':'admin@example.test',
+              'ATI_CLOUD_GATEWAY_URL':'https://gateway.example.test'}
+    monkeypatch.setattr(agent,'checked',lambda *args,**kwargs:SimpleNamespace(stdout=json.dumps({'bound':True,'email':'demo@example.test'})))
+    selected=agent.account_environment(tmp_path,settings)
+    assert selected!=str(old) and 'agent-environments' in selected
+    assert not Path(selected).exists()
+    assert (old/'installation.json').read_bytes()==binding
+    (tmp_path/'.agent.env').write_text('ATI_AGENT_CLOUD_ACCOUNT=admin@example.test\nATI_ENVIRONMENT_DIR='+shlex.quote(selected)+'\n')
+    (tmp_path/'.research.env').write_text('ATI_ENVIRONMENT_DIR='+shlex.quote(str(old))+'\n')
+    assert agent.environment(tmp_path)==str(old),'separate Agent identity cannot redirect research or trading'
 
 
 def test_skip_connection_keeps_existing_container_without_auth_or_lifecycle_changes(tmp_path,monkeypatch):

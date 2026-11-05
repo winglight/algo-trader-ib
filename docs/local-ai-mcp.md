@@ -11,11 +11,11 @@ Local Trading works without Studio binding or membership. Eligible accounts rece
 无需绑定 Studio 或购买会员即可本地使用。符合条件的账户首次绑定可获 **14 天免费会员试用**，不附赠 credits；自有模型、行情的第三方费用另计。
 
 1. Sign in with your existing local Trading account; open **AI / MCP** in the top bar. The same page provides local AI configuration, tool capabilities, authorized clients and activity summaries.
-2. In the installation `.env`, set `LOCAL_MCP_PUBLIC_ORIGIN` to the exact browser-facing origin, for example `http://127.0.0.1:5173` for the default loopback installation. Use HTTPS for non-loopback access. Existing `OPTIONS_MCP_PUBLIC_ORIGIN` is accepted if the new setting is empty. Apply configuration through your normal Runtime update/recreate procedure; this guide does not restart a running stack.
+2. The loopback installation automatically uses the current browser-facing origin, including its port: `http://127.0.0.1:5173` yields `http://127.0.0.1:5173/automation/mcp`. No separate MCP address setting is needed. For a reverse proxy with a different public origin, the administrator may override it with `LOCAL_MCP_PUBLIC_ORIGIN`; `OPTIONS_MCP_PUBLIC_ORIGIN` remains compatible. Non-loopback origins must be HTTPS and explicitly trusted. Proxy routes must preserve the incoming Host and port for MCP discovery, authorization and management.
 3. For MCP historical replay, set `LOCAL_AUTOMATION_DATA_ROOT=/app/data/market-data` only if your downloaded Parquet is actually mounted there. An empty value disables this tool. Clients cannot submit filesystem paths or replace this root.
 4. Add `<your-origin>/automation/mcp` as a Streamable HTTP server in an OAuth-capable MCP client. Complete local login, PKCE authorization and the explicit capability selection. Signing in does not grant tool permissions.
 
-登录本地账户后，从顶部 **AI / MCP** 进入统一页面。管理员在安装目录 `.env` 设置准确的浏览器访问地址，非回环地址必须使用 HTTPS。需要 MCP 历史回放时，另外配置实际已挂载的行情目录；不配置时该工具明确拒绝，不回退到云端。客户端使用 `<访问地址>/automation/mcp`，登录后逐项选择权限。配置变更按原有更新流程应用，本指南不会自动重启服务。
+登录本地账户后，从顶部 **AI / MCP** 进入统一页面。本机地址自动取当前访问地址加 `/automation/mcp`，无需单独配置，端口也会保留。使用不同公开入口的反向代理部署仍可由管理员显式覆盖地址；非回环地址必须使用 HTTPS 且在允许范围内。需要 MCP 历史回放时，另外配置实际已挂载的行情目录；不配置时该工具明确拒绝，不回退到云端。登录后逐项选择权限。配置变更按原有更新流程应用。
 
 ## Capabilities / 权限
 

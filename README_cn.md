@@ -312,3 +312,5 @@ New installations complete local setup without opening Studio binding or startin
 [完整安装说明](https://ati.broyustudio.com/local-runtime#local-environment-setup)。
 
 自动化可通过 `--agent-provider codex` 或 `--agent-provider claude` 指定类型；未指定时交互安装会询问，升级保留已保存选择，首次非交互安装默认 Codex。
+
+安装本地 Agent 时，先选择 Codex 或 Claude Code，再输入用于 Studio 的 ATI 云端账号邮箱（与模型账号不同）。安装器验证已有设备的账号归属，仅复用同账号绑定；local/public 版账号不同时使用独立 Agent 环境，保留原绑定。首次绑定在浏览器中登录所输入的账号并确认，其他账号无法批准；安装器不收集云账号密码。非交互安装必须显式提供 `ATI_AGENT_CLOUD_ACCOUNT=you@example.com`，Agent 单独安装脚本也支持 `--cloud-account`。
