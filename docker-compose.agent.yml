@@ -9,6 +9,7 @@ services:
       ATI_CLOUD_GATEWAY_URL: ${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}
       ATI_ENVIRONMENT_DIR: /var/lib/ati-environment
       ATI_AGENT_STATUS_FILE: /run/ati-agent/status.json
+      ATI_LOCAL_AGENT_SOCKET: /run/ati-agent-bridge/agent.sock
       HOME: /var/lib/ati-agent/home
       CODEX_HOME: /var/lib/ati-agent/codex
       CLAUDE_CONFIG_DIR: /var/lib/ati-agent/claude
@@ -16,6 +17,7 @@ services:
     volumes:
       - ${ATI_ENVIRONMENT_DIR:?Existing ATI environment directory}:/var/lib/ati-environment
       - ${ATI_AGENT_DATA_DIR:?Agent credential and state directory}:/var/lib/ati-agent
+      - agent-bridge:/run/ati-agent-bridge
     init: true
     restart: unless-stopped
     read_only: true
@@ -33,3 +35,8 @@ services:
       timeout: 3s
       start_period: 30s
       retries: 3
+
+volumes:
+  agent-bridge:
+    external: true
+    name: ${ATI_AGENT_BRIDGE_VOLUME:-ati-local-agent-bridge}

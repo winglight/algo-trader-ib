@@ -183,8 +183,10 @@ services:
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
       - ./config:/app/config
+      - agent-bridge:/run/ati-agent-bridge:ro
     environment:
       STRATEGY_SPEC_SERVICE_REGISTRY_NAME: strategy-spec
+      ATI_LOCAL_AGENT_SOCKET: /run/ati-agent-bridge/agent.sock
       BROKER_ASSET_CAPABILITY_GATE_ENABLED: ${BROKER_ASSET_CAPABILITY_GATE_ENABLED:-true}
       BROKER_ADAPTER_SWITCH_GATE_ENABLED: ${BROKER_ADAPTER_SWITCH_GATE_ENABLED:-true}
     command: ["/bin/bash", "./docker/start_strategy_spec_service.sh"]
@@ -316,6 +318,11 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
+
+volumes:
+  agent-bridge:
+    external: true
+    name: ${ATI_AGENT_BRIDGE_VOLUME:-ati-local-agent-bridge}
 
 networks:
   default:

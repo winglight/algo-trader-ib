@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import asyncio
+from contextlib import asynccontextmanager, suppress
 import importlib
 import json
 import os
@@ -90,6 +91,111 @@ def import_auth():
         atomic(target, value.decode())
 
 
+async def local_inference(adapter, request):
+    # Use the same non-interactive sandboxed CLI adapter as Studio.
+    packet = {'prompt': 'Respond to the local AI request below.',
+              'variables': {'messages': request['messages']}}
+    with tempfile.TemporaryDirectory(prefix='ati-trading-ai-') as work:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, '-m', adapter, cwd=work, start_new_session=True,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        try:
+            output, _ = await process.communicate(json.dumps(packet, ensure_ascii=False).encode())
+            if process.returncode:
+                return {'error': 'LOCAL_AGENT_REQUEST_FAILED'}
+            if len(output) >= 1_000_000:
+                return {'error': 'LOCAL_AGENT_OUTPUT_TOO_LARGE'}
+            try:
+                text = json.loads(output)['text']
+            except (ValueError, KeyError, TypeError):
+                return {'error': 'LOCAL_AGENT_INVALID_RESPONSE'}
+            return {'text': text} if isinstance(text, str) else {'error': 'LOCAL_AGENT_INVALID_RESPONSE'}
+        finally:
+            if process.returncode is None:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                await process.wait()
+
+
+@asynccontextmanager
+async def local_agent_socket(path, adapter, *, infer=local_inference):
+    if not path:
+        yield
+        return
+    socket_path = Path(path)
+    active = False
+
+    async def handle(reader, writer):
+        nonlocal active
+        try:
+            try:
+                async with asyncio.timeout(2):
+                    payload = json.loads(await reader.readline())
+            except (ValueError, TimeoutError):
+                return
+            if not isinstance(payload, dict) or payload.get('model') != provider():
+                result = {'error': 'LOCAL_AGENT_MODEL_MISMATCH'}
+            elif active:
+                result = {'error': 'LOCAL_AGENT_BUSY'}
+            else:
+                messages = payload.get('messages')
+                timeout = payload.get('timeout')
+                if (type(timeout) is not int or not 1 <= timeout <= 300 or not isinstance(messages, list)
+                        or not messages or any(not isinstance(message, dict)
+                        or message.get('role') not in ('system', 'user', 'assistant')
+                        or not isinstance(message.get('content'), str) for message in messages)):
+                    return
+                active = True
+                work = asyncio.create_task(infer(adapter, payload))
+                disconnected = asyncio.create_task(reader.read(1))
+                try:
+                    done, _ = await asyncio.wait({work, disconnected}, timeout=timeout,
+                                                  return_when=asyncio.FIRST_COMPLETED)
+                    if disconnected in done:
+                        return
+                    result = work.result() if work in done else {'error': 'LOCAL_AGENT_TIMEOUT'}
+                except (OSError, RuntimeError):
+                    result = {'error': 'LOCAL_AGENT_REQUEST_FAILED'}
+                finally:
+                    work.cancel()
+                    disconnected.cancel()
+                    await asyncio.gather(work, disconnected, return_exceptions=True)
+                    active = False
+            encoded = json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode()
+            if len(encoded) >= 1_000_000:
+                encoded = b'{"error":"LOCAL_AGENT_OUTPUT_TOO_LARGE"}'
+            writer.write(encoded + b'\n')
+            await writer.drain()
+        except OSError:
+            pass
+        finally:
+            writer.close()
+            with suppress(OSError):
+                await writer.wait_closed()
+
+    # The volume is mounted only by this Agent and the local strategy service.
+    # Socket access is granted by that mount; no port, key or device credential.
+    if socket_path.is_socket():
+        try:
+            async with asyncio.timeout(1):
+                _, peer = await asyncio.open_unix_connection(path)
+        except (ConnectionRefusedError, FileNotFoundError):
+            socket_path.unlink(missing_ok=True)
+        else:
+            peer.close()
+            await peer.wait_closed()
+            raise RuntimeError('LOCAL_AGENT_SOCKET_ALREADY_ACTIVE')
+    server = await asyncio.start_unix_server(handle, path=path, limit=256_000)
+    try:
+        socket_path.chmod(0o666)
+        async with server:
+            yield
+    finally:
+        server.close()
+        await server.wait_closed()
+        socket_path.unlink(missing_ok=True)
+
+
 async def run(connect_only=False):
     import httpx
     from worker_orchestrator.local_connector import Connector
@@ -160,21 +266,22 @@ async def run(connect_only=False):
             report('blocked', reason='AGENT_SIGN_IN_REQUIRED')
             await stop.wait()
             return
-        task = asyncio.create_task(connector.run())
-        stopping = asyncio.create_task(stop.wait())
-        try:
-            await asyncio.wait({task, stopping}, return_when=asyncio.FIRST_COMPLETED)
-            if task.done():
-                try:
-                    await task
-                except (ValueError, RuntimeError):
-                    report('blocked', reason='AGENT_CONNECTION_REJECTED')
-                    # Do not loop on rejected authorization or overwrite grants.
-                    await stop.wait()
-        finally:
-            task.cancel()
-            stopping.cancel()
-            await asyncio.gather(task, stopping, return_exceptions=True)
+        async with local_agent_socket(os.environ.get('ATI_LOCAL_AGENT_SOCKET'), adapter):
+            task = asyncio.create_task(connector.run())
+            stopping = asyncio.create_task(stop.wait())
+            try:
+                await asyncio.wait({task, stopping}, return_when=asyncio.FIRST_COMPLETED)
+                if task.done():
+                    try:
+                        await task
+                    except (ValueError, RuntimeError):
+                        report('blocked', reason='AGENT_CONNECTION_REJECTED')
+                        # Do not loop on rejected authorization or overwrite grants.
+                        await stop.wait()
+            finally:
+                task.cancel()
+                stopping.cancel()
+                await asyncio.gather(task, stopping, return_exceptions=True)
     finally:
         await connector.http.aclose()
         if not connect_only:

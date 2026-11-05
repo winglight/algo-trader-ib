@@ -193,6 +193,16 @@ def docker_ready():
     command(['docker', 'info'], stdout=subprocess.DEVNULL)
 
 
+def bridge_volume(root):
+    return 'ati-local-agent-bridge-' + hashlib.sha256(os.fsencode(root.resolve())).hexdigest()[:16]
+
+
+def ensure_bridge_volume(root):
+    name = bridge_volume(root)
+    command(['docker', 'volume', 'create', name], stdout=subprocess.DEVNULL)
+    return name
+
+
 def compose(root, settings):
     key = hashlib.sha256(settings['ATI_ENVIRONMENT_DIR'].encode()).hexdigest()[:12]
     return ['docker', 'compose', '--project-name', 'ati-local-agent-' + key,
@@ -202,7 +212,7 @@ def compose(root, settings):
 
 def invoke(root, settings, arguments, **kwargs):
     return subprocess.run(compose(root, settings) + list(map(str, arguments)),
-                          env={**os.environ, **settings}, **kwargs)
+                          env={**os.environ, **settings, 'ATI_AGENT_BRIDGE_VOLUME': bridge_volume(root)}, **kwargs)
 
 
 def checked(root, settings, arguments, **kwargs):
@@ -328,6 +338,8 @@ def authenticate(root, settings, non_interactive):
 
 
 def start(root, settings):
+    checked(root, settings, ['run', '--rm', '-T', '--user', '0:0', '--workdir', '/', '--entrypoint', 'chmod',
+                             'agent', '1777', '/run/ati-agent-bridge'])
     checked(root, settings, ['up', '-d', '--no-deps', '--no-build', '--pull', 'never', 'agent'])
     deadline = time.monotonic() + float(os.environ.get('ATI_AGENT_START_TIMEOUT', '90'))
     while time.monotonic() < deadline:
@@ -353,6 +365,7 @@ def install(root, non_interactive=False, no_connect=False, provider=None, cloud_
     selected = select_provider(prior, provider, non_interactive)
     account = select_cloud_account(prior, cloud_account, non_interactive)
     docker_ready()
+    ensure_bridge_volume(root)
     image = prepare_image(root, selected, prior)
     key = hashlib.sha256(state.encode()).hexdigest()[:16]
     base = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'ati/agent' / key
@@ -389,7 +402,7 @@ def install(root, non_interactive=False, no_connect=False, provider=None, cloud_
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['environment', 'gateway', 'identity-access', 'install', 'upgrade', 'start', 'stop', 'status'])
+    parser.add_argument('action', choices=['environment', 'gateway', 'identity-access', 'bridge-volume', 'install', 'upgrade', 'start', 'stop', 'status'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--requested-state', default='')
     parser.add_argument('--non-interactive', action='store_true')
@@ -407,6 +420,8 @@ def main():
             print(environment(root, args.requested_state))
         elif args.action == 'gateway':
             print(gateway_url(root, os.environ.get('ATI_CLOUD_GATEWAY_URL', '')))
+        elif args.action == 'bridge-volume':
+            print(ensure_bridge_volume(root))
         elif args.action in {'install', 'upgrade'}:
             install(root, args.non_interactive, args.no_connect, args.provider, args.cloud_account)
         else:
@@ -417,6 +432,7 @@ def main():
             if args.action == 'start':
                 if not settings.get('ATI_AGENT_CLOUD_ACCOUNT'):
                     raise ValueError('Rerun Agent installation and enter the cloud account before starting this legacy installation')
+                ensure_bridge_volume(root)
                 authenticate(root, settings, True)
                 start(root, settings)
             elif args.action == 'stop':

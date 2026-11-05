@@ -1132,6 +1132,9 @@ fi
   exit 1
 }
 ensure_shared_network "$(read_env_value "$ROOT_CANDIDATE" ATI_NETWORK_NAME)"
+ATI_AGENT_BRIDGE_VOLUME="$(python3 "$ROOT_DIR/scripts/agent_installation.py" bridge-volume --root "$ROOT_DIR")"
+export ATI_AGENT_BRIDGE_VOLUME
+env_set "$ROOT_CANDIDATE" ATI_AGENT_BRIDGE_VOLUME "$ATI_AGENT_BRIDGE_VOLUME"
 if [ "$UPDATE_MODE" = "1" ]; then
   bash "${ROOT_DIR}/scripts/options_upgrade_guard.sh" "$ROOT_DIR" "${ROOT_DIR}/algo_trader.sql"
 fi

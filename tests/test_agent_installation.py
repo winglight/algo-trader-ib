@@ -1,11 +1,13 @@
 """Only synthetic bindings/model commands are used by host-side regression tests."""
 import json
+import asyncio
 import os
 from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +15,7 @@ import pytest
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 import agent_installation as agent
+from agent_container import local_agent_socket
 
 
 @pytest.mark.parametrize('provider',['codex','claude'])
@@ -29,6 +32,7 @@ def test_container_install_imports_only_native_auth_and_never_runs_a_host_cli(tm
     auth.parent.mkdir(parents=True);auth.write_text('{"synthetic":"native-auth"}')
     monkeypatch.setattr(agent,'docker_ready',lambda:None)
     monkeypatch.setattr(agent,'prepare_image',lambda root,p,prior:'synthetic-agent:'+p)
+    monkeypatch.setattr(agent,'ensure_bridge_volume',lambda root: agent.bridge_volume(root))
     calls=[];imported=False
     def invoke(root,settings,args,**kwargs):
         nonlocal imported
@@ -63,6 +67,7 @@ def test_missing_container_login_does_not_stop_previous_agent_or_silently_switch
     monkeypatch.setenv('ATI_AGENT_DATA_DIR',str(tmp_path/'container-data'))
     monkeypatch.setattr(agent,'docker_ready',lambda:None)
     monkeypatch.setattr(agent,'prepare_image',lambda *args:'synthetic-agent:claude')
+    monkeypatch.setattr(agent,'ensure_bridge_volume',lambda root: agent.bridge_volume(root))
     calls=[]
     monkeypatch.setattr(agent,'invoke',lambda root,settings,args,**kw:(calls.append(args) or SimpleNamespace(returncode=1,stdout='')))
     monkeypatch.setattr(agent,'stop_legacy_host',lambda *args:pytest.fail('old Agent must survive failed sign-in'))
@@ -112,6 +117,7 @@ def test_failed_cloud_confirmation_preserves_previous_agent_and_configuration(tm
     (tmp_path/'.agent.env').write_text(old)
     monkeypatch.setattr(agent,'docker_ready',lambda:None)
     monkeypatch.setattr(agent,'prepare_image',lambda *args:'synthetic-image')
+    monkeypatch.setattr(agent,'ensure_bridge_volume',lambda root: agent.bridge_volume(root))
     monkeypatch.setattr(agent,'stop_legacy_host',lambda *args:pytest.fail('keep the previous Agent until cloud confirmation succeeds'))
     calls=[]
     def invoke(root,settings,args,**kw):
@@ -122,6 +128,53 @@ def test_failed_cloud_confirmation_preserves_previous_agent_and_configuration(tm
         agent.install(tmp_path,non_interactive=True,provider='codex')
     assert (tmp_path/'.agent.env').read_text()==old
     assert not any(args[0] in {'stop','up'} for args in calls)
+
+
+def test_installed_agent_socket_checks_model_and_cancels_work_on_disconnect(monkeypatch):
+    monkeypatch.setenv("ATI_AGENT_PROVIDER", "codex")
+
+    async def scenario(path):
+        started, cancelled = asyncio.Event(), asyncio.Event()
+        requests = []
+
+        async def inference(adapter, request):
+            requests.append((adapter, request))
+            if request["messages"][0]["content"] == "cancel":
+                started.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    cancelled.set()
+            return {"text": '{"status":"ok"}'}
+
+        async def send(model, message):
+            reader, writer = await asyncio.open_unix_connection(path)
+            writer.write(json.dumps({"model": model, "timeout": 3, "messages": [
+                {"role": "user", "content": message}]}).encode() + b"\n")
+            await writer.drain()
+            return reader, writer
+
+        async with local_agent_socket(path, "test_cli", infer=inference):
+            reader, writer = await send("claude", "ignore")
+            assert json.loads(await reader.readline()) == {"error": "LOCAL_AGENT_MODEL_MISMATCH"}
+            writer.close()
+            await writer.wait_closed()
+            assert not requests
+            _, writer = await send("codex", "cancel")
+            await asyncio.wait_for(started.wait(), 1)
+            writer.close()
+            await writer.wait_closed()
+            await asyncio.wait_for(cancelled.wait(), 1)
+            for _ in range(5):
+                await asyncio.sleep(0)
+            reader, writer = await send("codex", "test")
+            assert json.loads(await reader.readline()) == {"text": '{"status":"ok"}'}
+            writer.close()
+            await writer.wait_closed()
+        assert not Path(path).exists()
+
+    with tempfile.TemporaryDirectory(prefix="ati-test-", dir="/tmp") as work:
+        asyncio.run(scenario(f"{work}/agent.sock"))
 
 
 def test_build_context_has_only_reviewed_client_and_container_code(tmp_path,monkeypatch):
@@ -155,7 +208,14 @@ def test_compose_isolated_agent_has_no_host_home_socket_or_service_ports():
     assert service['restart']=='unless-stopped'
     assert 'ports' not in service and 'privileged' not in service
     assert not any('docker.sock' in volume or '${HOME}' in volume for volume in service['volumes'])
-    assert len(service['volumes'])==2
+    assert len(service['volumes'])==3
+    assert 'agent-bridge:/run/ati-agent-bridge' in service['volumes']
+    trading=yaml.safe_load((ROOT/'docker-compose.yml').read_text())
+    assert [name for name, value in trading['services'].items()
+            if any(isinstance(volume, str) and volume.startswith('agent-bridge:')
+                   for volume in value.get('volumes', []))] == ['strategy-spec-service']
+    assert 'agent-bridge:/run/ati-agent-bridge:ro' in trading['services']['strategy-spec-service']['volumes']
+    assert config['volumes']['agent-bridge'] == trading['volumes']['agent-bridge']
 
 
 def test_legacy_host_handoff_retires_only_verified_own_configuration(tmp_path,monkeypatch):
