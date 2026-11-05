@@ -377,8 +377,8 @@ def install(root, non_interactive=False, no_connect=False, provider=None, cloud_
             print('Agent image prepared; linking and startup skipped / 已准备容器镜像，跳过登录、绑定与启动。')
             return
         authenticate(root, settings, non_interactive)
-        stop_legacy_host(prior, state)
         checked(root, settings, ['run', '--rm', '-T', 'agent', 'connect'])
+        stop_legacy_host(prior, prior.get('ATI_ENVIRONMENT_DIR', state))
         if prior.get('ATI_AGENT_DATA_DIR'):
             checked(root, {**prior, 'ATI_AGENT_CLOUD_ACCOUNT': account}, ['stop', 'agent'], stdout=subprocess.DEVNULL)
         write(root / '.agent.env', ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in settings.items()))

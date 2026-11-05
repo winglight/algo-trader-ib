@@ -105,6 +105,25 @@ def test_skip_connection_keeps_existing_container_without_auth_or_lifecycle_chan
     agent.install(tmp_path,no_connect=True)
 
 
+def test_failed_cloud_confirmation_preserves_previous_agent_and_configuration(tmp_path,monkeypatch):
+    monkeypatch.setenv('ATI_AGENT_CLOUD_ACCOUNT','selected@example.test')
+    monkeypatch.setenv('ATI_AGENT_DATA_DIR',str(tmp_path/'model-data'))
+    old='ATI_ENVIRONMENT_DIR='+str(tmp_path/'old-state')+'\nATI_AGENT_DATA_DIR='+str(tmp_path/'model-data')+'\n'
+    (tmp_path/'.agent.env').write_text(old)
+    monkeypatch.setattr(agent,'docker_ready',lambda:None)
+    monkeypatch.setattr(agent,'prepare_image',lambda *args:'synthetic-image')
+    monkeypatch.setattr(agent,'stop_legacy_host',lambda *args:pytest.fail('keep the previous Agent until cloud confirmation succeeds'))
+    calls=[]
+    def invoke(root,settings,args,**kw):
+        calls.append(args)
+        return SimpleNamespace(returncode=1 if args[-1]=='connect' else 0,stdout='')
+    monkeypatch.setattr(agent,'invoke',invoke)
+    with pytest.raises(ValueError,match='Docker Agent operation failed'):
+        agent.install(tmp_path,non_interactive=True,provider='codex')
+    assert (tmp_path/'.agent.env').read_text()==old
+    assert not any(args[0] in {'stop','up'} for args in calls)
+
+
 def test_build_context_has_only_reviewed_client_and_container_code(tmp_path,monkeypatch):
     for relative in ('Dockerfile.local-agent','scripts/agent_container.py','agent-runtime/manifest.json'):
         destination=tmp_path/relative;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/relative,destination)
