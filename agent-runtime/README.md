@@ -1,4 +1,4 @@
-# ATI Algotrading System · Local Agent client
+# ATI Trading System · Local Agent client
 
 The one-click installer installs this checksummed wheel only inside an isolated
 Docker image, alongside the selected Codex or Claude CLI. Docker is required;

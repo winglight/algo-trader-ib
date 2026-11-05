@@ -1,10 +1,10 @@
-# ATI Algotrading System · Local Installation
+# ATI Trading System · Local Installation
 
-Product names: **ATI Algotrading System** (English) / **ATI交易系统** (Chinese). Studio, Cloud, Local Runtime and SDK identify features or components of this system.
+Product names: **ATI Trading System** (English) / **ATI交易系统** (Chinese). Cloud Studio is a separate product: ATI Strategy Studio / ATI策略研究. Local Runtime and SDK identify components.
 
 [中文说明](README_cn.md)
 
-ATI Local Runtime is the local runtime package for ATI Algotrading System. It runs the trading console, API, account, orders, market data, risk, audit, screeners, and strategy spec services as a Docker Compose environment on your own machine or server.
+ATI Local Runtime is the local runtime package for ATI Trading System. It runs the trading console, API, account, orders, market data, risk, audit, screeners, and strategy spec services as a Docker Compose environment on your own machine or server.
 
 Official website: [ati.broyustudio.com](https://ati.broyustudio.com)
 Membership and product page: [ati.broyustudio.com](https://ati.broyustudio.com)

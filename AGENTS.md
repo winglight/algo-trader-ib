@@ -31,3 +31,17 @@ algo-trader-intelligence/
 - 本地 Agent 的 Connector、Codex/Claude CLI 和运行依赖必须全部在独立 Docker 容器内；不得安装宿主机 Agent 虚拟环境、注册 LaunchAgent/systemd 或创建裸后台代理。安装器只负责配置、镜像构建和 Compose 生命周期。
 - 交易、回测、Agent 为独立可选组件；Agent 容器不得挂载宿主机主目录或 Docker socket。
 - 本地策略运行：`strategy-spec-service`；旧 Python 策略模板已退役。
+
+## ATI 产品命名
+
+ATI 有两个独立产品，必须按语境区分，不得互相替换：
+
+| 产品 | 中文名称 | 英文名称 |
+| --- | --- | --- |
+| 云端 Studio | ATI策略研究 | ATI Strategy Studio |
+| 开源交易系统 | ATI交易系统 | ATI Trading System |
+
+- 云端 Studio 的页面标题、导航品牌、账户页面、邮件及研究分享使用 Studio 名称；交易系统的本地页面、安装器、交易报告与仓库说明使用交易系统名称。
+- 描述开源交易系统时可加 `开源` / `opensource` 前缀。Cloud、Local Runtime、Console、SDK 等只是组件或功能名称。
+- `ATI Algotrading System` 是已停用的旧显示名称，仅在历史证据或旧文案兼容输入中保留。
+- 仓库路径、域名、包名、服务标识、配置键与历史证据不随显示名称改动。
