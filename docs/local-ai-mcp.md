@@ -10,12 +10,12 @@ Local Trading works without Studio binding or membership. Eligible accounts rece
 
 无需绑定 Studio 或购买会员即可本地使用。符合条件的账户首次绑定可获 **14 天免费会员试用**，不附赠 credits；自有模型、行情的第三方费用另计。
 
-1. Sign in with your existing local Trading account; open **AI / MCP** in the top bar. The same page provides local AI configuration, tool capabilities, authorized clients and activity summaries.
+1. Sign in with your local account in ATI Trading System and select **AI** beside **PnL** in the top bar. The dialog shows the MCP service address and your client authorizations. Administrators can also configure the local AI provider there.
 2. The loopback installation automatically uses the current browser-facing origin, including its port: `http://127.0.0.1:5173` yields `http://127.0.0.1:5173/automation/mcp`. No separate MCP address setting is needed. For a reverse proxy with a different public origin, the administrator may override it with `LOCAL_MCP_PUBLIC_ORIGIN`; `OPTIONS_MCP_PUBLIC_ORIGIN` remains compatible. Non-loopback origins must be HTTPS and explicitly trusted. Proxy routes must preserve the incoming Host and port for MCP discovery, authorization and management.
 3. For MCP historical replay, set `LOCAL_AUTOMATION_DATA_ROOT=/app/data/market-data` only if your downloaded Parquet is actually mounted there. An empty value disables this tool. Clients cannot submit filesystem paths or replace this root.
 4. Add `<your-origin>/automation/mcp` as a Streamable HTTP server in an OAuth-capable MCP client. Complete local login, PKCE authorization and the explicit capability selection. Signing in does not grant tool permissions.
 
-登录本地账户后，从顶部 **AI / MCP** 进入统一页面。本机地址自动取当前访问地址加 `/automation/mcp`，无需单独配置，端口也会保留。使用不同公开入口的反向代理部署仍可由管理员显式覆盖地址；非回环地址必须使用 HTTPS 且在允许范围内。需要 MCP 历史回放时，另外配置实际已挂载的行情目录；不配置时该工具明确拒绝，不回退到云端。登录后逐项选择权限。配置变更按原有更新流程应用。
+登录 ATI交易系统的本地账户后，点击顶栏 **PnL** 左侧的 **AI**。弹窗显示 MCP 服务地址和当前账户的客户端授权，管理员可在此配置本地 AI 服务商。本机地址自动取当前访问地址加 `/automation/mcp`，无需单独配置，端口也会保留。使用不同公开入口的反向代理部署仍可由管理员显式覆盖地址；非回环地址必须使用 HTTPS 且在允许范围内。需要 MCP 历史回放时，另外配置实际已挂载的行情目录；不配置时该工具明确拒绝，不回退到云端。登录后逐项选择权限。配置变更按原有更新流程应用。
 
 ## Capabilities / 权限
 
@@ -62,4 +62,4 @@ MCP replay uses the same native kernel and restrictions as [offline replay](loca
 
 Activity stores only tool name, status, server-generated request ID and time, paginated on demand, with up to 5,000 summaries. Arguments, tokens and trade payloads are excluded from activity. Local durable command receipts do retain operation results in the private local browser-session database; they are not uploaded. There are up to 2,000 command receipts and a 256 MiB admission threshold; reaching capacity rejects new commands without deleting prior evidence. Back up local state before maintenance.
 
-本地调用记录不含参数、密钥或交易正文。幂等回执保存在本机私有数据库中，包含操作结果，不上传平台；容量达到上限后拒绝新操作，保留原证据。主页面按需分页读取，不后台轮询。客户端可在 **AI / MCP → 已授权客户端** 撤销，或通过同源 OAuth revocation 接口撤销。
+本地调用记录不含参数、密钥或交易正文。幂等回执保存在本机私有数据库中，包含操作结果，不上传平台；容量达到上限后拒绝新操作，保留原证据。客户端授权可在 **AI → 已授权的 MCP 客户端** 解除，也可通过同源 OAuth revocation 接口撤销。
