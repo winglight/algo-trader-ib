@@ -19,3 +19,4 @@ __pycache__/
 .components.env
 .local-tools.env
 .trading-connector.env
+output/
