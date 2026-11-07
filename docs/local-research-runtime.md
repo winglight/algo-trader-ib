@@ -9,14 +9,13 @@
 2. **Studio native research** uses `ati-local-research` and the existing native
    backtest/simulation/research kernels. Bind this environment through the URL
    printed by the connector, then select its compatible advertised capability in
-   Studio. A signed frozen task uses its own checked data chunks; the installer
-   does not redirect those tasks to unrelated local files. Both ends independently
+   Studio. Studio backtests and simulations read your existing Parquet directory, shared with LTB.
+   Both ends independently
    verify actual execution files and required dependency versions. Changing code,
    missing files or tampering must fail rather than forge an older version.
 
 离线回测读取用户明确指定的本地数据，输出 `LOCAL_USER` 结果，不冒充 Cloud Audit。
-Studio 研究任务继续走原生执行器、已签名任务和冻结数据块；安装器不偷换成刚下载的
-Parquet。两端实际执行文件及依赖版本必须兼容，平台页面版本号不能替代执行身份。
+Studio 本地研究任务通过原生执行器读取用户在 LTB 所用目录准备的 Parquet。两端实际执行文件及依赖版本必须兼容。
 
 ## Installation and upgrade / 安装与升级
 

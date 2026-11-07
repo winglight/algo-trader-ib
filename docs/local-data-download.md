@@ -1,5 +1,6 @@
 # Local bar downloads
-Important execution boundary: downloaded Parquet is native-reader compatible, but the current Cloud-dispatched local connector receives signed dataChunks and prepares SQLite inputs. Selecting a local worker in Studio does not automatically substitute these files. Do not replace frozen inputs or claim local-file execution until the actual native reader path is selected and verified.
+
+Studio local backtests read the Parquet files you download to `ATI_MARKET_DATA_DIR` on the selected device. If bars are missing, open LTB → Local Bar Data in ATI Trading System and follow the download instructions.
 
 The installer does not download market data. The LTB page only reads local coverage and downloads these files; it never accepts keys or runs commands.
 

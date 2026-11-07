@@ -20,7 +20,9 @@ PYREAD
 )"
 export ATI_MARKET_DATA_DIR="${ATI_MARKET_DATA_DIR:-${PREVIOUS_DATA:-$ROOT_DIR/data/market-data}}"
 export ATI_LOCAL_UID="$(id -u)" ATI_LOCAL_GID="$(id -g)"
-mkdir -p "$ATI_MARKET_DATA_DIR"
+# The isolated Studio executor reads the same non-secret files as LTB.
+# Honor permissions on an existing user directory.
+mkdir -p -m 0755 "$ATI_MARKET_DATA_DIR"
 # Image acquisition only. No Cloud login, task claim, market download or service start.
 docker pull "$ATI_LOCAL_TOOLS_IMAGE"
 python3 - "$ROOT_DIR/.local-tools.env" <<'PYENV'

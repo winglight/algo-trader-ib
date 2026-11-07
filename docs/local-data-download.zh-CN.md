@@ -1,5 +1,5 @@
 # 本地 K 线下载
-执行边界：下载的 Parquet 是原生 reader 兼容格式，但现有 Cloud 派发本地 connector 接收签名 dataChunks 并准备 SQLite 输入。在 Studio 选择本地 worker 并不自动换用这些文件；须核对实际 reader 路径，不替换冻结输入，不冒称本地文件已用于计算。
+Studio 选择本地回测设备后，从该设备上 `ATI_MARKET_DATA_DIR` 中读取你自行下载的 Parquet 文件。缺少行情时，打开 ATI交易系统的 LTB 弹窗，进入「本地 K 线数据」查看说明。
 
 安装器不下载行情。LTB 页面只读取本地覆盖并提供脚本/文档下载，不收密钥、不执行命令。
 
