@@ -10,6 +10,7 @@ services:
     volumes:
       - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}:/var/lib/ati-environment
       - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}/research-tasks:/var/lib/ati-tasks
+      - ${ATI_MARKET_DATA_DIR:-./data/market-data}:/app/data/market-data:ro
     restart: unless-stopped
     init: true
     read_only: true
