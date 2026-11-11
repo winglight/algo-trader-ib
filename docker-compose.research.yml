@@ -2,31 +2,62 @@ name: ati-local-research
 services:
   research-worker:
     image: ${ATI_RESEARCH_IMAGE:-ghcr.io/winglight/algo-trader/ati-local-research:latest}
-    # Connector owns credentials; concurrent strategy subprocesses use separate UIDs.
+    # The single coordinator owns the installation identity, never its executors.
     user: "0:0"
     environment:
       ATI_LOCAL_EXECUTOR_ISOLATION: required
-      # Capacity is bounded by CPU/memory and the server's membership grant.
-      ATI_RESEARCH_MAX_PARALLEL: ${ATI_RESEARCH_MAX_PARALLEL:-auto}
-      ATI_RESEARCH_MEMORY_PER_TASK_MB: ${ATI_RESEARCH_MEMORY_PER_TASK_MB:-1536}
+      ATI_RESEARCH_EXECUTION_MODE: pool
+      ATI_RESEARCH_POOL_SIZE: ${ATI_RESEARCH_POOL_SIZE:-1}
+      ATI_RESEARCH_POOL_ROOT: /var/lib/ati-pool
     command: ["run", "--gateway", "${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}", "--state-dir", "/var/lib/ati-environment", "--component", "RESEARCH"]
     volumes:
       - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}:/var/lib/ati-environment
       - ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}/research-tasks:/var/lib/ati-tasks
-      - ${ATI_MARKET_DATA_DIR:-./data/market-data}:/app/data/market-data:ro
+      - research-pool:/var/lib/ati-pool
     restart: unless-stopped
     init: true
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
       - /var/lib/ati-task-leases:size=1m,mode=755
-    cpus: ${ATI_RESEARCH_CPUS:-2}
-    mem_limit: ${ATI_RESEARCH_MEMORY:-4g}
-    pids_limit: 256
+    cpus: ${ATI_RESEARCH_COORDINATOR_CPUS:-0.25}
+    mem_limit: ${ATI_RESEARCH_COORDINATOR_MEMORY:-256m}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
-    # The root Connector must terminate/reap its different-UID executor when
-    # cancellation, lease loss or shutdown fences the task.
     cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, KILL]
 
+  research-executor:
+    labels:
+      io.ati.research.identity-directory: ${ATI_ENVIRONMENT_DIR:-${HOME}/.local/share/ati/environment}
+    image: ${ATI_RESEARCH_IMAGE:-ghcr.io/winglight/algo-trader/ati-local-research:latest}
+    # One serial execution slot per container; no cloud identity or host home.
+    user: "0:0"
+    entrypoint: ["python", "-m", "worker_orchestrator.local_pool_executor"]
+    command: ["--pool-root", "/var/lib/ati-pool", "--work-root", "/var/lib/ati-tasks"]
+    environment:
+      ATI_LOCAL_EXECUTOR_ISOLATION: required
+      ATI_RESEARCH_TASK_ROOT: /var/lib/ati-tasks
+      ATI_RESEARCH_POOL_ROOT: /var/lib/ati-pool
+    volumes:
+      - research-pool:/var/lib/ati-pool
+      - ${ATI_MARKET_DATA_DIR:-./data/market-data}:/app/data/market-data:ro
+    network_mode: none
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /var/lib/ati-tasks:size=${ATI_RESEARCH_EXECUTOR_TMPFS_MB:-512}m,mode=755
+    cpus: ${ATI_RESEARCH_EXECUTOR_CPUS:-0.5}
+    mem_limit: ${ATI_RESEARCH_EXECUTOR_MEMORY:-1536m}
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, KILL]
+
+volumes:
+  research-pool:
+    name: ati-local-research-pool

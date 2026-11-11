@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ACTION="${1:-install}"
 case "$ACTION" in install|upgrade|status|stop) ;; *) echo 'Usage: install_research.sh [install|upgrade|status|stop]' >&2; exit 2 ;; esac
 ENV_FILE="$ROOT_DIR/.research.env"
+LEGACY_RESEARCH_INSTALL=0
+[[ ! -f "$ENV_FILE" ]] || LEGACY_RESEARCH_INSTALL=1
 REQUESTED_IMAGE="${ATI_RESEARCH_IMAGE:-${ATI_UPDATE_IMAGE_TAG:+ghcr.io/winglight/algo-trader/ati-local-research:${ATI_UPDATE_IMAGE_TAG}}}"
 # Configuration is data, never sourced. Unknown fields cannot execute commands.
 PARSED_ENV="$(mktemp)"
@@ -15,7 +17,12 @@ from pathlib import Path
 saved = {}
 for filename, allowed in (
     (sys.argv[3], {'ATI_MARKET_DATA_DIR'}),
-    (sys.argv[1], {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_RESEARCH_IMAGE', 'ATI_MARKET_DATA_DIR'}),
+    (sys.argv[1], {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_RESEARCH_IMAGE', 'ATI_MARKET_DATA_DIR',
+        'ATI_RESEARCH_CPUS', 'ATI_RESEARCH_MEMORY', 'ATI_RESEARCH_CPU_OVERCOMMIT',
+        'ATI_RESEARCH_EXECUTOR_CPUS', 'ATI_RESEARCH_EXECUTOR_MEMORY',
+        'ATI_RESEARCH_COORDINATOR_CPUS', 'ATI_RESEARCH_COORDINATOR_MEMORY',
+        'ATI_RESEARCH_EXECUTOR_TMPFS_MB', 'ATI_RESEARCH_MAX_PARALLEL',
+        'ATI_RESEARCH_POOL_SIZE', 'ATI_RESEARCH_POOL_CPU_BUDGET', 'ATI_RESEARCH_POOL_MEMORY_BYTES'}),
     (sys.argv[2], {'ATI_MARKET_DATA_DIR'}),
 ):
     path = Path(filename)
@@ -40,6 +47,14 @@ export ATI_ENVIRONMENT_DIR="${ATI_ENVIRONMENT_DIR:-${XDG_DATA_HOME:-$HOME/.local
 export ATI_CLOUD_GATEWAY_URL="${ATI_CLOUD_GATEWAY_URL:-https://ati.broyustudio.com}"
 export ATI_MARKET_DATA_DIR="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "${ATI_MARKET_DATA_DIR:-$ROOT_DIR/data/market-data}")"
 export ATI_LOCAL_UID="$(id -u)" ATI_LOCAL_GID="$(id -g)"
+# Historical installs used a 2 CPU / 4 GiB total even though it was not saved.
+# Fresh installs may use Docker's available resources; explicit budgets stay totals.
+if [[ "$LEGACY_RESEARCH_INSTALL" == 1 ]]; then
+  export ATI_RESEARCH_CPUS="${ATI_RESEARCH_CPUS:-2}" ATI_RESEARCH_MEMORY="${ATI_RESEARCH_MEMORY:-4g}"
+else
+  export ATI_RESEARCH_CPUS="${ATI_RESEARCH_CPUS:-auto}" ATI_RESEARCH_MEMORY="${ATI_RESEARCH_MEMORY:-auto}"
+fi
+export ATI_RESEARCH_EXECUTION_MODE=pool
 export ATI_RESEARCH_IMAGE="${REQUESTED_IMAGE:-${ATI_RESEARCH_IMAGE:-ghcr.io/winglight/algo-trader/ati-local-research:latest}}"
 COMPOSE=(docker compose --project-name ati-local-research --project-directory "$ROOT_DIR" --env-file /dev/null -f "$ROOT_DIR/docker-compose.research.yml")
 if [[ "$ACTION" == status ]]; then "${COMPOSE[@]}" ps; exit; fi
@@ -48,15 +63,18 @@ if [[ -z "${ATI_CONNECTOR_INSTALL_LOCK_FD:-}" ]]; then
   exec python3 "$ROOT_DIR/scripts/connector_installer_lock.py" "$ATI_ENVIRONMENT_DIR" bash "${BASH_SOURCE[0]}" "$@"
 fi
 python3 "$ROOT_DIR/scripts/connector_installer_lock.py" "$ATI_ENVIRONMENT_DIR" --check
-if [[ "$ACTION" == stop ]]; then "${COMPOSE[@]}" stop research-worker; exit; fi
+if [[ "$ACTION" == stop ]]; then
+  python3 "$ROOT_DIR/scripts/connector_writer_handoff.py" "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR" --stop-research
+  exit
+fi
 mkdir -p -m 0755 "$ATI_MARKET_DATA_DIR"
 # Pull only the reviewed standalone native runtime. No Cloud sources or services
 # are installed here; no market-data download is part of installation.
-"${COMPOSE[@]}" pull research-worker
+"${COMPOSE[@]}" pull research-worker research-executor
 python3 - "$ENV_FILE" <<'PY'
 import os, shlex, sys, tempfile
 from pathlib import Path
-p=Path(sys.argv[1]); keys=('ATI_ENVIRONMENT_DIR','ATI_LOCAL_UID','ATI_LOCAL_GID','ATI_CLOUD_GATEWAY_URL','ATI_RESEARCH_IMAGE','ATI_MARKET_DATA_DIR')
+p=Path(sys.argv[1]); keys=('ATI_ENVIRONMENT_DIR','ATI_LOCAL_UID','ATI_LOCAL_GID','ATI_CLOUD_GATEWAY_URL','ATI_RESEARCH_IMAGE','ATI_MARKET_DATA_DIR','ATI_RESEARCH_CPUS','ATI_RESEARCH_MEMORY')
 fd,name=tempfile.mkstemp(prefix='.research.env.',dir=p.parent)
 try:
     with os.fdopen(fd,'w') as f: f.write(''.join(k+'='+shlex.quote(os.environ[k])+'\n' for k in keys))
@@ -68,3 +86,4 @@ PY
 # For all-mode installs the already-authorized trading connector establishes that
 # identity first; the verified single-writer handoff preserves its account grants.
 python3 "$ROOT_DIR/scripts/connector_writer_handoff.py" "$ROOT_DIR" "$ATI_ENVIRONMENT_DIR"
+

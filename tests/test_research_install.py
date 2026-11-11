@@ -40,7 +40,7 @@ def test_research_env_is_data_and_image_tag_preserved(tmp_path):
     calls=log.read_text()
     assert '--project-name ati-local-research' in calls
     assert '--env-file /dev/null' in calls
-    assert 'exec' not in calls and 'backend' not in calls
+    assert ' exec ' not in calls and 'backend' not in calls
     assert not (state/'trading-enabled').exists()
 
 
@@ -68,7 +68,7 @@ def test_offline_install_record_survives_binding_failure(tmp_path):
     (root/'scripts/install_research.sh').write_text('#!/bin/bash\nexit 3\n')
     env['ROOT_FIXTURE']=str(root)
     r=subprocess.run(['bash',str(root/'setup_and_run.sh'),'--components','research','--non-interactive','--studio-connect'],env=env,capture_output=True,text=True,timeout=15)
-    assert r.returncode==3
+    assert r.returncode==3, r.stdout + r.stderr
     assert (root/'offline-installed').exists()
     assert (root/'.components.env').read_text()=='ATI_INSTALLED_COMPONENTS=research\n'
     assert 'Done.' not in r.stdout and not (state/'trading-enabled').exists()
@@ -113,4 +113,5 @@ def test_prior_trading_restored_after_failed_research_can_retry(tmp_path):
  assert r.returncode==0,r.stderr
  assert ' up -d --no-deps trading-connector' in calls
  assert ' connect ' not in calls
+
 

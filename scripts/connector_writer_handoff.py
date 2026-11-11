@@ -14,6 +14,7 @@ import subprocess
 import sys
 
 from connector_installer_lock import acquire, inherited
+import research_pool_installation as pool
 
 
 class HandoffError(ValueError):
@@ -33,7 +34,8 @@ INSPECT = ('{"id":{{json .Id}},"running":{{json .State.Running}},'
            '"state":{{json .State.Status}},"labels":{'
            '"com.docker.compose.project":{{json (index .Config.Labels "com.docker.compose.project")}},'
            '"com.docker.compose.service":{{json (index .Config.Labels "com.docker.compose.service")}},'
-           '"com.docker.compose.oneoff":{{json (index .Config.Labels "com.docker.compose.oneoff")}}},'
+           '"com.docker.compose.oneoff":{{json (index .Config.Labels "com.docker.compose.oneoff")}},'
+           '"io.ati.research.identity-directory":{{json (index .Config.Labels "io.ati.research.identity-directory")}}},'
            '"mounts":{{json .Mounts}}}')
 
 
@@ -136,6 +138,10 @@ def compose(root: Path) -> list[str]:
 def rollback(root: Path, directory: Path, prior: Writer | None) -> None:
     # Re-read first: command failure does not prove whether creation/start ran.
     current = discover(directory)
+    pool.discover(command, inspect, directory)
+    command(compose(root) + ['stop', 'research-executor'])
+    if any(item['running'] for item in pool.discover(command, inspect, directory)):
+        raise HandoffError('executor stop not confirmed during rollback')
     for writer in current:
         if writer.running and writer.service == 'research-worker':
             ensure_stopped(writer, directory)
@@ -173,16 +179,28 @@ def activate(root: Path, directory: Path) -> None:
         before_start = discover(directory)
         if any(w.running and w.service != 'research-worker' for w in before_start):
             raise HandoffError('another writer appeared during connection')
+        count = pool.prepare(root, directory, command, compose)
+        # Verify ownership before stopping anything, then fence the coordinator
+        # before replacing its serial execution containers.
+        pool.discover(command, inspect, directory)
+        current_research = next((w for w in before_start if w.running and w.service == 'research-worker'), None)
+        if current_research:
+            ensure_stopped(current_research, directory)
+        command(compose(root) + ['stop', 'research-executor'])
+        if any(item['running'] for item in pool.discover(command, inspect, directory)):
+            raise HandoffError('executor stop not confirmed; pool was not started')
+        command(compose(root) + ['up', '-d', '--no-deps', '--scale', f'research-executor={count}', 'research-executor'])
+        pool.verify(command, inspect, directory, count)
         command(compose(root) + ['up', '-d', '--no-deps', 'research-worker'])
         running = [w for w in discover(directory) if w.running]
         if len(running) != 1 or running[0].service != 'research-worker':
             raise HandoffError('research connector start not confirmed')
-    except HandoffError as failure:
+    except (HandoffError, pool.PoolError) as failure:
         if active and active.service == 'research-worker':
             raise HandoffError('existing research connector upgrade failed; status must be checked before retry') from failure
         try:
             rollback(root, directory, prior)
-        except HandoffError:
+        except (HandoffError, pool.PoolError):
             raise HandoffError('research installation failed; safe rollback could not be confirmed, inspect connector status') from None
         raise HandoffError('research installation failed; no new writer remains; prior trading connector restored if present') from failure
 
@@ -231,11 +249,22 @@ def main() -> int:
             if len(sys.argv) > 3 and sys.argv[3] == '--check-trading':
                 saved_research_identity(root, directory)
                 return trading_preflight(directory)
+            if len(sys.argv) > 3 and sys.argv[3] == '--stop-research':
+                current = discover(directory)
+                pool.discover(command, inspect, directory)
+                for writer in current:
+                    if writer.running and writer.service == 'research-worker':
+                        ensure_stopped(writer, directory)
+                command(compose(root) + ['stop', 'research-executor'])
+                if any(item['running'] for item in pool.discover(command, inspect, directory)):
+                    raise HandoffError('executor stop not confirmed')
+                print('Research coordinator and executor containers are stopped.')
+                return 0
             activate(root, directory)
         finally:
             if fd is not None:
                 os.close(fd)
-    except HandoffError as exc:
+    except (HandoffError, pool.PoolError) as exc:
         print(f'Research connector installation failed: {exc}.', file=sys.stderr)
         return 3
     except (ValueError, OSError, IndexError):
@@ -249,3 +278,4 @@ def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

@@ -40,20 +40,43 @@ class Docker:
         if action == 'inspect':
             assert '.Config.Env' not in args[3]
             return json.dumps(self.items[args[-1]])
-        if action == self.fail and not self.fail_after:
+        matched_failure = action == self.fail and (action != 'compose' or ('up' in args and args[-1] == 'research-worker'))
+        if matched_failure and not self.fail_after:
             raise handoff.HandoffError('simulated failure')
+        if action == 'info':
+            return json.dumps({'NCPU': 8, 'MemTotal': 16 * 1024**3})
         if action in ('start', 'stop'):
             item = self.items[args[-1]]
             item['running'] = action == 'start'
             item['state'] = 'running' if action == 'start' else 'exited'
         elif action == 'compose':
+            if 'capacity' in args:
+                return json.dumps({'membershipMaxParallel': 2, 'protocolMaxParallel': 32})
             if 'connect' in args:
                 (self.directory / 'installation.json').write_text('{"credential":"fixture"}')
+            elif 'stop' in args and args[-1] == 'research-executor':
+                for item in self.items.values():
+                    if item['labels']['com.docker.compose.service'] == 'research-executor':
+                        item.update(running=False, state='exited')
+            elif 'up' in args and args[-1] == 'research-executor':
+                count = int(next(x for x in args if x.startswith('research-executor=')).split('=')[1])
+                for cid in list(self.items):
+                    if self.items[cid]['labels']['com.docker.compose.service'] == 'research-executor':
+                        del self.items[cid]
+                for index in range(count):
+                    cid = chr(ord('e') + index) * 64
+                    self.items[cid] = {'id': cid, 'running': True, 'state': 'running',
+                        'labels': {'com.docker.compose.project': 'ati-local-research',
+                                   'com.docker.compose.service': 'research-executor',
+                                   'io.ati.research.identity-directory': str(self.directory),
+                                   'com.docker.compose.oneoff': 'False'},
+                        'mounts': [{'Type': 'volume', 'Name': 'ati-local-research-pool',
+                                    'Destination': '/var/lib/ati-pool', 'RW': True}]}
             elif 'up' in args:
                 self.writer('b', 'research-worker')
         else:
             raise AssertionError(args)
-        if action == self.fail and self.fail_after:
+        if matched_failure and self.fail_after:
             raise handoff.HandoffError('simulated ambiguous response')
         return ''
 
@@ -63,6 +86,9 @@ def docker(tmp_path, monkeypatch):
     state = tmp_path / 'identity'; state.mkdir()
     d = Docker(state)
     monkeypatch.setattr(handoff, 'command', d)
+    monkeypatch.setattr(handoff.pool.time, 'sleep', lambda _: None)
+    for key in handoff.pool.KEYS:
+        monkeypatch.delenv(key, raising=False)
     return d
 
 
@@ -123,14 +149,14 @@ def test_unknown_stop_never_starts_new_or_blindly_restarts(docker, tmp_path):
     assert not any(x[1] in ('start','compose') for x in docker.calls)
 
 
-def test_existing_research_failure_does_not_stop_unknown_result(docker,tmp_path):
+def test_existing_research_upgrade_fences_old_writer_before_pool_replacement(docker,tmp_path):
     cid=docker.writer('b','research-worker')
     (docker.directory/'installation.json').write_text('{"credential":"fixture"}')
     docker.fail='compose'
     with pytest.raises(handoff.HandoffError,match='status must be checked'):
         handoff.activate(tmp_path,docker.directory)
-    assert docker.items[cid]['running']
-    assert not any(x[1]=='stop' for x in docker.calls)
+    assert not docker.items[cid]['running']
+    assert not any(x[1]=='start' for x in docker.calls)
 
 
 def test_foreign_writer_during_bind_blocks_start_and_rollback(docker,tmp_path):
@@ -226,3 +252,65 @@ def test_failed_research_marker_then_all_sequence_can_retry(docker,tmp_path):
     docker.fail=None
     handoff.activate(tmp_path,docker.directory)
     assert not docker.items[old]['running'] and docker.items['b'*64]['running']
+
+
+
+def test_pool_is_verified_before_coordinator_starts(docker, tmp_path):
+    handoff.activate(tmp_path, docker.directory)
+    ups = [args for args in docker.calls if 'up' in args]
+    assert ups[0][-1] == 'research-executor' and 'research-executor=2' in ups[0]
+    assert ups[1][-1] == 'research-worker'
+    capacity = next(args for args in docker.calls if 'capacity' in args)
+    assert ':ro' in capacity[capacity.index('--volume') + 1]
+    assert 'heartbeat' not in capacity and 'claim' not in capacity
+
+
+def test_missing_executor_replica_never_starts_coordinator(docker, tmp_path):
+    base = docker.__call__
+    def incomplete(args, **kwargs):
+        result = base(args, **kwargs)
+        if 'up' in args and args[-1] == 'research-executor':
+            docker.items.pop('f' * 64)
+        return result
+    handoff.command = incomplete
+    with pytest.raises(handoff.HandoffError):
+        handoff.activate(tmp_path, docker.directory)
+    assert not any('up' in args and args[-1] == 'research-worker' for args in docker.calls)
+    assert not any(item['running'] for item in docker.items.values())
+
+
+def test_credential_mount_in_executor_is_rejected_before_coordinator_start(docker, tmp_path):
+    base = docker.__call__
+    def unsafe(args, **kwargs):
+        result = base(args, **kwargs)
+        if 'up' in args and args[-1] == 'research-executor':
+            docker.items['e' * 64]['mounts'].append({'Type': 'bind', 'Source': str(docker.directory),
+                'Destination': '/var/lib/ati-environment', 'RW': True})
+        return result
+    handoff.command = unsafe
+    with pytest.raises(handoff.HandoffError):
+        handoff.activate(tmp_path, docker.directory)
+    assert not any('up' in args and args[-1] == 'research-worker' for args in docker.calls)
+
+
+def test_upgrade_resizes_pool_to_changed_membership(docker, tmp_path):
+    handoff.activate(tmp_path, docker.directory)
+    base = docker.__call__
+    def smaller(args, **kwargs):
+        if 'capacity' in args:
+            docker.calls.append(args)
+            return json.dumps({'membershipMaxParallel': 1, 'protocolMaxParallel': 32})
+        return base(args, **kwargs)
+    handoff.command = smaller
+    handoff.activate(tmp_path, docker.directory)
+    executors = handoff.pool.discover(smaller, handoff.inspect, docker.directory)
+    assert len(executors) == 1 and executors[0]['running']
+    assert 'ATI_RESEARCH_POOL_SIZE=1' in (tmp_path / '.research.env').read_text()
+
+
+def test_stop_fences_coordinator_and_every_executor(docker, tmp_path, monkeypatch):
+    handoff.activate(tmp_path, docker.directory)
+    monkeypatch.setattr(sys, 'argv', ['connector_writer_handoff.py', str(tmp_path), str(docker.directory), '--stop-research'])
+    assert handoff.main() == 0
+    assert not any(item['running'] for item in docker.items.values())
+    assert not any('trading-connector' == args[-1] and 'stop' in args for args in docker.calls)
