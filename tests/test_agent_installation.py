@@ -213,7 +213,9 @@ def test_compose_isolated_agent_has_no_host_home_socket_or_service_ports():
     trading=yaml.safe_load((ROOT/'docker-compose.yml').read_text())
     assert [name for name, value in trading['services'].items()
             if any(isinstance(volume, str) and volume.startswith('agent-bridge:')
-                   for volume in value.get('volumes', []))] == ['strategy-spec-service']
+                   for volume in value.get('volumes', []))] == ['backend', 'strategy-spec-service']
+    assert 'agent-bridge:/run/ati-agent-bridge:ro' in trading['services']['backend']['volumes']
+    assert trading['services']['backend']['environment']['ATI_LOCAL_AGENT_SOCKET'] == '/run/ati-agent-bridge/agent.sock'
     assert 'agent-bridge:/run/ati-agent-bridge:ro' in trading['services']['strategy-spec-service']['volumes']
     assert config['volumes']['agent-bridge'] == trading['volumes']['agent-bridge']
 
