@@ -355,7 +355,7 @@ def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp
     wheel=Path(agent.agent_package(ROOT))
     with zipfile.ZipFile(wheel) as archive:
         source_names={name for name in archive.namelist() if name.endswith('.py')}
-        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py','worker_orchestrator/claude_agent_adapter.py','worker_orchestrator/local_task_process.py'}
+        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py','worker_orchestrator/claude_agent_adapter.py','worker_orchestrator/local_task_process.py','worker_orchestrator/codex_session.py','worker_orchestrator/agent_sessions.py','worker_orchestrator/agent_session_store.py','worker_orchestrator/agent_session_channel.py'}
         for source in manifest['sources']:
             name=source['path'].removeprefix('src/')
             assert hashlib.sha256(archive.read(name)).hexdigest()==source['sha256']

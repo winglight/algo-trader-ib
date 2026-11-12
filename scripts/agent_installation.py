@@ -32,7 +32,7 @@ def saved(path):
     result = {}
     for line in path.read_text().splitlines() if path.is_file() else []:
         key, sep, value = line.partition('=')
-        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER', 'ATI_AGENT_DATA_DIR', 'ATI_AGENT_IMAGE', 'ATI_LOCAL_UID', 'ATI_LOCAL_GID', 'ATI_AGENT_CPUS', 'ATI_AGENT_MEMORY', 'ATI_AGENT_CLOUD_ACCOUNT'}:
+        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER', 'ATI_AGENT_DATA_DIR', 'ATI_AGENT_IMAGE', 'ATI_LOCAL_UID', 'ATI_LOCAL_GID', 'ATI_AGENT_CPUS', 'ATI_AGENT_MEMORY', 'ATI_AGENT_CLOUD_ACCOUNT', 'ATI_AGENT_REVERSE_URL', 'ATI_PRODUCT_GRANT_PUBLIC_KEYS'}:
             continue
         parts = shlex.split(value)
         if len(parts) != 1 or key in result or any(c in parts[0] for c in ('\0', '\n', '\r')):
@@ -378,6 +378,16 @@ def install(root, non_interactive=False, no_connect=False, provider=None, cloud_
                 'ATI_LOCAL_UID': str(os.getuid()), 'ATI_LOCAL_GID': str(os.getgid()),
                 'ATI_AGENT_CPUS': os.environ.get('ATI_AGENT_CPUS') or prior.get('ATI_AGENT_CPUS', '2'),
                 'ATI_AGENT_MEMORY': os.environ.get('ATI_AGENT_MEMORY') or prior.get('ATI_AGENT_MEMORY', '4g')}
+    trust=os.environ.get('ATI_PRODUCT_GRANT_PUBLIC_KEYS') or prior.get('ATI_PRODUCT_GRANT_PUBLIC_KEYS','{}')
+    keys=json.loads(trust)
+    if not isinstance(keys,dict) or any(not isinstance(k,str) or not isinstance(v,str) for k,v in keys.items()):
+        raise ValueError('Invalid pinned optional-product public key map')
+    reverse=os.environ.get('ATI_AGENT_REVERSE_URL') or prior.get('ATI_AGENT_REVERSE_URL','')
+    if reverse:
+        peer=urlsplit(reverse)
+        if peer.scheme!='wss' or not peer.hostname or peer.username or peer.password or peer.query or peer.fragment:
+            raise ValueError('Agent reverse connection requires an explicit WSS backend URL')
+    settings.update(ATI_PRODUCT_GRANT_PUBLIC_KEYS=json.dumps(keys,separators=(',',':')),ATI_AGENT_REVERSE_URL=reverse)
     data.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not no_connect:
         state = account_environment(root, settings)

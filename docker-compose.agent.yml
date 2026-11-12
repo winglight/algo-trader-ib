@@ -10,6 +10,9 @@ services:
       ATI_ENVIRONMENT_DIR: /var/lib/ati-environment
       ATI_AGENT_STATUS_FILE: /run/ati-agent/status.json
       ATI_LOCAL_AGENT_SOCKET: /run/ati-agent-bridge/agent.sock
+      ATI_AGENT_SESSION_SOCKET: /run/ati-agent-bridge/agent-session.sock
+      ATI_AGENT_REVERSE_URL: ${ATI_AGENT_REVERSE_URL:-}
+      ATI_PRODUCT_GRANT_PUBLIC_KEYS: ${ATI_PRODUCT_GRANT_PUBLIC_KEYS:-}
       HOME: /var/lib/ati-agent/home
       CODEX_HOME: /var/lib/ati-agent/codex
       CLAUDE_CONFIG_DIR: /var/lib/ati-agent/claude

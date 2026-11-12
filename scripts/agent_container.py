@@ -266,7 +266,7 @@ async def run(connect_only=False):
             report('blocked', reason='AGENT_SIGN_IN_REQUIRED')
             await stop.wait()
             return
-        async with local_agent_socket(os.environ.get('ATI_LOCAL_AGENT_SOCKET'), adapter):
+        async with local_agent_socket(os.environ.get('ATI_LOCAL_AGENT_SOCKET'), adapter), interactive_agent(connector):
             task = asyncio.create_task(connector.run())
             stopping = asyncio.create_task(stop.wait())
             try:
@@ -286,6 +286,62 @@ async def run(connect_only=False):
         await connector.http.aclose()
         if not connect_only:
             report('stopped')
+
+
+@asynccontextmanager
+async def interactive_agent(connector):
+    """The CLI and protocol journal live only inside the existing Agent container."""
+    path=os.environ.get('ATI_AGENT_SESSION_SOCKET','')
+    reverse=os.environ.get('ATI_AGENT_REVERSE_URL','')
+    if provider()!='codex' or not (path or reverse):
+        yield
+        return
+    from worker_orchestrator.agent_session_store import SessionJournal
+    from worker_orchestrator.agent_sessions import NativeSessionRuntime
+    from worker_orchestrator.agent_session_channel import SessionChannel,stream_channel,reverse_channel
+    journal=SessionJournal(Path(os.environ.get('ATI_AGENT_SESSION_JOURNAL','/var/lib/ati-agent/session-protocol.db')))
+    runtime=NativeSessionRuntime(journal,Path('/var/lib/ati-agent/workspace'))
+    async def certificate(challenge,binding):
+        if not connector.identity.get('credential'):raise ValueError('AGENT_CLOUD_BINDING_REQUIRED')
+        response=await connector.http.post('/cloud/local-execution/agent-session-certificate',
+            headers={'Authorization':'Bearer '+connector.identity['credential']},json=dict(challenge=challenge,
+                targetEnvironmentId=binding['environmentId'],targetInstallationId=binding['installationId']))
+        if response.status_code!=200:raise ValueError('AGENT_CLOUD_DEVICE_PROOF_REJECTED')
+        return response.json()['certificate']
+    def keys():
+        result=json.loads(os.environ.get('ATI_PRODUCT_GRANT_PUBLIC_KEYS') or '{}')
+        if not isinstance(result,dict) or not result:raise ValueError('AGENT_PRODUCT_TRUST_UNCONFIGURED')
+        return result
+    server=None;reverse_task=None;channel=None;handlers=set()
+    try:
+        await runtime.start()
+        channel=SessionChannel(runtime,certificate,keys)
+        if path:
+            socket_path=Path(path)
+            if socket_path.is_socket():
+                try:
+                    _,peer=await asyncio.open_unix_connection(path)
+                except (ConnectionError,OSError):socket_path.unlink()
+                else:
+                    peer.close();await peer.wait_closed();raise ValueError('AGENT_SESSION_SOCKET_IN_USE')
+            async def handle(reader,writer):
+                task=asyncio.current_task();handlers.add(task)
+                try:await stream_channel(channel,reader,writer)
+                finally:handlers.discard(task)
+            server=await asyncio.start_unix_server(handle,path=path,limit=512001)
+            socket_path.chmod(0o660)
+        if reverse:reverse_task=asyncio.create_task(reverse_channel(channel,reverse))
+        yield
+    finally:
+        if server:
+            server.close();await server.wait_closed();Path(path).unlink(missing_ok=True)
+        if reverse_task:
+            reverse_task.cancel();await asyncio.gather(reverse_task,return_exceptions=True)
+        for task in tuple(handlers):task.cancel()
+        await asyncio.gather(*handlers,return_exceptions=True)
+        await runtime.close()
+        if channel:await asyncio.gather(*channel.inflight,return_exceptions=True)
+        journal.close()
 
 
 def main():

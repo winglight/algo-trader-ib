@@ -18,6 +18,7 @@ services:
     environment:
       ATI_COPILOT_ENABLED: ${ATI_COPILOT_ENABLED:-false}
       ATI_LOCAL_AGENT_SOCKET: /run/ati-agent-bridge/agent.sock
+      ATI_AGENT_SESSION_SOCKET: /run/ati-agent-bridge/agent-session.sock
       APP_MANAGED_SERVICES: "api|http://backend:8000/healthz|||restart_mode=watchdog;broker-runner|http://broker-runner-service:8115/healthz|||restart_mode=watchdog;account|http://account-service:8100/healthz|||restart_mode=watchdog;orders|http://orders-service:8101/healthz|||restart_mode=watchdog;market-data|http://market-data-service:8102/healthz|||restart_mode=watchdog;risk|http://risk-service:8103/healthz|||restart_mode=watchdog;strategy-spec|http://strategy-spec-service:8114/healthz|||restart_mode=watchdog;audit|http://audit-service:8109/healthz|||restart_mode=watchdog;screeners|http://screeners-service:8116/healthz|||restart_mode=watchdog"
       ATI_CONNECTOR_RUNTIME_GRANT: /app/data/connector/runtime-grant.json
       SERVICE_WATCHDOG_URL: http://service-watchdog:8110
