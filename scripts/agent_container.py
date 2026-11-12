@@ -266,7 +266,12 @@ async def run(connect_only=False):
             report('blocked', reason='AGENT_SIGN_IN_REQUIRED')
             await stop.wait()
             return
-        async with local_agent_socket(os.environ.get('ATI_LOCAL_AGENT_SOCKET'), adapter), interactive_agent(connector):
+        inference_lock=asyncio.Lock()
+        async def passive_inference(request):
+            if inference_lock.locked():return {'error':'LOCAL_AGENT_BUSY'}
+            async with inference_lock:return await local_inference(adapter,request)
+        async def socket_inference(configured,request):return await passive_inference(request)
+        async with local_agent_socket(os.environ.get('ATI_LOCAL_AGENT_SOCKET'), adapter,infer=socket_inference), interactive_agent(connector,inference=passive_inference):
             task = asyncio.create_task(connector.run())
             stopping = asyncio.create_task(stop.wait())
             try:
@@ -289,7 +294,7 @@ async def run(connect_only=False):
 
 
 @asynccontextmanager
-async def interactive_agent(connector):
+async def interactive_agent(connector,*,inference=None):
     """The CLI and protocol journal live only inside the existing Agent container."""
     path=os.environ.get('ATI_AGENT_SESSION_SOCKET','')
     reverse=os.environ.get('ATI_AGENT_REVERSE_URL','')
@@ -317,7 +322,7 @@ async def interactive_agent(connector):
     server=None;reverse_task=None;channel=None;handlers=set()
     try:
         await runtime.start()
-        channel=SessionChannel(runtime,certificate,keys)
+        channel=SessionChannel(runtime,certificate,keys,inference=inference)
         if path:
             socket_path=Path(path)
             if socket_path.is_socket():
