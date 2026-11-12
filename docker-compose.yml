@@ -16,6 +16,7 @@ services:
       - path: ./config/screeners_service.env
         required: false
     environment:
+      API_SERVICE_ADVERTISE_URL: http://backend:8000
       ATI_COPILOT_ENABLED: ${ATI_COPILOT_ENABLED:-false}
       ATI_LOCAL_AGENT_SOCKET: /run/ati-agent-bridge/agent.sock
       ATI_AGENT_SESSION_SOCKET: /run/ati-agent-bridge/agent-session.sock
