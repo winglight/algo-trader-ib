@@ -12,7 +12,7 @@ import subprocess
 import zipfile
 
 FILES = ('local_connector.py', 'codex_agent_adapter.py', 'claude_agent_adapter.py', 'local_task_process.py',
-         'codex_session.py', 'agent_sessions.py', 'agent_session_store.py', 'agent_session_channel.py')
+         'codex_session.py', 'agent_sessions.py', 'agent_session_store.py', 'agent_session_channel.py', 'claude_sessions.py')
 DENIED = ('cloud_platform', 'cloud_common', 'agents_service', 'strategy_studio_service', 'ati_shared_sdk', 'ati_cloud_llm')
 
 

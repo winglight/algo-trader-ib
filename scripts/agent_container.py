@@ -293,14 +293,16 @@ async def interactive_agent(connector):
     """The CLI and protocol journal live only inside the existing Agent container."""
     path=os.environ.get('ATI_AGENT_SESSION_SOCKET','')
     reverse=os.environ.get('ATI_AGENT_REVERSE_URL','')
-    if provider()!='codex' or not (path or reverse):
+    if not (path or reverse):
         yield
         return
     from worker_orchestrator.agent_session_store import SessionJournal
     from worker_orchestrator.agent_sessions import NativeSessionRuntime
+    from worker_orchestrator.claude_sessions import ClaudeSessionRuntime
     from worker_orchestrator.agent_session_channel import SessionChannel,stream_channel,reverse_channel
     journal=SessionJournal(Path(os.environ.get('ATI_AGENT_SESSION_JOURNAL','/var/lib/ati-agent/session-protocol.db')))
-    runtime=NativeSessionRuntime(journal,Path('/var/lib/ati-agent/workspace'))
+    runtime_type=NativeSessionRuntime if provider()=='codex' else ClaudeSessionRuntime
+    runtime=runtime_type(journal,Path('/var/lib/ati-agent/workspace'))
     async def certificate(challenge,binding):
         if not connector.identity.get('credential'):raise ValueError('AGENT_CLOUD_BINDING_REQUIRED')
         response=await connector.http.post('/cloud/local-execution/agent-session-certificate',

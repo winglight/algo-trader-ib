@@ -35,6 +35,8 @@ USER ati-agent
 
 FROM base AS claude
 ARG CLAUDE_VERSION=2.1.318
+ARG CLAUDE_AGENT_SDK_VERSION=0.2.180
+RUN pip install --no-cache-dir claude-agent-sdk==${CLAUDE_AGENT_SDK_VERSION}
 RUN npm install --global --omit=dev @anthropic-ai/claude-code@${CLAUDE_VERSION} && \
     claude --version && npm cache clean --force
 ENV ATI_AGENT_PROVIDER=claude
