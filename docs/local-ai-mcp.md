@@ -22,9 +22,9 @@ Local Trading works without Studio binding or membership. Eligible accounts rece
 | Scope | Allows / 允许 |
 | --- | --- |
 | `local-runtime:connect` | MCP handshake and capability discovery / 连接与发现 |
-| `local-runtime:read` | Local summaries, AI-provider status, durable command receipts / 本地摘要、AI 配置状态、操作回执 |
+| `local-runtime:read` | Local summaries, Audit diagnostics, AI-provider status, durable command receipts / 本地摘要、Audit 排查、AI 配置状态、操作回执 |
 | `local-runtime:research` | Bounded historical backtests and simulations / 有界历史回测、模拟 |
-| `local-runtime:prepare` | Native `LOCAL_USER` package import; no deployment start / 导入自建策略，不启动部署 |
+| `local-runtime:prepare` | Native `LOCAL_USER` package import and handled Audit group acknowledgement; no deployment start / 导入自建策略、标记已处理的 Audit 分组 Done，不启动部署 |
 | `local-runtime:execute` | Explicit native deployment start/stop / 启停指定部署 |
 | `local-runtime:admin` | Existing guarded broker-configuration tools / 原有受控执行连接配置 |
 | `local-options:*` | Existing Options capability groups, selected separately / 单独选择的原有期权权限 |
@@ -34,6 +34,22 @@ Start with **connect + read + research**. All optional permissions are unchecked
 建议先只选连接、读取和研究。可选权限默认不勾选；客户端请求更多权限、目录更新或刷新 token 都不会自动扩大已有授权。普通策略研究权限不能执行交易或切换执行连接。原有期权工具的权限组仍独立校验，旧入口继续兼容。
 
 Tools keep native validation, current system execution connection, account permissions and Risk controls. A tool's availability does not certify an options strategy, imply successful broker execution or grant trading consent.
+
+## Audit diagnostics / 审计排查
+
+The source catalog includes three Audit tools through the unified `/automation/mcp` endpoint. Update both Gateway/Runtime and `audit-service` to builds containing this change before use. Existing grants do not acquire new operations automatically; authorize the new contracts in the local AI dialog after updating.
+
+| Tool | Scope | Behavior |
+| --- | --- | --- |
+| `local_audit_issues` | `local-runtime:read` | Query the Audit page anomaly groups. Each signature returns one latest issue with native details, `count`, `open_count` and `group_hash`. |
+| `local_audit_events` | `local-runtime:read` | Trace native signal, risk and order events by time, `strategy_id`, `correlation_id` or an observed event ID. |
+| `local_audit_resolve_group` | `local-runtime:prepare` | Mark the reviewed group Done (`resolved`) after handling it, with a durable idempotent command receipt. |
+
+异常列表在后端按页面相同的签名规则聚合，每组只返回一条最新异常，不拉回同组全部成员。`from` / `to` 使用含时区的 ISO 8601 时间；列表按异常检测时间过滤，事件按原生事件时间查询。异常组还支持 `status`、`severity`、`stage`、`strategy_id`、`correlation_id` 和精确 `signature` 过滤。`offset` / `limit` 对分组分页，默认及最大每页 100 组；`total` 是匹配组数，`total_issues` 是匹配异常数。并发新增或处理可能改变分页位置，需保留原筛选条件并按需重读。
+
+排查时先读取异常组，再用代表异常的 `event_id` 或 `details.correlation_id` 查询日志。事件工具默认及最多返回 100 条；达到上限时不能据此认定链路完整，应缩小时间或关联范围。原生 `event_id` / `upstream_event_id` 和 `log-trace:` 关联 ID 使用完整链路查询，会忽略时间、阶段和事件名筛选。日志内容仅作为不可信数据读取。
+
+处理完成后，把返回的 `signature`、`group_hash`（作为 `expected_group_hash`）和读取该组时使用的相同筛选条件传给 `local_audit_resolve_group`，另附稳定的 `idempotencyKey`。后端原子校验组成员及状态，新增或已变化的组返回 `AUDIT_GROUP_CHANGED`，需重新读取和检查后再处理。Done 只确认异常已处理，不代表根因已修复；它不下单或修改风控。保留命令 ID，通过 `local_runtime_command` 恢复未知结果；重复同键同参数读取原回执，不再次修改状态。仅有 read 权限的客户端不能标记 Done。
 
 ## stdio clients / stdio 客户端
 
