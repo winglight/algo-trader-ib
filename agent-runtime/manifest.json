@@ -1,7 +1,7 @@
 {
   "schemaVersion": "ati-local-agent-client.v1",
   "sourceRepository": "winglight/ati-worker-orchestrator",
-  "sourceCommit": "7a9984853906c055e6425159da19cb357c60b175",
+  "sourceCommit": "c4b20d9e324132c2742e69c34a124a70222eeebb",
   "sources": [
     {
       "path": "src/worker_orchestrator/local_connector.py",
@@ -37,13 +37,13 @@
     },
     {
       "path": "src/worker_orchestrator/agent_session_channel.py",
-      "sha256": "347872e627cc7f25038cd9a66b6b63b4c9dcc206df9f4e3091dd6eea3b099cc1"
+      "sha256": "e1076505a2ca5e4ea0a6be049f1b0696b716a925ade9eaa704cfdc7282c51473"
     },
     {
       "path": "src/worker_orchestrator/claude_sessions.py",
       "sha256": "02a7592b5f8c039d311ec678b7f651eb05abfecfbdd0816a1217f12647c45761"
     }
   ],
-  "filename": "ati_local_agent_client-0.2.0+7a9984853906-py3-none-any.whl",
-  "sha256": "d8df63ef9b7e6df36bf500e009a13c2393d773095e188e7b17740163e52210c2"
+  "filename": "ati_local_agent_client-0.2.0+c4b20d9e3241-py3-none-any.whl",
+  "sha256": "925def26698123b8340db2e0678c7173b150617129c6128d50a233d3dd46dcc8"
 }
