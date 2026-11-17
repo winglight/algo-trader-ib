@@ -21,7 +21,7 @@ RUN name="$(cat /tmp/client-filename)" && mv /tmp/client.whl "/tmp/$name" && \
     useradd --create-home --uid 10001 ati-agent && \
     mkdir -p /var/lib/ati-agent /var/lib/ati-environment /run/ati-agent && \
     chown ati-agent:ati-agent /var/lib/ati-agent /var/lib/ati-environment /run/ati-agent
-COPY agent_container.py /opt/ati/agent_container.py
+COPY --chmod=755 agent_container.py /opt/ati/agent_container.py
 WORKDIR /var/lib/ati-agent
 ENTRYPOINT ["python", "/opt/ati/agent_container.py"]
 CMD ["run"]
