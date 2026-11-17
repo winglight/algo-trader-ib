@@ -231,6 +231,13 @@ def image_fingerprint(root):
 
 
 def prepare_image(root, selected, prior):
+    build_args = []
+    index = os.environ.get('ATI_AGENT_PIP_INDEX_URL', '')
+    if index:
+        parsed = urlsplit(index)
+        if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or any(c.isspace() for c in index):
+            raise ValueError('ATI_AGENT_PIP_INDEX_URL must be an HTTPS package index without credentials or query parameters')
+        build_args = ['--build-arg', 'PIP_INDEX_URL=' + index]
     requested = os.environ.get('ATI_AGENT_IMAGE')
     if requested:
         command(['docker', 'pull', requested])
@@ -255,7 +262,7 @@ def prepare_image(root, selected, prior):
         shutil.copyfile(wheel, stage / 'client.whl')
         (stage / 'client-filename').write_text(wheel.name)
         command(['docker', 'buildx', 'build', '--load', '--platform', 'linux/' + architecture, '--target', selected, '--tag', image,
-                 '--label', 'io.ati.agent.content=' + revision, '--file', stage / 'Dockerfile', stage])
+                 '--label', 'io.ati.agent.content=' + revision, *build_args, '--file', stage / 'Dockerfile', stage])
     return image
 
 

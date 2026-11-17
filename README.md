@@ -382,3 +382,5 @@ After online confirmation, reopen Studio Execution settings and select Agent and
 Automation may specify `--agent-provider codex` or `--agent-provider claude`. Without this flag, interactive installs ask, upgrades retain the saved provider, and a new non-interactive install defaults to Codex.
 
 Non-interactive Agent installation requires `ATI_AGENT_CLOUD_ACCOUNT=you@example.com`; the Agent-only script also accepts `--cloud-account`. This is the ATI cloud account, separate from the Codex/Claude model login.
+
+If PyPI downloads time out during a new Agent image build, set `ATI_AGENT_PIP_INDEX_URL` to a trusted HTTPS Python package index when running the installer. The default is `https://pypi.org/simple`. URLs containing credentials or query parameters are rejected. This setting only selects the build-time dependency source; existing images and running Agent account settings are preserved.

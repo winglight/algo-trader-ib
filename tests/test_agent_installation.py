@@ -177,12 +177,14 @@ def test_installed_agent_socket_checks_model_and_cancels_work_on_disconnect(monk
         asyncio.run(scenario(f"{work}/agent.sock"))
 
 
-def test_build_context_has_only_reviewed_client_and_container_code(tmp_path,monkeypatch):
+@pytest.mark.parametrize('index', ['', 'https://packages.example.com/simple'])
+def test_build_context_has_only_reviewed_client_and_container_code(tmp_path,monkeypatch,index):
     for relative in ('Dockerfile.local-agent','scripts/agent_container.py','agent-runtime/manifest.json'):
         destination=tmp_path/relative;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/relative,destination)
     wheel=Path(agent.agent_package(ROOT));shutil.copyfile(wheel,tmp_path/'agent-runtime'/wheel.name)
     (tmp_path/'.env').write_text('synthetic-private-content-must-not-be-staged')
     monkeypatch.delenv('ATI_AGENT_IMAGE',raising=False)
+    monkeypatch.setenv('ATI_AGENT_PIP_INDEX_URL',index)
     monkeypatch.setattr(agent.subprocess,'run',lambda *args,**kw:SimpleNamespace(returncode=1))
     monkeypatch.setattr(agent.subprocess,'check_output',lambda *args,**kw:'aarch64\n')
     calls=[]
@@ -193,10 +195,18 @@ def test_build_context_has_only_reviewed_client_and_container_code(tmp_path,monk
         assert (context/'client.whl').read_bytes()==wheel.read_bytes()
         assert '--load' in args and args[args.index('--platform')+1]=='linux/arm64'
         assert args[args.index('--target')+1]=='codex'
+        assert ('PIP_INDEX_URL='+index in args) == bool(index)
     monkeypatch.setattr(agent,'command',build)
     image=agent.prepare_image(tmp_path,'codex',{})
     assert image.startswith('ati-local-agent:codex-arm64-')
     assert len(calls)==1
+
+
+@pytest.mark.parametrize('index', ['http://packages.example.com/simple', 'https://user:secret@packages.example.com/simple', 'https://packages.example.com/simple?token=secret'])
+def test_build_rejects_insecure_or_credentialed_package_index(monkeypatch,index):
+    monkeypatch.setenv('ATI_AGENT_PIP_INDEX_URL',index)
+    with pytest.raises(ValueError,match='HTTPS package index'):
+        agent.prepare_image(ROOT,'codex',{})
 
 
 def test_compose_isolated_agent_has_no_host_home_socket_or_service_ports():
