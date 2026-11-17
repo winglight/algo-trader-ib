@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -32,13 +33,22 @@ def saved(path):
     result = {}
     for line in path.read_text().splitlines() if path.is_file() else []:
         key, sep, value = line.partition('=')
-        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER', 'ATI_AGENT_DATA_DIR', 'ATI_AGENT_IMAGE', 'ATI_LOCAL_UID', 'ATI_LOCAL_GID', 'ATI_AGENT_CPUS', 'ATI_AGENT_MEMORY', 'ATI_AGENT_CLOUD_ACCOUNT', 'ATI_AGENT_REVERSE_URL', 'ATI_PRODUCT_GRANT_PUBLIC_KEYS'}:
+        if not sep or key not in {'ATI_ENVIRONMENT_DIR', 'ATI_CLOUD_GATEWAY_URL', 'ATI_AGENT_HOME', 'ATI_AGENT_PROVIDER', 'ATI_AGENT_DATA_DIR', 'ATI_AGENT_IMAGE', 'ATI_LOCAL_UID', 'ATI_LOCAL_GID', 'ATI_AGENT_CPUS', 'ATI_AGENT_MEMORY', 'ATI_AGENT_CLOUD_ACCOUNT', 'ATI_AGENT_REVERSE_URL', 'ATI_AGENT_REVERSE_ORIGIN_IP', 'ATI_PRODUCT_GRANT_PUBLIC_KEYS'}:
             continue
         parts = shlex.split(value)
         if len(parts) != 1 or key in result or any(c in parts[0] for c in ('\0', '\n', '\r')):
             raise ValueError('Invalid saved installer configuration: ' + path.name)
         result[key] = parts[0]
     return result
+
+
+def reverse_origin(value):
+    value=value.strip()
+    if not value:return ''
+    try:address=ipaddress.ip_address(value)
+    except ValueError:raise ValueError('Agent reverse origin must be an IP address') from None
+    if address.is_unspecified or address.is_multicast:raise ValueError('Invalid Agent reverse origin IP')
+    return str(address)
 
 
 def environment(root, requested=''):
@@ -387,7 +397,10 @@ def install(root, non_interactive=False, no_connect=False, provider=None, cloud_
         peer=urlsplit(reverse)
         if peer.scheme!='wss' or not peer.hostname or peer.username or peer.password or peer.query or peer.fragment:
             raise ValueError('Agent reverse connection requires an explicit WSS backend URL')
-    settings.update(ATI_PRODUCT_GRANT_PUBLIC_KEYS=json.dumps(keys,separators=(',',':')),ATI_AGENT_REVERSE_URL=reverse)
+    origin=reverse_origin(os.environ.get('ATI_AGENT_REVERSE_ORIGIN_IP',prior.get('ATI_AGENT_REVERSE_ORIGIN_IP','')))
+    if origin and not reverse:raise ValueError('Origin routing requires a WSS backend URL')
+    settings.update(ATI_PRODUCT_GRANT_PUBLIC_KEYS=json.dumps(keys,separators=(',',':')),ATI_AGENT_REVERSE_URL=reverse,
+                    ATI_AGENT_REVERSE_ORIGIN_IP=origin)
     data.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not no_connect:
         state = account_environment(root, settings)
