@@ -319,7 +319,7 @@ async def interactive_agent(connector,*,inference=None):
         result=json.loads(os.environ.get('ATI_PRODUCT_GRANT_PUBLIC_KEYS') or '{}')
         if not isinstance(result,dict) or not result:raise ValueError('AGENT_PRODUCT_TRUST_UNCONFIGURED')
         return result
-    server=None;reverse_task=None;channel=None;handlers=set()
+    server=None;reverse_task=None;passive_task=None;channel=None;handlers=set()
     try:
         await runtime.start()
         channel=SessionChannel(runtime,certificate,keys,inference=inference)
@@ -337,13 +337,20 @@ async def interactive_agent(connector,*,inference=None):
                 finally:handlers.discard(task)
             server=await asyncio.start_unix_server(handle,path=path,limit=512001)
             socket_path.chmod(0o660)
-        if reverse:reverse_task=asyncio.create_task(reverse_channel(channel,reverse))
+        if reverse:
+            from worker_orchestrator.agent_passive_http import PassiveHttpWorker,inference_url
+            if inference is not None:
+                worker=PassiveHttpWorker(inference_url(reverse),provider(),journal,certificate,inference)
+                passive_task=asyncio.create_task(worker.run())
+            reverse_task=asyncio.create_task(reverse_channel(channel,reverse))
         yield
     finally:
         if server:
             server.close();await server.wait_closed();Path(path).unlink(missing_ok=True)
         if reverse_task:
             reverse_task.cancel();await asyncio.gather(reverse_task,return_exceptions=True)
+        if passive_task:
+            passive_task.cancel();await asyncio.gather(passive_task,return_exceptions=True)
         for task in tuple(handlers):task.cancel()
         await asyncio.gather(*handlers,return_exceptions=True)
         await runtime.close()

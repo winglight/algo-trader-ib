@@ -21,9 +21,8 @@ Maintainers rebuild from clean, reviewed native sources with
 `python3 scripts/build_agent_client.py --source ../ati-worker-orchestrator --output agent-runtime`.
 Review every source file in the explicit inventory before publishing a new client.
 
-For an operator-verified origin behind an unreliable WebSocket proxy, set
-`ATI_AGENT_REVERSE_ORIGIN_IP` when running the Agent installer or upgrade.
-This changes only the TCP destination: the original WSS URL, HTTP Host, TLS
-hostname/certificate verification, device proof and product grants stay in use.
-The installer retains this setting in `.agent.env`; an explicitly empty value
-restores normal DNS routing. No insecure TLS fallback is provided.
+Copilot tools-off inference uses nonce-authenticated HTTPS claim/result
+exchanges. The Agent journals each request and its completed result before
+returning it. A lost response or delivery acknowledgement is recovered with the
+same request ID; it never starts a second model execution. Native interactive
+sessions keep their separate transport and are not required for a Copilot answer.

@@ -18,17 +18,6 @@ import agent_installation as agent
 from agent_container import local_agent_socket
 
 
-def test_origin_routing_persists_only_valid_ip_without_changing_wss_host(tmp_path):
-    config=tmp_path/'.agent.env'
-    config.write_text('ATI_AGENT_REVERSE_URL=wss://trading.example/api/agent/connect\nATI_AGENT_REVERSE_ORIGIN_IP=192.0.2.10\n')
-    saved=agent.saved(config)
-    assert saved['ATI_AGENT_REVERSE_URL']=='wss://trading.example/api/agent/connect'
-    assert agent.reverse_origin(saved['ATI_AGENT_REVERSE_ORIGIN_IP'])=='192.0.2.10'
-    assert agent.reverse_origin('')==''
-    for invalid in ('https://other.example','0.0.0.0','224.0.0.1'):
-        with pytest.raises(ValueError):agent.reverse_origin(invalid)
-
-
 @pytest.mark.parametrize('provider',['codex','claude'])
 def test_container_install_imports_only_native_auth_and_never_runs_a_host_cli(tmp_path,monkeypatch,provider):
     monkeypatch.setenv('HOME',str(tmp_path/'home'))
@@ -366,7 +355,7 @@ def test_bundled_client_has_only_reviewed_native_sources_and_verified_hashes(tmp
     wheel=Path(agent.agent_package(ROOT))
     with zipfile.ZipFile(wheel) as archive:
         source_names={name for name in archive.namelist() if name.endswith('.py')}
-        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py','worker_orchestrator/claude_agent_adapter.py','worker_orchestrator/local_task_process.py','worker_orchestrator/codex_session.py','worker_orchestrator/agent_sessions.py','worker_orchestrator/agent_session_store.py','worker_orchestrator/agent_tasks.py','worker_orchestrator/agent_session_channel.py','worker_orchestrator/claude_sessions.py'}
+        assert source_names=={'worker_orchestrator/__init__.py','worker_orchestrator/local_connector.py','worker_orchestrator/codex_agent_adapter.py','worker_orchestrator/claude_agent_adapter.py','worker_orchestrator/local_task_process.py','worker_orchestrator/codex_session.py','worker_orchestrator/agent_sessions.py','worker_orchestrator/agent_session_store.py','worker_orchestrator/agent_tasks.py','worker_orchestrator/agent_session_channel.py','worker_orchestrator/agent_passive_http.py','worker_orchestrator/claude_sessions.py'}
         for source in manifest['sources']:
             name=source['path'].removeprefix('src/')
             assert hashlib.sha256(archive.read(name)).hexdigest()==source['sha256']
