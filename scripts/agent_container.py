@@ -5,6 +5,7 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 import importlib
 import json
+import logging
 import os
 from pathlib import Path
 import signal
@@ -95,18 +96,38 @@ async def local_inference(adapter, request):
     # Use the same non-interactive sandboxed CLI adapter as Studio.
     packet = {'prompt': 'Respond to the local AI request below.',
               'variables': {'messages': request['messages']}}
+    passive_codex = adapter == 'worker_orchestrator.codex_agent_adapter'
+    if passive_codex:
+        budget = request['timeout']
+        if 'expiresAt' in request:
+            budget = min(budget, request['expiresAt'] - time.time())
+        if budget <= 1:
+            return {'error': 'LOCAL_AGENT_TIMEOUT'}
+        packet['budget'] = budget - 1
+    def failure(code):
+        logging.getLogger(__name__).warning('Agent passive inference failed id=%s code=%s',
+                                           request.get('id', 'local'), code)
+        return {'error': code}
     with tempfile.TemporaryDirectory(prefix='ati-trading-ai-') as work:
         process = await asyncio.create_subprocess_exec(
-            sys.executable, '-m', adapter, cwd=work, start_new_session=True,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            sys.executable, '-m', adapter, *(['--passive-inference'] if passive_codex else ()),
+            cwd=work, start_new_session=True, stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         try:
             output, _ = await process.communicate(json.dumps(packet, ensure_ascii=False).encode())
             if process.returncode:
-                return {'error': 'LOCAL_AGENT_REQUEST_FAILED'}
+                return failure('LOCAL_AGENT_EXIT_FAILED')
             if len(output) >= 1_000_000:
                 return {'error': 'LOCAL_AGENT_OUTPUT_TOO_LARGE'}
             try:
-                text = json.loads(output)['text']
+                result = json.loads(output)
+                if passive_codex and isinstance(result, dict) and result.get('error') in (
+                    'LOCAL_AGENT_AUTH_FAILED', 'LOCAL_AGENT_RATE_LIMITED', 'LOCAL_AGENT_NETWORK_FAILED',
+                    'LOCAL_AGENT_EXIT_FAILED', 'LOCAL_AGENT_TIMEOUT', 'LOCAL_AGENT_NOT_INSTALLED',
+                    'LOCAL_AGENT_EMPTY_RESPONSE',
+                ):
+                    return failure(result['error'])
+                text = result['text']
             except (ValueError, KeyError, TypeError):
                 return {'error': 'LOCAL_AGENT_INVALID_RESPONSE'}
             return {'text': text} if isinstance(text, str) else {'error': 'LOCAL_AGENT_INVALID_RESPONSE'}
