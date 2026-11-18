@@ -1682,6 +1682,20 @@ CREATE TABLE IF NOT EXISTS option_order_status_fact (
 ALTER TABLE option_order_raw_inbox
     ADD COLUMN IF NOT EXISTS native_identity_evidence JSON NULL,
     ADD COLUMN IF NOT EXISTS native_identity_evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL;
+
+CREATE TABLE IF NOT EXISTS option_external_close_execution (
+    execution_key VARCHAR(68) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    account_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    lot_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL,
+    receipt_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL UNIQUE,
+    financial_sequence BIGINT UNSIGNED NOT NULL,
+    proof JSON NOT NULL,
+    proof_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uq_external_close_sequence (account_key,financial_sequence),
+    CONSTRAINT fk_external_close_lot FOREIGN KEY (lot_id) REFERENCES option_owned_lot(lot_id),
+    CONSTRAINT fk_external_close_raw FOREIGN KEY (receipt_id) REFERENCES option_order_raw_inbox(receipt_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- ATI_OPTIONS_V9_ORDER_INBOX_END
 
 
